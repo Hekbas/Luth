@@ -52,19 +52,10 @@ namespace Luth
             DrawTopBar();
             ImGui::Separator();
 
-            // Handle Global Shortcuts (Delete, F2, Esc)
+            // Hierarchy shortcuts (F2, Esc). Delete is centralized in Editor::ProcessShortcuts
+            // so it also fires from the Scene viewport and acts on the whole selection.
             if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
             {
-                if (ImGui::IsKeyPressed(ImGuiKey_Delete) && m_Selection) {
-                    Entity sel = m_Selection;
-                    m_DeferredActions.push_back([this, sel]() {
-                        if (sel && sel.IsValid()) {
-                            CommandHistory::Execute(std::make_unique<EntityDestroyCommand>(m_Context.get(), sel));
-                            SetSelectedEntity({});
-                        }
-                    });
-                }
-                
                 if (ImGui::IsKeyPressed(ImGuiKey_F2) && m_Selection)
                     RenameEntity(m_Selection);
 
@@ -90,7 +81,9 @@ namespace Luth
             // Main Hierarchy Area
             if (ImGui::BeginChild("EntityList"))
             {
-                // 1. Iterate Root Entities (Ordered)
+                // 1. Iterate Root Entities (Ordered). m_VisibleOrder is rebuilt here in display
+                // order so a deferred shift-range select can resolve the span after the full walk.
+                m_VisibleOrder.clear();
                 for (auto entity : m_Context->GetRootEntities()) {
                     DrawEntityNode(entity);
                 }
@@ -179,6 +172,9 @@ namespace Luth
             return;
         }
 
+        // Record this row in display order (pre-order) for shift-range select.
+        m_VisibleOrder.push_back(entity);
+
         ImGuiTreeNodeFlags flags =
             ImGuiTreeNodeFlags_OpenOnArrow |
             ImGuiTreeNodeFlags_SpanAvailWidth |
@@ -263,7 +259,10 @@ namespace Luth
         // Context Menu (still tied to the tree-node "last item")
         if (ImGui::BeginPopupContextItem())
         {
-            SetSelectedEntity(entity); // Select on right click
+            // Right-clicking a member of a multi-selection keeps that selection (so context-menu
+            // Delete acts on all); right-clicking elsewhere selects just this entity.
+            if (!EditorSelection::IsSelected(entity))
+                SetSelectedEntity(entity);
             DrawContextMenu(entity);   // Pass clicked entity as parent
             ImGui::EndPopup();
         }
@@ -296,12 +295,19 @@ namespace Luth
             bool ctrlHeld  = ImGui::IsKeyDown(ImGuiKey_LeftCtrl)  || ImGui::IsKeyDown(ImGuiKey_RightCtrl);
             bool shiftHeld = ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift);
 
-            if (ctrlHeld)
+            if (ctrlHeld) {
                 EditorSelection::ToggleEntity(entity);
-            else if (shiftHeld)
-                EditorSelection::AddEntity(entity);
-            else
+                m_RangeAnchor = entity;
+            }
+            else if (shiftHeld) {
+                // Deferred: the full visible-row list isn't built until the tree walk finishes.
+                Entity target = entity;
+                m_DeferredActions.push_back([this, target]() { SelectRangeTo(target); });
+            }
+            else {
                 SetSelectedEntity(entity);
+                m_RangeAnchor = entity;
+            }
 
             m_Selection = EditorSelection::GetSelectedEntity();
 
@@ -618,13 +624,9 @@ namespace Luth
 
         if (ImGui::MenuItem("Delete", "Del", false, m_Selection.operator bool()))
         {
-            Entity sel = m_Selection;
-            m_DeferredActions.push_back([this, sel]() {
-                if (sel && sel.IsValid()) {
-                    CommandHistory::Execute(std::make_unique<EntityDestroyCommand>(m_Context.get(), sel));
-                    SetSelectedEntity({});
-                }
-            });
+            // Deferred: deletion runs after the tree walk to avoid mutating the scene mid-iteration.
+            // Routes through the shared helper so it removes the whole selection as one undo.
+            m_DeferredActions.push_back([]() { Editor::DeleteSelectedEntities(); });
         }
     }
 
@@ -632,6 +634,34 @@ namespace Luth
     {
         m_Selection = entity;
         EditorSelection::SelectEntity(entity);
+    }
+
+    void HierarchyPanel::SelectRangeTo(Entity target)
+    {
+        auto indexOf = [&](Entity e) -> int {
+            for (int i = 0; i < (int)m_VisibleOrder.size(); ++i)
+                if (m_VisibleOrder[i] == e) return i;
+            return -1;
+        };
+
+        const int ti = indexOf(target);
+        const int ai = (m_RangeAnchor && m_RangeAnchor.IsValid()) ? indexOf(m_RangeAnchor) : -1;
+        if (ti < 0) return;
+
+        // No usable anchor (first action, or anchor scrolled into a collapsed/filtered subtree):
+        // fall back to a plain single select and seed the anchor here.
+        if (ai < 0) { SetSelectedEntity(target); m_RangeAnchor = target; return; }
+
+        // Replace selection with the inclusive span; add anchor→target so the target ends primary.
+        // Anchor stays put so a subsequent shift-click re-pivots from the same row.
+        EditorSelection::ClearSelection();
+        const int step = (ti >= ai) ? 1 : -1;
+        for (int i = ai; ; i += step) {
+            if (m_VisibleOrder[i].IsValid())
+                EditorSelection::AddEntity(m_VisibleOrder[i]);
+            if (i == ti) break;
+        }
+        m_Selection = EditorSelection::GetSelectedEntity();
     }
 
     void HierarchyPanel::RenameEntity(Entity entity)

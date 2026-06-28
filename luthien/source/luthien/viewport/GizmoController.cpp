@@ -3,6 +3,7 @@
 
 #include "luthien/CommandHistory.h"
 #include "luthien/commands/Commands.h"
+#include "luthien/EditorSelection.h"
 #include "luth/scene/Components.h"
 
 #include <ImGuizmo.h>
@@ -20,7 +21,7 @@ namespace Luth
     void GizmoController::DrawManipulator(const Mat4& view, const Mat4& proj,
                                           const ImVec2* bounds, const Vec2& size,
                                           Entity& selected, Scene* scene,
-                                          bool isFocused, bool cameraFlying)
+                                          bool acceptsShortcuts, bool cameraFlying)
     {
         if (!selected || !selected.IsValid()) return;
 
@@ -50,52 +51,113 @@ namespace Luth
 
             float snapValues[3] = { snapValue, snapValue, snapValue };
 
+            Mat4 oldWorld = worldMatrix;   // pre-manipulation, for the world-space delta below
             ImGuizmo::Manipulate(Math::ValuePtr(view), Math::ValuePtr(proj),
                 (ImGuizmo::OPERATION)m_Operation, ImGuizmo::LOCAL, Math::ValuePtr(worldMatrix),
                 nullptr, snap ? snapValues : nullptr);
 
             bool isUsing = ImGuizmo::IsUsing();
 
-            // Capture transform at drag start
+            const auto& selection = EditorSelection::GetSelectedEntities();
+            const bool multi = selection.size() > 1;
+
+            // Capture transform(s) at drag start
             if (isUsing && !m_WasUsing) {
                 m_StartPos   = tc.Position;
                 m_StartRot   = tc.Rotation;
                 m_StartScale = tc.Scale;
+
+                // Multi-select: snapshot the root-filtered selection's start TRS so the group moves
+                // rigidly and undoes as one step. A selected entity whose ancestor is also selected
+                // is skipped — it follows its parent through the hierarchy (no double transform).
+                m_DragStarts.clear();
+                if (multi) {
+                    for (Entity e : selection) {
+                        if (!e.IsValid()) continue;
+                        bool hasSelectedAncestor = false;
+                        for (Entity other : selection)
+                            if (other.IsValid() && other != e && e.IsDescendantOf(other)) { hasSelectedAncestor = true; break; }
+                        if (hasSelectedAncestor) continue;
+                        auto& etc = e.GetComponent<Transform>();
+                        m_DragStarts.push_back({ e, etc.Position, etc.Rotation, etc.Scale });
+                    }
+                }
             }
 
             if (isUsing)
             {
-                // Convert back to Local Space
-                Mat4 localMatrix = worldMatrix;
-                if (selected.HasParent())
+                if (multi && !m_DragStarts.empty())
                 {
-                    Entity parent = selected.GetParent();
-                    Mat4 parentWorld = parent.GetComponent<WorldTransform>().Matrix;
-                    localMatrix = Math::Inverse(parentWorld) * worldMatrix;
+                    // Apply the gizmo's world-space delta to every group member, so they translate
+                    // together and rotate/scale about the active (primary) pivot.
+                    Mat4 deltaWorld = worldMatrix * Math::Inverse(oldWorld);
+                    for (auto& s : m_DragStarts) {
+                        Entity e = s.entity;
+                        if (!e.IsValid()) continue;
+                        Mat4 newWorld = deltaWorld * e.GetComponent<WorldTransform>().Matrix;
+                        Mat4 localMatrix = newWorld;
+                        if (e.HasParent())
+                            localMatrix = Math::Inverse(e.GetParent().GetComponent<WorldTransform>().Matrix) * newWorld;
+
+                        float t[3], r[3], sc[3];
+                        ImGuizmo::DecomposeMatrixToComponents(Math::ValuePtr(localMatrix), t, r, sc);
+                        auto& etc = e.GetComponent<Transform>();
+                        etc.Position = Math::MakeVec3(t);
+                        etc.Rotation = Math::MakeVec3(r);
+                        etc.Scale    = Math::MakeVec3(sc);
+                        etc.IsDirty  = true;
+                    }
                 }
+                else
+                {
+                    // Single-object: write the manipulated matrix straight back (exact).
+                    Mat4 localMatrix = worldMatrix;
+                    if (selected.HasParent())
+                    {
+                        Entity parent = selected.GetParent();
+                        Mat4 parentWorld = parent.GetComponent<WorldTransform>().Matrix;
+                        localMatrix = Math::Inverse(parentWorld) * worldMatrix;
+                    }
 
-                float translation[3], rotation[3], scale[3];
-                ImGuizmo::DecomposeMatrixToComponents(Math::ValuePtr(localMatrix), translation, rotation, scale);
+                    float translation[3], rotation[3], scale[3];
+                    ImGuizmo::DecomposeMatrixToComponents(Math::ValuePtr(localMatrix), translation, rotation, scale);
 
-                tc.Position = Math::MakeVec3(translation);
-                tc.Rotation = Math::MakeVec3(rotation);
-                tc.Scale = Math::MakeVec3(scale);
-                tc.IsDirty = true;
+                    tc.Position = Math::MakeVec3(translation);
+                    tc.Rotation = Math::MakeVec3(rotation);
+                    tc.Scale = Math::MakeVec3(scale);
+                    tc.IsDirty = true;
+                }
             }
 
-            // Push command at drag end
+            // Push command(s) at drag end
             if (!isUsing && m_WasUsing) {
-                CommandHistory::Execute(std::make_unique<GizmoTransformCommand>(
-                    scene, (entt::entity)selected,
-                    m_StartPos, m_StartRot, m_StartScale,
-                    tc.Position, tc.Rotation, tc.Scale));
+                if (m_DragStarts.size() > 1) {
+                    CommandHistory::BeginCompound("Transform Entities");
+                    for (auto& s : m_DragStarts) {
+                        Entity e = s.entity;
+                        if (!e.IsValid()) continue;
+                        auto& etc = e.GetComponent<Transform>();
+                        CommandHistory::Execute(std::make_unique<GizmoTransformCommand>(
+                            scene, (entt::entity)e,
+                            s.pos, s.rot, s.scale,
+                            etc.Position, etc.Rotation, etc.Scale));
+                    }
+                    CommandHistory::EndCompound();
+                } else {
+                    CommandHistory::Execute(std::make_unique<GizmoTransformCommand>(
+                        scene, (entt::entity)selected,
+                        m_StartPos, m_StartRot, m_StartScale,
+                        tc.Position, tc.Rotation, tc.Scale));
+                }
+                m_DragStarts.clear();
             }
 
             m_WasUsing = isUsing;
         }
 
-        // Gizmo Shortcuts
-        if (isFocused && !ImGuizmo::IsUsing() && !cameraFlying)
+        // Gizmo Shortcuts — armed on viewport hover. !WantTextInput so typing a letter that
+        // happens to be W/E/R/Q in another panel doesn't flip the tool while the viewport is hovered.
+        if (acceptsShortcuts && !ImGuizmo::IsUsing() && !cameraFlying && !ImGui::GetIO().WantTextInput)
         {
             if (ImGui::IsKeyPressed(ImGuiKey_Q))
                 m_Operation = -1;

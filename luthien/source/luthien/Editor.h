@@ -166,6 +166,11 @@ namespace Luth
         // s_IsDirty via the hierarchy-version delta check.
         static void ResetDirtyState(bool dirty = false);
 
+        // Deletes the whole current EditorSelection as one undoable step. Shared by the
+        // Hierarchy and Scene-viewport Delete shortcuts (routed via ProcessShortcuts) and
+        // the Hierarchy context menu. No-op when the selection is empty.
+        static void DeleteSelectedEntities();
+
         // Project switching
         static void ShowProjectLauncher();
         static void OnProjectChanged();

@@ -8,6 +8,7 @@
 #include "luth/scene/Entity.h"
 #include "luth/scene/systems/RenderingSystem.h"
 
+#include <imgui.h>
 #include <memory>
 
 namespace Luth
@@ -47,6 +48,10 @@ namespace Luth
         // Searchable, categorized debug-view picker (Scene toolbar Debug split dropdown).
         void DrawDebugModePicker();
 
+        // Marquee (rubber-band) select: pick entities whose screen-projected origin lands in the
+        // box. Modifier-aware (Shift adds, Ctrl toggles, neither replaces).
+        void SelectEntitiesInRect(const ImVec2& a, const ImVec2& b);
+
         std::shared_ptr<Scene> m_Context;
         RenderingSystem* m_RenderingSystem = nullptr;
         EditorCamera m_EditorCamera;
@@ -57,5 +62,10 @@ namespace Luth
         Entity m_SelectedEntity;
         bool m_ShowControlsOverlay = true;
         char m_DebugModeFilter[64] = {};   // persists the debug-picker search across popup reopens
+
+        // Marquee state. Pick resolves on LMB release: no-drag → point pick, drag → rubber-band.
+        bool   m_MarqueePending = false;   // LMB pressed in empty viewport space, gesture open
+        bool   m_MarqueeActive  = false;   // drag passed the threshold → it's a box, not a click
+        ImVec2 m_MarqueeStart{};
     };
 }

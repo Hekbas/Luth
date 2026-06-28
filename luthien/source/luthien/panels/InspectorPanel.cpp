@@ -5,6 +5,7 @@
 #include "luthien/widgets/Widgets.h"
 #include "luthien/commands/Commands.h"
 #include "luthien/CommandHistory.h"
+#include "luthien/MultiEdit.h"
 #include "luth/scene/Components.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
@@ -69,6 +70,19 @@ namespace Luth
 
     void InspectorPanel::DrawEntityComponents(Entity m_SelectedEntity)
     {
+        // Multi-edit target set: the other selected entities (empty when single-select or locked).
+        // While the drawer loop runs under MultiEditScope, per-member edits + Reset/Remove on the
+        // primary fan out to these as one undo. Locked inspector pins to one entity → no broadcast.
+        std::vector<UUID> targets;
+        if (!m_IsLocked) {
+            const auto& selection = EditorSelection::GetSelectedEntities();
+            if (selection.size() > 1)
+                for (Entity e : selection)
+                    if (e.IsValid() && e != m_SelectedEntity)
+                        targets.push_back(e.GetComponent<ID>().Value);
+        }
+        const bool multi = !targets.empty();
+
         // Display and edit the entity's Tag component (name)
         if (m_SelectedEntity.HasComponent<Tag>()) {
             auto& tag = m_SelectedEntity.GetComponent<Tag>();
@@ -78,8 +92,19 @@ namespace Luth
 
             bool isActive = m_SelectedEntity.IsActive();
             if (ImGui::Checkbox("##Active", &isActive)) {
-                CommandHistory::Execute(std::make_unique<EntityActiveCommand>(
-                    m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity, !isActive, isActive));
+                if (multi) {
+                    // Set the whole selection to the new state; each entity keeps its own prior
+                    // value for undo.
+                    CommandHistory::BeginCompound("Toggle Active");
+                    for (Entity e : EditorSelection::GetSelectedEntities())
+                        if (e.IsValid())
+                            CommandHistory::Execute(std::make_unique<EntityActiveCommand>(
+                                e.GetScene(), (entt::entity)e, e.IsActive(), isActive));
+                    CommandHistory::EndCompound();
+                } else {
+                    CommandHistory::Execute(std::make_unique<EntityActiveCommand>(
+                        m_SelectedEntity.GetScene(), (entt::entity)m_SelectedEntity, !isActive, isActive));
+                }
             }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Toggle Entity Active State");
@@ -119,20 +144,39 @@ namespace Luth
             ImGui::EndGroup();
             ImGui::Dummy({ 0, 4 });
         }
+
+        if (multi) {
+            ImGui::TextDisabled("%u entities selected \xe2\x80\x94 editing all", (unsigned)EditorSelection::GetSelectionCount());
+            ImGui::Dummy({ 0, 4 });
+        }
+
         m_ActiveMaterialUUID = UUID::Invalid();
-        for (const auto& d : ComponentDrawerRegistry::GetDrawers())
-            d.Draw(m_SelectedEntity);
+        {
+            // Broadcast scope: per-member edits + Reset/Remove built by the drawers fan out to the
+            // rest of the selection. RAII-cleared so the context never leaks past the loop.
+            MultiEditScope scope(targets);
+            for (const auto& d : ComponentDrawerRegistry::GetDrawers())
+                d.Draw(m_SelectedEntity);
+        }
 
         // Add Component button
         ImGui::Separator();
         ImGui::Dummy({ 0, 4 });
         AlignItemToCenter(100);
-        ButtonDropdown("Add Component", "inspector_addcomponent", [&m_SelectedEntity]() {
+        ButtonDropdown("Add Component", "inspector_addcomponent", [&]() {
             for (const auto& d : ComponentDrawerRegistry::GetDrawers()) {
                 if (!d.ShowInAddMenu) continue;
                 if (!d.CanAdd(m_SelectedEntity)) continue;
                 if (ImGui::MenuItem(d.Name.c_str())) {
-                    d.OnAdd(m_SelectedEntity);
+                    if (multi) {
+                        // Add to every selected entity that doesn't already have it, one undo.
+                        CommandHistory::BeginCompound("Add Component");
+                        for (Entity e : EditorSelection::GetSelectedEntities())
+                            if (e.IsValid() && d.CanAdd(e)) d.OnAdd(e);
+                        CommandHistory::EndCompound();
+                    } else {
+                        d.OnAdd(m_SelectedEntity);
+                    }
                     ImGui::CloseCurrentPopup();
                 }
             }

@@ -83,7 +83,6 @@ namespace Luth
     {
         s_SelectedEntities.clear();
         s_SelectedResource = {};
-        s_LastRawPick = {};
         s_Version++;
         PublishSelectionChanged();
     }

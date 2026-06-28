@@ -1,10 +1,14 @@
 #pragma once
 
 #include "luthien/commands/ICommand.h"
+#include "luthien/MultiEdit.h"
 #include "luth/core/UUID.h"
 #include "luth/scene/Scene.h"
 #include "luth/scene/Entity.h"
 #include "luth/scene/Components.h"
+
+#include <utility>
+#include <vector>
 
 namespace Luth
 {
@@ -59,66 +63,101 @@ namespace Luth
     class ComponentRemoveCommand : public ICommand
     {
     public:
-        ComponentRemoveCommand(const char* name, Scene* scene, entt::entity entity)
+        ComponentRemoveCommand(const char* name, Scene* scene, entt::entity entity,
+                               std::vector<UUID> extraTargets = {})
             : m_Name(name), m_Scene(scene)
         {
             Entity e{ entity, scene };
             m_EntityUUID = e.GetComponent<Component::ID>().Value;
+
+            // Multi-edit: remove from the rest of the selection too (those that have T). Add/remove
+            // fire on_construct/on_destroy, so physics rebuild is handled without an explicit patch.
+            if (extraTargets.empty()) extraTargets = MultiEdit::Targets();
+            ForEachExtraTarget<T>(scene, extraTargets, [&](Entity t) {
+                m_TargetSaved.emplace_back(t.GetComponent<Component::ID>().Value, T{});
+            });
         }
 
         void Execute() override {
-            Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
-            if (!e.IsValid()) return;
-            if (e.HasComponent<T>()) {
-                m_SavedValue = e.GetComponent<T>();
-                e.RemoveComponent<T>();
-            }
+            SaveAndRemove(m_Scene->FindEntityByUUID(m_EntityUUID), m_SavedValue);
+            for (auto& [uuid, saved] : m_TargetSaved)
+                SaveAndRemove(m_Scene->FindEntityByUUID(uuid), saved);
         }
         void Undo() override {
-            Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
-            if (!e.IsValid()) return;
-            e.AddOrReplaceComponent<T>(m_SavedValue);
+            Restore(m_Scene->FindEntityByUUID(m_EntityUUID), m_SavedValue);
+            for (auto& [uuid, saved] : m_TargetSaved)
+                Restore(m_Scene->FindEntityByUUID(uuid), saved);
         }
         void Redo() override { Execute(); }
         const char* GetName() const override { return m_Name; }
 
     private:
+        void SaveAndRemove(Entity e, T& saveSlot) {
+            if (!e.IsValid() || !e.HasComponent<T>()) return;
+            saveSlot = e.GetComponent<T>();
+            e.RemoveComponent<T>();
+        }
+        void Restore(Entity e, const T& value) {
+            if (!e.IsValid()) return;
+            e.AddOrReplaceComponent<T>(value);
+        }
+
         const char* m_Name;
         Scene* m_Scene;
         UUID m_EntityUUID;
         T m_SavedValue{};
+        std::vector<std::pair<UUID, T>> m_TargetSaved;
     };
 
     template<typename T>
     class ComponentResetCommand : public ICommand
     {
     public:
-        ComponentResetCommand(const char* name, Scene* scene, entt::entity entity)
+        ComponentResetCommand(const char* name, Scene* scene, entt::entity entity,
+                              std::vector<UUID> extraTargets = {})
             : m_Name(name), m_Scene(scene)
         {
             Entity e{ entity, scene };
             m_EntityUUID = e.GetComponent<Component::ID>().Value;
+
+            // Multi-edit: reset the component on the rest of the selection too.
+            if (extraTargets.empty()) extraTargets = MultiEdit::Targets();
+            ForEachExtraTarget<T>(scene, extraTargets, [&](Entity t) {
+                m_TargetSaved.emplace_back(t.GetComponent<Component::ID>().Value, T{});
+            });
         }
 
         void Execute() override {
-            Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
-            if (!e.IsValid() || !e.HasComponent<T>()) return;
-            m_SavedValue = e.GetComponent<T>();
-            e.GetComponent<T>() = T{};
+            SaveAndReset(m_Scene->FindEntityByUUID(m_EntityUUID), m_SavedValue);
+            for (auto& [uuid, saved] : m_TargetSaved)
+                SaveAndReset(m_Scene->FindEntityByUUID(uuid), saved);
         }
         void Undo() override {
-            Entity e = m_Scene->FindEntityByUUID(m_EntityUUID);
-            if (!e.IsValid() || !e.HasComponent<T>()) return;
-            e.GetComponent<T>() = m_SavedValue;
+            Restore(m_Scene->FindEntityByUUID(m_EntityUUID), m_SavedValue);
+            for (auto& [uuid, saved] : m_TargetSaved)
+                Restore(m_Scene->FindEntityByUUID(uuid), saved);
         }
         void Redo() override { Execute(); }
         const char* GetName() const override { return m_Name; }
 
     private:
+        void SaveAndReset(Entity e, T& saveSlot) {
+            if (!e.IsValid() || !e.HasComponent<T>()) return;
+            saveSlot = e.GetComponent<T>();
+            e.GetComponent<T>() = T{};
+            m_Scene->Registry().patch<T>((entt::entity)e);   // physics rebuild (no-op elsewhere)
+        }
+        void Restore(Entity e, const T& value) {
+            if (!e.IsValid() || !e.HasComponent<T>()) return;
+            e.GetComponent<T>() = value;
+            m_Scene->Registry().patch<T>((entt::entity)e);
+        }
+
         const char* m_Name;
         Scene* m_Scene;
         UUID m_EntityUUID;
         T m_SavedValue{};
+        std::vector<std::pair<UUID, T>> m_TargetSaved;
     };
 
     template<typename T>

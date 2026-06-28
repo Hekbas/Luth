@@ -39,10 +39,6 @@ namespace Luth
         static UUID GetSelectedResource() { return s_SelectedResource; }
         static u32 GetVersion()           { return s_Version; }
 
-        // Raw pick = the entity under the cursor before any drill-down rewiring.
-        static void SetLastRawPick(Entity e) { s_LastRawPick = e; }
-        static Entity GetLastRawPick()       { return s_LastRawPick; }
-
     private:
         // Defined inline so subscribers' header-only paths still resolve. Mutator
         // bodies live in the .cpp where the EditorSignal/EventBus headers can be
@@ -50,7 +46,6 @@ namespace Luth
         friend struct EditorSelectionInternals;
 
         static inline std::vector<Entity> s_SelectedEntities;
-        static inline Entity s_LastRawPick;
         static inline UUID   s_SelectedResource;
         static inline u32    s_Version = 0;
     };

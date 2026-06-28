@@ -8,6 +8,7 @@
 
 #include <nlohmann/json.hpp>
 #include <string>
+#include <vector>
 
 namespace Luth
 {
@@ -76,6 +77,35 @@ namespace Luth
         i32 m_SiblingIndex = -1;
         nlohmann::json m_Snapshot;
         bool m_WasSelected = false;
+    };
+
+    // Batch delete: destroys an arbitrary selected set as one undoable step, restoring both
+    // the subtrees and the exact prior multi-selection. Input is root-filtered (a selected
+    // parent already snapshots its selected child via SerializeEntitySubtree, so the child
+    // must not be handled twice or undo would deserialize it twice).
+    class EntityDestroyMultipleCommand : public ICommand
+    {
+    public:
+        EntityDestroyMultipleCommand(Scene* scene, const std::vector<Entity>& entities);
+        void Execute() override;
+        void Undo() override;
+        void Redo() override;
+        const char* GetName() const override { return m_Name.c_str(); }
+
+        bool IsEmpty() const { return m_Records.empty(); }
+
+    private:
+        struct Record {
+            UUID uuid;
+            UUID parentUUID;
+            i32  siblingIndex = -1;
+            nlohmann::json snapshot;
+        };
+
+        Scene* m_Scene;
+        std::vector<Record> m_Records;        // sorted by sibling index asc (correct reinsert)
+        std::vector<UUID>   m_PriorSelection; // ordered; primary = back()
+        std::string         m_Name;
     };
 
     class EntityRenameCommand : public ICommand
