@@ -63,7 +63,16 @@ namespace Luth
         auto path = FileSystem::EngineAssetsPath("icons/image");
 		SetWindowIcon(m_GLFWwindow, path);
 
-        glfwSetWindowPos(m_GLFWwindow, spec.Width/2, spec.Height/2);
+        // Center on the primary monitor's work area (excludes the taskbar).
+        if (!spec.Fullscreen) {
+            if (GLFWmonitor* primary = glfwGetPrimaryMonitor()) {
+                int mx, my, mw, mh;
+                glfwGetMonitorWorkarea(primary, &mx, &my, &mw, &mh);
+                int ww, wh;
+                glfwGetWindowSize(m_GLFWwindow, &ww, &wh);
+                glfwSetWindowPos(m_GLFWwindow, mx + (mw - ww) / 2, my + (mh - wh) / 2);
+            }
+        }
 
         glfwSetWindowUserPointer(m_GLFWwindow, &m_Data);
 

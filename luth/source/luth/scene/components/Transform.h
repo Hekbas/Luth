@@ -18,5 +18,6 @@ namespace Luth::Component
 
     struct WorldTransform {
         Mat4 Matrix = Mat4(1.0f);
+        bool ActiveInHierarchy = true;  // false if this entity or any ancestor is Disabled
     };
 }

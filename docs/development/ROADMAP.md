@@ -126,6 +126,7 @@
 | v3.4.0 | `profiling-observability` | Comprehensive Tracy coverage (~300 CPU zones to peer density, per-queue GPU zones graphics+async-compute, per-frame plots, event messages) + in-editor GPU pipeline statistics (per-pass overdraw) + render-graph barrier inspector; scheduler advisor deferred to [#163](https://github.com/Hekbas/Luth/issues/163) (touches V1–V6 hot paths, research-first) | 2026-06-20 |
 | v3.5.0 | `engine-optimization` | GPU perf pass on the RT chain: half-res ReSTIR DI/GI/Reflections (trace + denoise at half, shared bilateral upscale, default-off toggles; ~17% GI), DiSpec/GTAO/bloom skip when off, PathTrace gates the realtime pipeline at registration; tracker [#164](https://github.com/Hekbas/Luth/issues/164) stays open | 2026-06-20 |
 | v3.6.0 | `editor-panel-redesign` | Render panel 21 flat headers → 5 pipeline-stage tabs + search (drops Preferences dupes, unifies SVGF, surfaces hidden fields); Profiler rebuilt as a scheduler/memory/GPU dashboard (per-worker time-in-state occupancy, GPU-mem by resource type, EMA-stable per-pass table) on new JobSystem/VMA instrumentation; searchable Scene debug picker + 7 new ShadeModes; new FilterBox/CategoryPopup/Charts widgets (DiReservoir/Overdraw deferred) | 2026-06-21 |
+| v3.6.1 | `editor-qol` | Editor UX papercuts: New Folder auto-renames on create, Project panel refreshes on drag-drop import, single-mesh imports drop the redundant scene-root wrapper entity, Disabled cascades to whole subtrees in render, default window 1600×900 centered on the monitor | 2026-06-28 |
 
 ---
 
