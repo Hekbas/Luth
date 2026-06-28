@@ -34,6 +34,20 @@
 
 > **GPU perf pass + PathTrace gating (`engine-optimization`, v3.5.0).** ReSTIR DI/GI and RT reflections each trace + denoise at **half resolution** behind a default-off `halfResolution` toggle, then a shared `bilateral_upscale.comp` (depth/normal joint-bilateral) resolves back to full. The SVGF chain is scale-aware — it detects half-res from the channel's history-texture extent vs the full denoised image and remaps G-buffer reads via a `gbufferScale` + `dispatchW/H` push constant; the trace shaders carry the matching `GbufCoord`/`SvgfGuide` remap. DiSpecular rides the DI toggle. **Feature/mode gating happens at pass *registration*, not via dead-cull** — this corrects the PT note above ("the raster chain dead-pass-culls" is false): `CullDeadPasses` keeps any pass alive that has attachments **or writes an external (imported) resource**, and every ReSTIR/SVGF/GI/reflections/volumetric pass imports + writes its persistent reservoirs/history/atlases, so the cull can never drop them. So `BuildGraph` skips *registering* the realtime chain when PT is active (`ptEnabled` folds a TLAS-ready check so it implies `ptActive`; a cold boot renders one realtime frame to warm the TLAS); only Deform + cluster/light-assign + TLAS + PathTrace + post run in PT. The same rule gates DiSpec SVGF (on `RestirSettings::specular`) and the GTAO + bloom chains when off — safe with no layout bootstrap because the `VKTexture` ctor leaves un-written color targets in `SHADER_READ_ONLY`, so the consumer binding stays valid and ignores the stale content via its flag (`gtao.enabled`, `bloomStrength`); the bloom add is `bloomStrength`-guarded in `postprocess.frag` for NaN-safety.
 
+> **Bloom pyramid (`bloom-pyramid`).** Post bloom is a Jimenez/CoD-AW progressive down/upsample pyramid
+> (`PostProcessSubsystem`, compute Slang on the graphics queue, between TAA and composite). A prefilter
+> (`bloom_downsample.slang` with a push-constant flag) writes mip0 at half-res with a soft-knee threshold +
+> Karis partial-average (kills fireflies at the brightest source); 5 plain 13-tap downsamples build
+> `bloomMip[1..5]`; 5 tent upsamples (`bloom_upsample.slang`, scatter-radius scaled) additively accumulate
+> back down into mip0, which the composite samples × `bloomStrength`. Mips are per-view RGBA16F
+> STORAGE+SAMPLED (`ViewResources::bloomMip[6]`); each is imported once and its RG handle threaded through
+> the chain — re-importing would alias a node onto divergent state (the RG hazard above). The additive
+> upsample is an in-place RMW, so it declares `ReadStorageImageGeneral` + `WriteStorageImage` on the dest
+> (the PathTrace `ptAccum` barrier pattern) — `WriteStorageImage` alone leaves the `imageLoad` of the
+> downsample content un-synchronized. The `bloomStrength==0` skip is safe with no bootstrap clear: the
+> `VKTexture` ctor leaves un-written mips in `SHADER_READ_ONLY`, so the composite binding stays valid.
+> Threshold/strength preserved; radius/scatter is a new knob (RenderPanel).
+
 > **Subsystem ownership (`render-pipeline-subsystems`).** Each Vulkan descriptor Set's full lifecycle (layout + pool + per-view set + binding writes + per-frame upload) lives in one subsystem under `luth/source/luth/renderer/subsystems/`:
 >
 > | Set / domain | Subsystem |
@@ -86,7 +100,8 @@ TaaResolvePass (Karis14 YCoCg-clip — reads HDR sceneColor + slim G-buffer moti
   ↓
 GridPass (optional, editor-only overlay — writes on TAA output in-place)
   ↓
-BloomExtractPass → BloomBlurH/V (separable 9-tap Gaussian, half-res; reads TAA-resolved color so bloom blooms anti-aliased HDR)
+BloomPrefilter → BloomDown×5 → BloomUp×5 (compute pyramid; Karis/CoD 13-tap downsample + tent upsample,
+  6 RGBA16F mips, additive accumulation; reads TAA-resolved color so bloom blooms anti-aliased HDR)
   ↓
 PostProcessPass (tonemap [ACES / Uncharted 2 / AgX / AgX Punchy] + bloom compose + vignette + grain + CA → LDR)
   ↓
@@ -144,7 +159,7 @@ SelectionMaskPass (entity-ID → mask for outline)
   ↓
 TaaResolvePass (Karis14 — reads motion vectors from slim G-buffer, reads history)
   ↓
-BloomExtractPass → BloomBlurH/V (separable 9-tap, half-res)
+Bloom pyramid (compute down/upsample, Karis/CoD; mip-chain additive accumulation)
   ↓
 PostProcessPass (tonemap [ACES variant / AgX] + bloom compose + vignette + grain + CA → LDR)
   ↓
@@ -245,6 +260,7 @@ VRAM and multiply by active view count (Scene + Game panels).
 | HDR sceneColor | RGBA16F ≈ 16.6 MB |
 | Volumetric froxel volume | 160×90×128 RGBA16F ≈ 14 MB/atlas, per view |
 | TAA history | RGBA16F A/B ping-pong, per view ≈ 33 MB |
+| Bloom pyramid | 6 RGBA16F mips from half-res (1 + ¼ + …) ≈ 5.5 MB, per view (< old bloomA/B 2-buffer) |
 | OIT (PPLL) | heads R32U 8.3 MB + node pool ≈ 133 MB at `avgLayersBudget` 4, per view |
 | ReSTIR DI/GI reservoirs | device-local Garlic ping-pong + spatial (GI reservoir 64 B/px), per view |
 | SVGF history | color/moments/geom + à-trous ping-pong RGBA16F, ×2 channels (DI+GI), per view |
