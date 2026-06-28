@@ -15,6 +15,7 @@
 #include "luth/platform/FileDialog.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/scene/Components.h"
+#include "luth/scene/Scene.h"
 #include "luth/scene/systems/PickingSystem.h"
 #include "luth/scene/systems/SystemRegistry.h"
 #include "luth/renderer/Renderer.h"
@@ -52,6 +53,41 @@ namespace Luth
     void ScenePanel::OnInit()
     {
         m_SelectedEntity = EditorSelection::GetSelectedEntity();
+    }
+
+    void ScenePanel::SelectEntitiesInRect(const ImVec2& a, const ImVec2& b)
+    {
+        if (!m_Context) return;
+
+        const float minX = std::min(a.x, b.x), maxX = std::max(a.x, b.x);
+        const float minY = std::min(a.y, b.y), maxY = std::max(a.y, b.y);
+
+        const bool ctrl  = ImGui::IsKeyDown(ImGuiKey_LeftCtrl)  || ImGui::IsKeyDown(ImGuiKey_RightCtrl);
+        const bool shift = ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift);
+        if (!ctrl && !shift) EditorSelection::ClearSelection();   // plain drag replaces
+
+        const Mat4 viewProj  = m_EditorCamera.GetViewProjection();
+        const ImVec2* bounds = m_Viewport->GetBounds();
+        const Vec2 size      = m_Viewport->GetSize();
+
+        // Origin-based: an entity is in the box if its world-space pivot projects inside it. Same
+        // projection as ViewportOverlays::ProjectToScreen so it matches the on-screen gizmo icons.
+        auto view = m_Context->Registry().view<WorldTransform>();
+        for (auto handle : view) {
+            Entity ent(handle, m_Context.get());
+            if (!ent.IsValid()) continue;
+
+            Vec3 worldPos = Vec3(ent.GetComponent<WorldTransform>().Matrix[3]);
+            Vec4 clip = viewProj * Vec4(worldPos, 1.0f);
+            if (clip.w <= 0.001f) continue;   // behind the camera
+            Vec3 ndc = Vec3(clip) / clip.w;
+            float sx = bounds[0].x + (ndc.x * 0.5f + 0.5f) * size.x;
+            float sy = bounds[0].y + (-ndc.y * 0.5f + 0.5f) * size.y;
+            if (sx < minX || sx > maxX || sy < minY || sy > maxY) continue;
+
+            if (ctrl) EditorSelection::ToggleEntity(ent);
+            else      EditorSelection::AddEntity(ent);
+        }
     }
 
     void ScenePanel::OnGather(EditorSnapshotBuilder& builder)
@@ -430,18 +466,53 @@ namespace Luth
                 }
             }
 
-            // Mouse picking â LMB click in viewport (not on gizmo or icon)
-            if (m_Viewport->IsHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGuizmo::IsOver()
-                && !m_Gizmo->WasIconClicked()
-                && !ImGui::IsKeyDown(ImGuiKey_LeftAlt) && !ImGui::IsKeyDown(ImGuiKey_RightAlt))
+            // Plain LMB (no Alt, not over gizmo/icon): a click point-picks, a drag rubber-band-selects.
+            // Resolved on RELEASE so a click and a drag are told apart.
+            const bool altHeld = ImGui::IsKeyDown(ImGuiKey_LeftAlt) || ImGui::IsKeyDown(ImGuiKey_RightAlt);
+            if (m_Viewport->IsHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
+                && !ImGuizmo::IsOver() && !m_Gizmo->WasIconClicked() && !altHeld)
             {
-                auto [mx, my] = ImGui::GetMousePos();
-                int px = (int)(mx - m_Viewport->GetBounds()[0].x);
-                int py = (int)(my - m_Viewport->GetBounds()[0].y);
-                // Ensure click is inside viewport
-                if (px >= 0 && px < m_Viewport->GetSize().x && py >= 0 && py < m_Viewport->GetSize().y)
-                    if (auto* ps = SystemRegistry::GetSystem<PickingSystem>())
-                        ps->RequestPick(px, py);
+                m_MarqueePending = true;
+                m_MarqueeActive  = false;
+                m_MarqueeStart   = ImGui::GetMousePos();
+            }
+
+            if (m_MarqueePending && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+            {
+                ImVec2 m = ImGui::GetMousePos();
+                float dx = m.x - m_MarqueeStart.x; dx = dx < 0 ? -dx : dx;
+                float dy = m.y - m_MarqueeStart.y; dy = dy < 0 ? -dy : dy;
+                if (dx > 4.0f || dy > 4.0f) m_MarqueeActive = true;
+            }
+
+            if (m_MarqueePending && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+            {
+                if (m_MarqueeActive)
+                {
+                    SelectEntitiesInRect(m_MarqueeStart, ImGui::GetMousePos());
+                }
+                else
+                {
+                    // Click (no drag) -> point pick at the press position.
+                    int px = (int)(m_MarqueeStart.x - m_Viewport->GetBounds()[0].x);
+                    int py = (int)(m_MarqueeStart.y - m_Viewport->GetBounds()[0].y);
+                    if (px >= 0 && px < m_Viewport->GetSize().x && py >= 0 && py < m_Viewport->GetSize().y)
+                        if (auto* ps = SystemRegistry::GetSystem<PickingSystem>())
+                            ps->RequestPick(px, py);
+                }
+                m_MarqueePending = false;
+                m_MarqueeActive  = false;
+            }
+
+            // Rubber-band rect while dragging.
+            if (m_MarqueeActive)
+            {
+                ImVec2 a = m_MarqueeStart, b = ImGui::GetMousePos();
+                ImVec2 mn(std::min(a.x, b.x), std::min(a.y, b.y));
+                ImVec2 mx(std::max(a.x, b.x), std::max(a.y, b.y));
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                dl->AddRectFilled(mn, mx, IM_COL32(80, 140, 255, 40));
+                dl->AddRect(mn, mx, IM_COL32(80, 140, 255, 200));
             }
 
             // Consume pick result â hierarchy-aware + multi-select

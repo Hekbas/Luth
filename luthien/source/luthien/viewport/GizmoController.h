@@ -5,6 +5,7 @@
 
 #include <imgui.h>
 #include <entt/entt.hpp>
+#include <vector>
 
 namespace Luth
 {
@@ -52,6 +53,12 @@ namespace Luth
         Vec3 m_StartPos{};
         Vec3 m_StartRot{};
         Vec3 m_StartScale{};
+
+        // Multi-select drag: root-filtered selection + each entity's start TRS, captured on drag
+        // start. The gizmo's per-frame world-space delta is applied to all of them (pivot = the
+        // active/primary entity); committed as one compound undo at drag end.
+        struct GizmoDragStart { Entity entity; Vec3 pos, rot, scale; };
+        std::vector<GizmoDragStart> m_DragStarts;
 
         // Icon click wins over pick result when both fire in the same frame.
         bool         m_IconClicked = false;
