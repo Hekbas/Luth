@@ -234,8 +234,8 @@ namespace Luth
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> rtShadowPassDescSet{};
 
         // ReSTIR DI (Bitterli 2020). restirReservoir[2] is a ping-pong pair of Garlic device-local
-        // large-tagged buffers (w*h*32 B each) reused across frames — freed only on resize via
-        // FreeTag. Tags stay in NextReservoirTag's reserved high range, disjoint from the per-frame
+        // large-tagged buffers (w*h*32 B each) reused across frames — destroyed on resize via
+        // FreeTagAndDestroy. Tags stay in NextReservoirTag's reserved high range, disjoint from the per-frame
         // FreeTag(N-2) sweep. Temporal reuse reads last frame's reservoir (prev) while writing this
         // frame's (curr); parity = frameAbs & 1u picks which slot is curr — Set 2 b2/b4 rebound
         // per frame to swap. restirDI is viewport-sized rgba16f STORAGE+SAMPLED (demodulated diffuse

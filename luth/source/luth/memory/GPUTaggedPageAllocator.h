@@ -84,6 +84,12 @@ namespace Luth::Memory
         // after the GPU N-2 timeline wait (V6 — see arch/fiber-system.md).
         void FreeTag(u32 tag);
 
+        // Like FreeTag, but DESTROYS matching large-one-shot buffers (deferred N+2 via PushDeletion)
+        // instead of recycling them. For persistent reserved-tag Garlic buffers whose capacity
+        // changes on resize — recycling always misses exact-capacity reuse and orphans the old
+        // size until Shutdown. see arch/memory.md
+        void FreeTagAndDestroy(u32 tag);
+
         struct Stats
         {
             u32 BackingBuffers   = 0;

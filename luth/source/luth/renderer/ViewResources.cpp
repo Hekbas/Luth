@@ -438,14 +438,15 @@ namespace Luth
         vr.svgfDiSpecHalf = std::make_shared<VKTexture>(diW, diH, TextureFormat::RGBA16F, 1, 0u, 1, VK_IMAGE_USAGE_STORAGE_BIT);
 
         // ReSTIR reservoir ping-pong pair — Garlic device-local large-tagged, reused across frames.
-        // Freed via FreeTag only on resize; the tags stay in the reserved high range so the per-frame
-        // FreeTag(N-2) sweep never touches them. Two distinct tags so temporal reuse can read last
-        // frame's reservoir (prev) while writing this frame's (curr). Re-allocate here — sized w*h.
+        // Destroyed via FreeTagAndDestroy on resize (deferred N+2; resize-sized, so recycling would
+        // orphan the old size). The tags stay in the reserved high range so the per-frame FreeTag(N-2)
+        // sweep never touches them. Two distinct tags so temporal reuse can read last frame's reservoir
+        // (prev) while writing this frame's (curr). Re-allocate here — sized w*h.
         for (u32 i = 0; i < 2; ++i)
         {
             if (vr.restirReservoirTag[i] != 0)
             {
-                Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirReservoirTag[i]);
+                Memory::GPUTaggedPageAllocator::Get().FreeTagAndDestroy(vr.restirReservoirTag[i]);
                 vr.restirReservoir[i] = {};
             }
             vr.restirReservoirTag[i] = m_Restir.NextReservoirTag();
@@ -458,7 +459,7 @@ namespace Luth
         // consumed each frame, so no cross-frame history — one reserved tag, freed on resize/destroy.
         if (vr.restirSpatialTag != 0)
         {
-            Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirSpatialTag);
+            Memory::GPUTaggedPageAllocator::Get().FreeTagAndDestroy(vr.restirSpatialTag);
             vr.restirSpatial = {};
         }
         vr.restirSpatialTag = m_Restir.NextReservoirTag();
@@ -471,7 +472,7 @@ namespace Luth
         {
             if (vr.restirGiReservoirTag[i] != 0)
             {
-                Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirGiReservoirTag[i]);
+                Memory::GPUTaggedPageAllocator::Get().FreeTagAndDestroy(vr.restirGiReservoirTag[i]);
                 vr.restirGiReservoir[i] = {};
             }
             vr.restirGiReservoirTag[i] = m_RestirGi.NextReservoirTag();
@@ -482,7 +483,7 @@ namespace Luth
         // ReSTIR GI spatial-reuse output — single device-local buffer (no ping-pong), 64 B/pixel.
         if (vr.restirGiSpatialTag != 0)
         {
-            Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirGiSpatialTag);
+            Memory::GPUTaggedPageAllocator::Get().FreeTagAndDestroy(vr.restirGiSpatialTag);
             vr.restirGiSpatial = {};
         }
         vr.restirGiSpatialTag = m_RestirGi.NextReservoirTag();
@@ -500,7 +501,7 @@ namespace Luth
         // with a reserved tag (reservoir lifecycle: freed only here on realloc, or on view release).
         if (vr.oitNodesTag != 0)
         {
-            Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.oitNodesTag);
+            Memory::GPUTaggedPageAllocator::Get().FreeTagAndDestroy(vr.oitNodesTag);
             vr.oitNodes = {};
         }
         const u32 oitBudget = m_System.GetTransparencySettings().avgLayersBudget;
@@ -706,45 +707,45 @@ namespace Luth
         vr.svgfDiSpecAtrous[1].reset();
         vr.oitHeads.reset();
 
-        // OIT node-pool reserved tag — same recycle path as the reservoir tags below.
+        // OIT node-pool reserved tag — same deferred-destroy path as the reservoir tags below.
         if (vr.oitNodesTag != 0)
         {
-            Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.oitNodesTag);
+            Memory::GPUTaggedPageAllocator::Get().FreeTagAndDestroy(vr.oitNodesTag);
             vr.oitNodesTag = 0;
             vr.oitNodes = {};
         }
 
-        // Release both reservoir reserved-range tags. The pages recycle into the device-local free
-        // pool; the high tags keep them out of the per-frame FreeTag(N-2) sweep.
+        // Release both reservoir reserved-range tags. The buffers are destroyed (deferred N+2), not
+        // recycled — they're resize-sized; the high tags keep them out of the per-frame FreeTag(N-2) sweep.
         for (u32 i = 0; i < 2; ++i)
         {
             if (vr.restirReservoirTag[i] != 0)
             {
-                Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirReservoirTag[i]);
+                Memory::GPUTaggedPageAllocator::Get().FreeTagAndDestroy(vr.restirReservoirTag[i]);
                 vr.restirReservoirTag[i] = 0;
                 vr.restirReservoir[i] = {};
             }
         }
         if (vr.restirSpatialTag != 0)
         {
-            Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirSpatialTag);
+            Memory::GPUTaggedPageAllocator::Get().FreeTagAndDestroy(vr.restirSpatialTag);
             vr.restirSpatialTag = 0;
             vr.restirSpatial = {};
         }
 
-        // ReSTIR GI reserved-range tags — same recycle path as the DI tags above.
+        // ReSTIR GI reserved-range tags — same deferred-destroy path as the DI tags above.
         for (u32 i = 0; i < 2; ++i)
         {
             if (vr.restirGiReservoirTag[i] != 0)
             {
-                Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirGiReservoirTag[i]);
+                Memory::GPUTaggedPageAllocator::Get().FreeTagAndDestroy(vr.restirGiReservoirTag[i]);
                 vr.restirGiReservoirTag[i] = 0;
                 vr.restirGiReservoir[i] = {};
             }
         }
         if (vr.restirGiSpatialTag != 0)
         {
-            Memory::GPUTaggedPageAllocator::Get().FreeTag(vr.restirGiSpatialTag);
+            Memory::GPUTaggedPageAllocator::Get().FreeTagAndDestroy(vr.restirGiSpatialTag);
             vr.restirGiSpatialTag = 0;
             vr.restirGiSpatial = {};
         }
