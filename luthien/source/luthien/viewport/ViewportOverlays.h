@@ -13,9 +13,10 @@ namespace Luth
     class ViewportRenderer;
     class GizmoController;
 
-    // ImGui-DrawList overlays projected into the Scene viewport: light icons, camera frustums,
-    // bone debug lines, world-space AABBs. Each overlay is gated by a flag in EditorSettings.
-    // World-space line segments are clipped against the camera near-plane before being drawn.
+    // 2D billboarded selection icons for lights + cameras, drawn over the Scene viewport and gated by
+    // EditorSettings flags. The icons double as click-to-select hit targets. The in-world wireframe
+    // gizmos (ranges, frustums, AABBs, skeletons) render via the engine's GPU debug-draw
+    // (luth/scene/systems/DebugGizmos), not here.
     class ViewportOverlays
     {
     public:
@@ -28,21 +29,13 @@ namespace Luth
                      Entity selected);
 
     private:
-        void DrawBoneDebug(const EditorCamera& camera, Entity selected);
         void DrawLights(const std::shared_ptr<Scene>& scene,
                         const EditorCamera& camera, Entity selected);
         void DrawCameras(const std::shared_ptr<Scene>& scene,
                          const EditorCamera& camera, Entity selected);
-        void DrawAABBs(const std::shared_ptr<Scene>& scene,
-                       const EditorCamera& camera);
 
         ImVec2 ProjectToScreen(const EditorCamera& camera, const Vec3& worldPos) const;
-        bool   IsInViewport(const ImVec2& p) const;
         static ImU32 LightColorToImU32(const Vec3& color, float alpha = 0.85f);
-        bool   ClipLineToNearPlane(const EditorCamera& camera, Vec3& a, Vec3& b) const;
-        void   DrawClippedLine(ImDrawList* drawList, const EditorCamera& camera,
-                               const Vec3& worldA, const Vec3& worldB,
-                               ImU32 color, float thickness = 1.0f);
 
         ViewportRenderer& m_Viewport;
         GizmoController&  m_Gizmo;
