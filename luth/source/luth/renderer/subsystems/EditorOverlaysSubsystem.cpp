@@ -20,6 +20,14 @@
 namespace Luth
 {
     namespace {
+        // GPU push block for the selection-mask pipelines — ObjectPushConstants plus the per-view TAA
+        // jitter the vertex shader subtracts to draw the mask un-jittered. Pass-local so the engine-wide
+        // ObjectPushConstants contract stays frozen. 80 + 8 = 88 B, within the 128 B push floor.
+        struct MaskPushConstants {
+            ObjectPushConstants base;
+            Vec2                jitter;
+        };
+
         BufferLayout MakeSkinnedVertexLayout() {
             return BufferLayout{
                 { ShaderDataType::Float3, "a_Position"    },
@@ -157,7 +165,7 @@ namespace Luth
         VkPushConstantRange pcRange{};
         pcRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
         pcRange.offset = 0;
-        pcRange.size = sizeof(ObjectPushConstants);
+        pcRange.size = sizeof(MaskPushConstants);
 
         auto [posBindings, posAttribs] = MakePositionOnlyWithFullStride();
 
@@ -231,7 +239,7 @@ namespace Luth
         VkPushConstantRange pcRange{};
         pcRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
         pcRange.offset = 0;
-        pcRange.size = sizeof(float) * 16;
+        pcRange.size = sizeof(float) * 18;   // +vec2 un-jitter
 
         PipelineConfig cfg;
         cfg.colorFormats = { VK_FORMAT_R16G16B16A16_SFLOAT };
@@ -502,9 +510,12 @@ namespace Luth
                         pc.materialIndex = 0;
                         pc.boneOffset    = dc.boneOffset;
 
+                        // Push the un-jittered-projection jitter alongside; the vertex shader subtracts it
+                        // so the mask silhouette (hence the outline) stays put under TAA.
+                        MaskPushConstants mpc{ pc, vr->currentJitter };
                         vkCmdPushConstants(cmd, activeLayout,
                             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                            0, sizeof(ObjectPushConstants), &pc);
+                            0, sizeof(MaskPushConstants), &mpc);
 
                         VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
                         VkDeviceSize offsets[] = { 0 };
@@ -666,6 +677,7 @@ namespace Luth
                     float fadeStart;
                     float fadeEnd;
                     float lineThickness;
+                    float jitter[2];   // per-view TAA jitter; frag subtracts it to un-jitter the grid VP
                 } gpc{};
                 gpc.axisXColor[0] = cp.gridAxisXColor.r; gpc.axisXColor[1] = cp.gridAxisXColor.g; gpc.axisXColor[2] = cp.gridAxisXColor.b; gpc.axisXColor[3] = cp.gridAxisXColor.a;
                 gpc.axisZColor[0] = cp.gridAxisZColor.r; gpc.axisZColor[1] = cp.gridAxisZColor.g; gpc.axisZColor[2] = cp.gridAxisZColor.b; gpc.axisZColor[3] = cp.gridAxisZColor.a;
@@ -674,6 +686,8 @@ namespace Luth
                 gpc.fadeStart     = cp.gridFadeStart;
                 gpc.fadeEnd       = cp.gridFadeEnd;
                 gpc.lineThickness = cp.gridLineThickness;
+                gpc.jitter[0]     = vr->currentJitter.x;
+                gpc.jitter[1]     = vr->currentJitter.y;
                 vkCmdPushConstants(cmd, m_GridPipeline->GetLayout(),
                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(gpc), &gpc);
 

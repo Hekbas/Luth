@@ -321,6 +321,52 @@ namespace Luth::Memory
         }
     }
 
+    void GPUTaggedPageAllocator::FreeTagAndDestroy(u32 tag)
+    {
+        // Sibling of FreeTag for PERSISTENT reserved-tag large-one-shots (resize-sized reservoir/OIT
+        // Garlic buffers): capacity changes every resize, so recycling always misses the exact-capacity
+        // reuse check and orphans the old buffer until Shutdown. Destroy instead — deferred N+2 via the
+        // deletion queue, since frames N-1/N-2 submitted before the resize may still read it.
+        // see arch/memory.md
+        struct Doomed { VkBuffer buffer; VmaAllocation alloc; };
+        std::vector<Doomed> doomed;
+
+        {
+            SpinLockGuard lock(m_Lock);
+            for (size_t i = 0; i < m_UsedPages.size(); )
+            {
+                GPUPage* page = m_UsedPages[i];
+                if (page->tag == tag)
+                {
+                    if (page->isLargeOneShot)
+                    {
+                        doomed.push_back({ page->buffer, page->oneShotAlloc });
+                        LH_DELETE(Memory::Category::GPU, page);
+                    }
+                    else
+                    {
+                        // Defensive — a reserved persistent tag should only ever cover large-one-shots.
+                        page->used = 0;
+                        page->tag  = 0;
+                        m_FreePages.push_back(page);
+                    }
+                    m_UsedPages[i] = m_UsedPages.back();
+                    m_UsedPages.pop_back();
+                }
+                else
+                {
+                    ++i;
+                }
+            }
+        }
+
+        // Defer outside the allocator lock — keeps the hot-path SpinLock critical section short and
+        // avoids nesting VulkanContext's deletion lock under it.
+        for (const Doomed& d : doomed)
+            VulkanContext::Get().PushDeletion([buf = d.buffer, alloc = d.alloc]()
+                { VulkanAllocator::FreeBuffer(buf, alloc); });
+    }
+
     GPUTaggedPageAllocator::Stats GPUTaggedPageAllocator::GetStats() const
     {
         // Best-effort lock-free read. Counts are coarse-stable; ProfilerPanel UI is fine with that.

@@ -31,9 +31,15 @@ layout(push_constant) uniform PushConstants {
     uint shadeMode;
     uint entityID;
     uint boneOffset;
+    vec2 jitter;
 } pc;
 
 void main()
 {
-    gl_Position = ubo.viewProjection * pc.model * vec4(a_Position, 1.0);
+    // Un-jitter the projection so the mask (and its outline) don't crawl under TAA
+    // (negation of TaaJitter::ApplyJitter).
+    mat4 uProj = ubo.projection;
+    uProj[2][0] -= pc.jitter.x * 2.0 / ubo.viewportSize.x;
+    uProj[2][1] -= pc.jitter.y * 2.0 / ubo.viewportSize.y;
+    gl_Position = (uProj * ubo.view) * pc.model * vec4(a_Position, 1.0);
 }

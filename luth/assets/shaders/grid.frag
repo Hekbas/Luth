@@ -39,6 +39,7 @@ layout(push_constant) uniform GridPushConstants {
     float fadeStart;     // distance fade begin
     float fadeEnd;       // distance fade end
     float lineThickness; // line width scale
+    vec2  jitter;        // per-view TAA jitter — subtracted to un-jitter the grid VP
 } pc;
 
 // Anti-aliased grid line mask. Derivatives are taken on the unscaled world
@@ -63,9 +64,15 @@ vec2 AxisMask(vec2 p, float thickness)
 
 void main()
 {
+    // Un-jitter the projection so grid lines don't crawl under TAA (negation of TaaJitter::ApplyJitter).
+    mat4 uProj = ubo.projection;
+    uProj[2][0] -= pc.jitter.x * 2.0 / ubo.viewportSize.x;
+    uProj[2][1] -= pc.jitter.y * 2.0 / ubo.viewportSize.y;
+    mat4 uVP = uProj * ubo.view;
+
     // Reconstruct world-space ray from NDC.
     vec2 ndc = v_TexCoord * 2.0 - 1.0;
-    mat4 invVP = inverse(ubo.viewProjection);
+    mat4 invVP = inverse(uVP);
     vec4 nearH = invVP * vec4(ndc, 0.0, 1.0);
     vec4 farH  = invVP * vec4(ndc, 1.0, 1.0);
     vec3 nearW = nearH.xyz / nearH.w;
@@ -83,7 +90,7 @@ void main()
     if (distXZ > pc.fadeEnd) discard;
 
     // Manual depth test against scene.
-    vec4 gridClip = ubo.viewProjection * vec4(hit, 1.0);
+    vec4 gridClip = uVP * vec4(hit, 1.0);
     float gridNdcZ = gridClip.z / gridClip.w;
     float sceneDepth = texture(u_SceneDepth, v_TexCoord).r;
     if (sceneDepth < gridNdcZ) discard;
