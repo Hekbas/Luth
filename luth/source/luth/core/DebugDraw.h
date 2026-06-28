@@ -42,6 +42,17 @@ namespace Luth::DebugDraw
     void Line(const Vec3& from, const Vec3& to, u32 colorRGBA);
     void Triangle(const Vec3& v0, const Vec3& v1, const Vec3& v2, u32 colorRGBA);
 
+    // Line-decomposed wire shapes. Thin wrappers over Line, so they inherit the producer slot and
+    // transient-VBO path unchanged. Shared by every DebugDraw producer (physics, fog volumes,
+    // editor gizmos). Color is packed RGBA8 (see DebugVertex).
+    void WireBox(const Mat4& transform, const Vec3& localMin, const Vec3& localMax, u32 color);
+    void WireSphere(const Vec3& center, float radius, u32 color, int segments = 24);
+    void WireCircle(const Vec3& center, const Vec3& axis, float radius, u32 color, int segments = 32);
+    void WireFrustum(const Vec3 corners[8], u32 color);     // corners[0..3] near quad, [4..7] far quad
+    void WireCone(const Vec3& apex, const Vec3& dir, float height, float baseRadius, u32 color, int segments = 24);
+    void Arrow(const Vec3& from, const Vec3& to, u32 color, float headSize);
+    void Cross(const Vec3& center, float size, u32 color);  // 3 axis ticks (joint markers)
+
     // Consumer API. Returns the slot for the requested render frame (renderFrameIdx mod 2).
     // The span is valid until BeginGameFrame is called again for the same modulo-2 slot — the
     // frame pipeline guarantees that's at least two frames out.

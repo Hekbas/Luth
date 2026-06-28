@@ -61,6 +61,17 @@ namespace Luth
         float gridFadeEnd       = 200.0f;
         float gridLineThickness = 1.0f;
 
+        // Editor in-world gizmo toggles + palette (mirrors CameraParams; defaults off for runtime).
+        bool showBoneDebug    = false;
+        bool showLightGizmos  = false;
+        bool showCameraGizmos = false;
+        bool showAABBGizmos   = false;
+        Vec4 gizmoCameraColor       = { 0.706f, 0.706f, 0.863f, 0.706f };
+        Vec4 gizmoAABBColor         = { 0.627f, 0.627f, 0.627f, 0.392f };
+        Vec4 gizmoAABBSelectedColor = { 1.000f, 0.627f, 0.000f, 0.784f };
+        Vec4 gizmoBoneLineColor     = { 0.000f, 1.000f, 0.502f, 0.784f };
+        Vec4 gizmoBoneJointColor    = { 1.000f, 1.000f, 0.000f, 1.000f };
+
         // When true, AnimationSystem still ticks while PlayState::Editing so
         // characters animate in the scene view. Flip off for strict
         // "game systems only run during Play" behavior.

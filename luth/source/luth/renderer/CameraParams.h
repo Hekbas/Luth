@@ -35,5 +35,18 @@ namespace Luth
         float gridFadeStart     = 20.0f;
         float gridFadeEnd       = 200.0f;
         float gridLineThickness = 1.0f;
+
+        // Editor in-world gizmo toggles + palette. Engine-side defaults are OFF so a runtime build
+        // (nothing populates these via GetViewportState) draws no gizmos; the editor flips them per
+        // EditorSettings. Light wireframes use the light's own color, not this palette.
+        bool showBoneDebug    = false;
+        bool showLightGizmos  = false;
+        bool showCameraGizmos = false;
+        bool showAABBGizmos   = false;
+        Vec4 gizmoCameraColor       = { 0.706f, 0.706f, 0.863f, 0.706f };
+        Vec4 gizmoAABBColor         = { 0.627f, 0.627f, 0.627f, 0.392f };
+        Vec4 gizmoAABBSelectedColor = { 1.000f, 0.627f, 0.000f, 0.784f };
+        Vec4 gizmoBoneLineColor     = { 0.000f, 1.000f, 0.502f, 0.784f };
+        Vec4 gizmoBoneJointColor    = { 1.000f, 1.000f, 0.000f, 1.000f };
     };
 }

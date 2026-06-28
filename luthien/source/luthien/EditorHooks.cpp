@@ -7,6 +7,7 @@
 #include "luth/scene/Scene.h"
 #include "luthien/Editor.h"
 #include "luthien/EditorCamera.h"
+#include "luthien/EditorColors.h"
 #include "luthien/EditorSelection.h"
 #include "luthien/PlayModeController.h"
 #include "luthien/ProjectLauncher.h"
@@ -72,6 +73,23 @@ namespace
             out.gridFadeStart     = s.gridFadeStart;
             out.gridFadeEnd       = s.gridFadeEnd;
             out.gridLineThickness = s.gridLineThickness;
+
+            // Gizmo toggles (settings) + palette (EditorColors, unpacked IM_COL32 → linear Vec4).
+            auto colToVec4 = [](ImU32 c) {
+                return Vec4(((c >> IM_COL32_R_SHIFT) & 0xFFu) / 255.0f,
+                            ((c >> IM_COL32_G_SHIFT) & 0xFFu) / 255.0f,
+                            ((c >> IM_COL32_B_SHIFT) & 0xFFu) / 255.0f,
+                            ((c >> IM_COL32_A_SHIFT) & 0xFFu) / 255.0f);
+            };
+            out.showBoneDebug          = s.showBoneDebug;
+            out.showLightGizmos        = s.showLightGizmos;
+            out.showCameraGizmos       = s.showCameraGizmos;
+            out.showAABBGizmos         = s.showAABBGizmos;
+            out.gizmoCameraColor       = colToVec4(EditorColors::GizmoCamera);
+            out.gizmoAABBColor         = colToVec4(EditorColors::GizmoAABB);
+            out.gizmoAABBSelectedColor = colToVec4(EditorColors::GizmoAABBSelected);
+            out.gizmoBoneLineColor     = colToVec4(EditorColors::GizmoBoneLine);
+            out.gizmoBoneJointColor    = colToVec4(EditorColors::GizmoBoneJoint);
 
             out.previewAnimationInEditor = s.previewAnimationInEditor;
 
