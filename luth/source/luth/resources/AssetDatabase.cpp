@@ -529,6 +529,10 @@ namespace Luth
                 AssetManager::Import(newUuid);
 
             LH_CORE_INFO("Created asset {0} with UUID {1}", destPath.filename().string(), newUuid.ToString());
+
+            // Notify subscribers now: pre-registration makes the watcher's later Created event a dedup no-op.
+            for (auto& cb : s_ChangeCallbacks)
+                cb();
         }
         catch (const fs::filesystem_error& err) {
             LH_CORE_ERROR("IngestFile failed: {0} - {1}", sourcePath.string(), err.what());

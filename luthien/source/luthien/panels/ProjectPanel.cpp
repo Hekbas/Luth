@@ -25,13 +25,13 @@ namespace Luth
 
     void ProjectPanel::OnInit()
     {
+        // Register up front: OnInit runs once at startup (often pre-project) and never re-runs on load.
+        AssetDatabase::AddChangeCallback([this]() { m_NeedsRefresh = true; });
+
         if (!FileSystem::HasProject()) return;
 
         m_AssetsPath = FileSystem::AssetsPath();
         Refresh();
-
-        // Register for hot-reload notifications from the file watcher
-        AssetDatabase::AddChangeCallback([this]() { m_NeedsRefresh = true; });
         AssetDatabase::StartWatching();
     }
 
@@ -685,6 +685,12 @@ namespace Luth
         }
         fs::create_directory(path);
         Refresh();
+
+        // Drop straight into inline rename on the new folder (Unity-style).
+        if (DirectoryNode* node = FindNodeByPath(m_RootNode.get(), path)) {
+            m_RenamingNode = node;
+            strncpy_s(m_RenameBuffer, node->Name.c_str(), sizeof(m_RenameBuffer));
+        }
     }
 
     void ProjectPanel::CreateNewMaterial()
