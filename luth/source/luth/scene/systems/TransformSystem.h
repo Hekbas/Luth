@@ -57,15 +57,19 @@ namespace Luth
 
                 // 2. Update World
                 // Parent is guaranteed to be updated because we process by levels
+                // Active-in-hierarchy rides the same parent-before-child order, propagating Disabled down.
+                const bool selfDisabled = reg.all_of<Component::Disabled>(entity);
                 if (reg.any_of<Component::Parent>(entity))
                 {
                     entt::entity parent = reg.get<Component::Parent>(entity).Value;
                     const auto& parentWorld = reg.get<Component::WorldTransform>(parent);
                     world.Matrix = parentWorld.Matrix * transform.LocalMatrix;
+                    world.ActiveInHierarchy = parentWorld.ActiveInHierarchy && !selfDisabled;
                 }
                 else
                 {
                     world.Matrix = transform.LocalMatrix;
+                    world.ActiveInHierarchy = !selfDisabled;
                 }
 
                 transform.IsDirty = false;

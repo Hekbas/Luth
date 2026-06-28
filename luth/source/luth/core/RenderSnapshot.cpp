@@ -44,6 +44,7 @@ namespace Luth
 
             for (auto [entity, wt, mr] : view.each())
             {
+                if (!wt.ActiveInHierarchy) continue;
                 if (!mr.ModelUUID.IsValid()) continue;
                 auto model = AssetManager::GetAsset<Model>(mr.ModelUUID);
                 if (!model) continue;
@@ -107,6 +108,7 @@ namespace Luth
             auto view = registry.view<Component::WorldTransform, Component::DirectionalLight>();
             for (auto [entity, wt, dl] : view.each())
             {
+                if (!wt.ActiveInHierarchy) continue;
                 out.directionalLight.present                 = true;
                 out.directionalLight.direction              = Math::Normalize(-Vec3(wt.Matrix[2]));
                 out.directionalLight.color                  = dl.Color;
@@ -140,6 +142,7 @@ namespace Luth
 
             for (auto [entity, wt, pl] : view.each())
             {
+                if (!wt.ActiveInHierarchy) continue;
                 PointLightSnapshot* dst = new (lightRows + count) PointLightSnapshot();
                 dst->position  = Vec3(wt.Matrix[3]);
                 dst->color     = pl.Color;
@@ -166,6 +169,7 @@ namespace Luth
 
             for (auto [entity, wt, fv] : view.each())
             {
+                if (!wt.ActiveInHierarchy) continue;
                 const Mat4 fogLocal =
                     Math::Translate(Mat4(1.0f), fv.localOffset) * Math::ToMat4(fv.localRotation);
 
