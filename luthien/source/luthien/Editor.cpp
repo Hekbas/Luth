@@ -1016,6 +1016,16 @@ namespace Luth
         Workspace::SaveJson(UserJson(s_Settings.activeLayout), snap);
     }
 
+    void Editor::DeleteSelectedEntities()
+    {
+        const auto& sel = EditorSelection::GetSelectedEntities();
+        if (sel.empty() || !s_ActiveScene) return;
+
+        auto cmd = std::make_unique<EntityDestroyMultipleCommand>(s_ActiveScene.get(), sel);
+        if (!cmd->IsEmpty())
+            CommandHistory::Execute(std::move(cmd));
+    }
+
     void Editor::ProcessShortcuts()
     {
         bool ctrl = ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl);
@@ -1045,6 +1055,20 @@ namespace Luth
                 if (sel && sel.IsValid())
                     CommandHistory::Execute(std::make_unique<EntityDuplicateCommand>(sel.GetScene(), sel));
             }
+        }
+
+        // Delete — fires when an entity-editing context holds input: Hierarchy focused, or the
+        // Scene viewport focused/hovered. Centralized here (not per-panel) so the two can't
+        // double-fire, gated on !WantTextInput so it doesn't delete while renaming/typing. Runs
+        // before panels draw → no scene-tree iteration active, so the delete is immediate.
+        if (!ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Delete, false))
+        {
+            auto* hier  = GetPanel<HierarchyPanel>();
+            auto* scene = GetPanel<ScenePanel>();
+            const bool hierActive  = hier && hier->IsFocused();
+            const bool sceneActive = scene && (scene->IsViewportFocused() || scene->IsViewportHovered());
+            if (hierActive || sceneActive)
+                DeleteSelectedEntities();
         }
     }
 

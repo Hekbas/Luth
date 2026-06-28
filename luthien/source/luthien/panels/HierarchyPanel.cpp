@@ -52,19 +52,10 @@ namespace Luth
             DrawTopBar();
             ImGui::Separator();
 
-            // Handle Global Shortcuts (Delete, F2, Esc)
+            // Hierarchy shortcuts (F2, Esc). Delete is centralized in Editor::ProcessShortcuts
+            // so it also fires from the Scene viewport and acts on the whole selection.
             if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
             {
-                if (ImGui::IsKeyPressed(ImGuiKey_Delete) && m_Selection) {
-                    Entity sel = m_Selection;
-                    m_DeferredActions.push_back([this, sel]() {
-                        if (sel && sel.IsValid()) {
-                            CommandHistory::Execute(std::make_unique<EntityDestroyCommand>(m_Context.get(), sel));
-                            SetSelectedEntity({});
-                        }
-                    });
-                }
-                
                 if (ImGui::IsKeyPressed(ImGuiKey_F2) && m_Selection)
                     RenameEntity(m_Selection);
 
@@ -263,7 +254,10 @@ namespace Luth
         // Context Menu (still tied to the tree-node "last item")
         if (ImGui::BeginPopupContextItem())
         {
-            SetSelectedEntity(entity); // Select on right click
+            // Right-clicking a member of a multi-selection keeps that selection (so context-menu
+            // Delete acts on all); right-clicking elsewhere selects just this entity.
+            if (!EditorSelection::IsSelected(entity))
+                SetSelectedEntity(entity);
             DrawContextMenu(entity);   // Pass clicked entity as parent
             ImGui::EndPopup();
         }
@@ -618,13 +612,9 @@ namespace Luth
 
         if (ImGui::MenuItem("Delete", "Del", false, m_Selection.operator bool()))
         {
-            Entity sel = m_Selection;
-            m_DeferredActions.push_back([this, sel]() {
-                if (sel && sel.IsValid()) {
-                    CommandHistory::Execute(std::make_unique<EntityDestroyCommand>(m_Context.get(), sel));
-                    SetSelectedEntity({});
-                }
-            });
+            // Deferred: deletion runs after the tree walk to avoid mutating the scene mid-iteration.
+            // Routes through the shared helper so it removes the whole selection as one undo.
+            m_DeferredActions.push_back([]() { Editor::DeleteSelectedEntities(); });
         }
     }
 

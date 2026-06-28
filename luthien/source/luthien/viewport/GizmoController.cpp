@@ -20,7 +20,7 @@ namespace Luth
     void GizmoController::DrawManipulator(const Mat4& view, const Mat4& proj,
                                           const ImVec2* bounds, const Vec2& size,
                                           Entity& selected, Scene* scene,
-                                          bool isFocused, bool cameraFlying)
+                                          bool acceptsShortcuts, bool cameraFlying)
     {
         if (!selected || !selected.IsValid()) return;
 
@@ -94,8 +94,9 @@ namespace Luth
             m_WasUsing = isUsing;
         }
 
-        // Gizmo Shortcuts
-        if (isFocused && !ImGuizmo::IsUsing() && !cameraFlying)
+        // Gizmo Shortcuts — armed on viewport hover. !WantTextInput so typing a letter that
+        // happens to be W/E/R/Q in another panel doesn't flip the tool while the viewport is hovered.
+        if (acceptsShortcuts && !ImGuizmo::IsUsing() && !cameraFlying && !ImGui::GetIO().WantTextInput)
         {
             if (ImGui::IsKeyPressed(ImGuiKey_Q))
                 m_Operation = -1;

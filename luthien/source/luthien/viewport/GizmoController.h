@@ -28,10 +28,11 @@ namespace Luth
 
         // Runs ImGuizmo manipulator + drag-undo coalesce + Q/W/E/R shortcuts.
         // Early-returns when selected is null/invalid (matches pre-refactor behavior).
+        // acceptsShortcuts gates the Q/W/E/R tool switches — fed by viewport hover.
         void DrawManipulator(const Mat4& view, const Mat4& proj,
                              const ImVec2* bounds, const Vec2& size,
                              Entity& selected, Scene* scene,
-                             bool isFocused, bool cameraFlying);
+                             bool acceptsShortcuts, bool cameraFlying);
 
         // Renders a world-placed icon + hit-tests click-to-select for that entity.
         // hasValidSelection gates the ImGuizmo::IsOver() guard (stale otherwise).

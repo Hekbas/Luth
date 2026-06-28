@@ -411,7 +411,7 @@ namespace Luth
                 m_EditorCamera.GetProjectionMatrix(),
                 m_Viewport->GetBounds(), m_Viewport->GetSize(),
                 m_SelectedEntity, m_Context.get(),
-                m_Viewport->IsFocused(), m_EditorCamera.IsFlying());
+                m_Viewport->IsHovered(), m_EditorCamera.IsFlying());
 
             // Debug overlays
             m_Overlays->DrawAll(m_Context, m_EditorCamera, m_SelectedEntity);

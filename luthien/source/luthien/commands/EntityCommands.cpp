@@ -548,6 +548,83 @@ namespace Luth
     void EntityDestroyCommand::Redo() { Execute(); }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    //  EntityDestroyMultipleCommand
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    EntityDestroyMultipleCommand::EntityDestroyMultipleCommand(Scene* scene, const std::vector<Entity>& entities)
+        : m_Scene(scene)
+    {
+        // Capture the prior selection in order so undo restores the same primary (= back()).
+        for (auto e : entities)
+            if (e.IsValid())
+                m_PriorSelection.push_back(e.GetComponent<ID>().Value);
+
+        for (auto e : entities) {
+            if (!e.IsValid()) continue;
+
+            // Root-filter: skip if an ancestor is also selected (its subtree snapshot covers us).
+            bool hasSelectedAncestor = false;
+            for (auto other : entities)
+                if (other.IsValid() && other != e && e.IsDescendantOf(other)) { hasSelectedAncestor = true; break; }
+            if (hasSelectedAncestor) continue;
+
+            Record rec;
+            rec.uuid = e.GetComponent<ID>().Value;
+            if (e.HasParent())
+                rec.parentUUID = e.GetParent().GetComponent<ID>().Value;
+            rec.siblingIndex = CommandUtil::GetSiblingIndex(e);
+            m_Records.push_back(std::move(rec));
+        }
+
+        // Reinsert correctness: same-parent records must be restored low-index-first, so an
+        // earlier insert doesn't shift a later one. Different parents are independent.
+        std::sort(m_Records.begin(), m_Records.end(),
+                  [](const Record& a, const Record& b) { return a.siblingIndex < b.siblingIndex; });
+
+        const size_t n = m_Records.size();
+        m_Name = "Delete " + std::to_string(n) + (n == 1 ? " Entity" : " Entities");
+    }
+
+    void EntityDestroyMultipleCommand::Execute()
+    {
+        for (auto& rec : m_Records) {
+            Entity e = m_Scene->FindEntityByUUID(rec.uuid);
+            if (!e.IsValid()) continue;
+            rec.snapshot = CommandUtil::SerializeEntitySubtree(e);
+            m_Scene->DestroyEntity(e);
+            PublishHierarchy(HOp::Destroyed, rec.uuid);
+        }
+        EditorSelection::ClearSelection();
+    }
+
+    void EntityDestroyMultipleCommand::Undo()
+    {
+        for (auto& rec : m_Records) {
+            CommandUtil::DeserializeEntitySubtree(*m_Scene, rec.snapshot);
+
+            Entity restored = m_Scene->FindEntityByUUID(rec.uuid);
+            if (restored.IsValid() && rec.siblingIndex >= 0) {
+                Entity parent = rec.parentUUID.IsValid()
+                    ? m_Scene->FindEntityByUUID(rec.parentUUID)
+                    : Entity{};
+                CommandUtil::InsertAtSiblingIndex(*m_Scene, restored, parent, rec.siblingIndex);
+            }
+            PublishHierarchy(HOp::Created, rec.uuid);
+        }
+
+        // Restore the exact prior multi-selection in original order (primary = back()).
+        bool first = true;
+        for (UUID u : m_PriorSelection) {
+            Entity e = m_Scene->FindEntityByUUID(u);
+            if (!e.IsValid()) continue;
+            if (first) { EditorSelection::SelectEntity(e); first = false; }
+            else         EditorSelection::AddEntity(e);
+        }
+    }
+
+    void EntityDestroyMultipleCommand::Redo() { Execute(); }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     //  EntityRenameCommand
     // ═══════════════════════════════════════════════════════════════════════════
 
