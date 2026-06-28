@@ -18,6 +18,7 @@ namespace Luth
         // Bloom
         float bloomThreshold  = 1.0f;
         float bloomStrength   = 0.5f;
+        float bloomRadius     = 1.0f;  // scatter — upsample tent spread (wider = softer, broader halo)
 
         // Tone mapping
         TonemapOperator tonemapOp = TonemapOperator::ACES;

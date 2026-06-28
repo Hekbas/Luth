@@ -3,6 +3,7 @@
 #include "luth/core/types/LuthTypes.h"
 #include "luth/renderer/rendergraph/RenderGraph.h"
 #include "luth/renderer/backend/vulkan/VulkanPipeline.h"
+#include "luth/renderer/backend/vulkan/VulkanComputePipeline.h"
 
 #include <memory>
 #include <string>
@@ -29,15 +30,19 @@ namespace Luth
         // Per-render-stage rebind of the shared PostProcess UBO (binding 2 of all 4 PP sets).
         void UpdateUBO();
 
-        // Stable per-view writes (sceneColor + bloom textures); UBO at binding 2 is rebound by UpdateUBO.
+        // Stable per-view writes (sceneColor + composite bloom binding); UBO at binding 2 is rebound by UpdateUBO.
         void WriteView(ViewResources& vr, FrameTargets& targets);
+
+        // Stable per-view writes for the bloom pyramid down/up sets (source mip -> b0, dest mip -> b1).
+        // Written once per resize — the per-mip textures only change when the view resizes.
+        void WriteBloomView(ViewResources& vr);
 
         // Stable per-view writes for the TAA resolve set (bindings 0/1/3 — sceneColor / motion /
         // sceneDepth). Binding 2 (history-prev sampler) is rebound per-frame in WriteTaaResolvePerFrame.
         void WriteTaaResolveView(ViewResources& vr, FrameTargets& targets);
         void WriteTaaResolvePerFrame(ViewResources& vr, u32 frameAbs);
 
-        // Per-frame rebind of bloom-extract + composite binding 0 to track the TAA chain. When
+        // Per-frame rebind of bloom-prefilter + composite binding 0 to track the TAA chain. When
         // TAA is on, the binding points at taaHistoryCurr (parity-picked) so bloom and composite
         // consume the TAA-resolved color; without this rebind, both statically reference
         // FrameTargets::SceneColor and TAA's output is dropped. When TAA is off, the binding
@@ -60,6 +65,7 @@ namespace Luth
                                           const SlimGBufferOutput& slimGB, u32 mode, float scale);
 
         VkDescriptorSetLayout GetDescSetLayout()           const { return m_DescSetLayout; }
+        VkDescriptorSetLayout GetBloomComputeLayout()      const { return m_BloomComputeLayout; }
         VkDescriptorSetLayout GetSlimVizDescSetLayout()    const { return m_SlimVizDescSetLayout; }
         VkDescriptorSetLayout GetTaaResolveDescSetLayout() const { return m_TaaResolveDescSetLayout; }
         const std::vector<u32>& GetFullscreenVertSpv() const { return m_FullscreenVertSpv; }
@@ -67,23 +73,28 @@ namespace Luth
     private:
         void BuildPipelines();
 
+        // One bloom compute dispatch: bind pipeline + set, push constants, dispatch (8x8), capture.
+        void RecordBloomDispatch(RG::RenderPassContext& ctx, VKComputePipeline* pipe, VkDescriptorSet set,
+                                 const void* pc, u32 pcSize, u32 dstW, u32 dstH, const char* label, const char* shader);
+
         RenderPipeline* m_Pipeline = nullptr;
 
         VkSampler             m_Sampler                 = VK_NULL_HANDLE;
         VkSampler             m_NearestSampler          = VK_NULL_HANDLE; // for integer slim matID binding
         VkDescriptorSetLayout m_DescSetLayout           = VK_NULL_HANDLE;
+        VkDescriptorSetLayout m_BloomComputeLayout      = VK_NULL_HANDLE; // b0 sampler (src) + b1 storage (dst), COMPUTE
         VkDescriptorSetLayout m_SlimVizDescSetLayout    = VK_NULL_HANDLE;
         VkDescriptorSetLayout m_TaaResolveDescSetLayout = VK_NULL_HANDLE;
 
-        std::unique_ptr<VKPipeline> m_BloomExtractPipeline;
-        std::unique_ptr<VKPipeline> m_BloomBlurPipeline;
+        std::unique_ptr<VKComputePipeline> m_BloomDownPipeline;  // prefilter + downsample (flag-gated)
+        std::unique_ptr<VKComputePipeline> m_BloomUpPipeline;    // tent upsample, additive
         std::unique_ptr<VKPipeline> m_PostProcessPipeline;
         std::unique_ptr<VKPipeline> m_SlimVizPipeline;
         std::unique_ptr<VKPipeline> m_TaaResolvePipeline;
 
         std::vector<u32> m_FullscreenVertSpv;
-        std::vector<u32> m_BloomExtractFragSpv;
-        std::vector<u32> m_BloomBlurFragSpv;
+        std::vector<u32> m_BloomDownSpv;
+        std::vector<u32> m_BloomUpSpv;
         std::vector<u32> m_PostProcessFragSpv;
         std::vector<u32> m_SlimVizFragSpv;
         std::vector<u32> m_TaaResolveFragSpv;

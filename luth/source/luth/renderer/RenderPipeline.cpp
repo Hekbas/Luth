@@ -924,22 +924,6 @@ namespace Luth
                 ps.shaderName = "skybox";
                 ps.drawCalls = 1; ps.indices = 0;
             }
-            else if (ps.name == "BloomExtract")
-            {
-                ps.depthTest = false; ps.depthWrite = false;
-                ps.blendEnabled = false;
-                ps.cullMode = VK_CULL_MODE_NONE;
-                ps.shaderName = "bloomExtract";
-                ps.drawCalls = 1; ps.indices = 0;
-            }
-            else if (ps.name == "BloomBlurH" || ps.name == "BloomBlurV")
-            {
-                ps.depthTest = false; ps.depthWrite = false;
-                ps.blendEnabled = false;
-                ps.cullMode = VK_CULL_MODE_NONE;
-                ps.shaderName = "bloomBlur";
-                ps.drawCalls = 1; ps.indices = 0;
-            }
             else if (ps.name == "PostProcess")
             {
                 ps.depthTest = false; ps.depthWrite = false;
@@ -970,8 +954,8 @@ namespace Luth
         if (m_System.GetSceneTargets().GetEntityIDBuffer())m_NamedTextures["EntityID"]     = m_System.GetSceneTargets().GetEntityIDBuffer();
         // Scene-view bloom textures — Frame Debugger is scene-view-only.
         if (auto it = m_ViewResources.find(&m_System.GetSceneTargets()); it != m_ViewResources.end()) {
-            if (it->second.bloomA) m_NamedTextures["BloomA"] = it->second.bloomA;
-            if (it->second.bloomB) m_NamedTextures["BloomB"] = it->second.bloomB;
+            for (u32 i = 0; i < ViewResources::kBloomMipCount; ++i)
+                if (it->second.bloomMip[i]) m_NamedTextures["BloomMip" + std::to_string(i)] = it->second.bloomMip[i];
             if (it->second.volDensity)          m_NamedTextures["VolDensity"]           = it->second.volDensity;
             if (it->second.volInScatter)        m_NamedTextures["VolInScatter"]         = it->second.volInScatter;
             if (it->second.volInScatterHistA)   m_NamedTextures["VolInScatterHistA"]   = it->second.volInScatterHistA;

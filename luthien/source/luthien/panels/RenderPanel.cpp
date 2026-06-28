@@ -410,6 +410,7 @@ namespace Luth
                 if (UI::BeginProperties("BloomProps")) {
                     UI::Property("Threshold", pp.bloomThreshold, 0.01f, 0.0f, 5.0f);
                     UI::Property("Strength", pp.bloomStrength, 0.01f, 0.0f, 2.0f);
+                    UI::Property("Radius", pp.bloomRadius, 0.01f, 0.0f, 2.0f);
                     UI::EndProperties();
                 }
                 endSection();
