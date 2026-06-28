@@ -37,12 +37,12 @@ namespace Luth
             return out;
         }
 
-        // Cheap u64 mix — translation-only hash. Catches the common motion case (entities sliding
-        // around). Misses rotation-only changes on non-translating meshes — if RT shadows expose
-        // this, bump to full 64-byte matrix hash; cost is still < 10 µs for ~100 instances.
-        // materialUUID is folded in because the geometry table (C.3) carries each instance's material
-        // slot — a runtime material reassignment on a static mesh must force a rebuild or GI would
-        // shade the secondary hit with the stale material's albedo. see arch/rendering-pipeline.md
+        // Cheap u64 mix over the full world matrix — rotation + scale + translation. Mirrors
+        // PathTraceSubsystem::ComputeResetHash so a static-mesh rotate/scale (no translation delta)
+        // still rebuilds; ~10 µs for ~100 instances. materialUUID is folded in because the geometry
+        // table carries each instance's material slot — a runtime material reassignment on a static
+        // mesh must force a rebuild or GI would shade the secondary hit with the stale material's
+        // albedo. see arch/rendering-pipeline.md
         u64 HashInstances(std::span<const MeshDrawSnapshot> instances)
         {
             u64 h = 0xcbf29ce484222325ull; // FNV-1a basis
@@ -50,14 +50,13 @@ namespace Luth
             {
                 h ^= static_cast<u64>(inst.entity);
                 h *= 0x100000001b3ull;
-                // Translation row of the column-major matrix is the 4th column (m[3].xyz).
-                u32 t0, t1, t2;
-                std::memcpy(&t0, &inst.worldMatrix[3][0], 4);
-                std::memcpy(&t1, &inst.worldMatrix[3][1], 4);
-                std::memcpy(&t2, &inst.worldMatrix[3][2], 4);
-                h ^= t0;            h *= 0x100000001b3ull;
-                h ^= t1;            h *= 0x100000001b3ull;
-                h ^= t2;            h *= 0x100000001b3ull;
+                // Full world matrix (16 floats) — rotation + scale + translation.
+                const f32* wm = &inst.worldMatrix[0][0];
+                for (int j = 0; j < 16; ++j)
+                {
+                    u32 b; std::memcpy(&b, &wm[j], 4);
+                    h ^= b; h *= 0x100000001b3ull;
+                }
                 h ^= static_cast<u64>(inst.meshIndex);
                 h *= 0x100000001b3ull;
                 h ^= inst.materialUUID.GetHalf0(); h *= 0x100000001b3ull;
