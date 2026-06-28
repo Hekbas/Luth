@@ -6,6 +6,8 @@
 #include "luth/renderer/resources/Model.h"
 #include "luth/resources/AssetManager.h"
 
+#include <regex>
+
 namespace Luth
 {
     using namespace Component;
