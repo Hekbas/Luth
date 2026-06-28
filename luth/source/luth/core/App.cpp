@@ -19,6 +19,7 @@
 #include "luth/scene/systems/PlayerControllerSystem.h"
 #include "luth/scene/systems/PhysicsSystem.h"
 #include "luth/scene/systems/RenderingSystem.h"
+#include "luth/scene/systems/DebugGizmos.h"
 #include "luth/scene/systems/PickingSystem.h"
 #include "luth/jobs/JobSystem.h"
 #include "luth/jobs/MainThreadPump.h"
@@ -359,6 +360,16 @@ namespace Luth
                     cp.gridFadeStart     = viewState.gridFadeStart;
                     cp.gridFadeEnd       = viewState.gridFadeEnd;
                     cp.gridLineThickness = viewState.gridLineThickness;
+
+                    cp.showBoneDebug          = viewState.showBoneDebug;
+                    cp.showLightGizmos        = viewState.showLightGizmos;
+                    cp.showCameraGizmos       = viewState.showCameraGizmos;
+                    cp.showAABBGizmos         = viewState.showAABBGizmos;
+                    cp.gizmoCameraColor       = viewState.gizmoCameraColor;
+                    cp.gizmoAABBColor         = viewState.gizmoAABBColor;
+                    cp.gizmoAABBSelectedColor = viewState.gizmoAABBSelectedColor;
+                    cp.gizmoBoneLineColor     = viewState.gizmoBoneLineColor;
+                    cp.gizmoBoneJointColor    = viewState.gizmoBoneJointColor;
                 }
                 rs->SetCameraParams(cp);
             }
@@ -444,6 +455,12 @@ namespace Luth
         SystemRegistry::Update<PhysicsSystem>();
         if (app->m_RunGameSystems)
             SystemRegistry::Update<AnimationSystem>();
+
+        // Editor in-world gizmos (lights/cameras/AABBs/bones/fog) → DebugDraw. Game-stage producer:
+        // shares DebugDraw's single-writer slot, reads post-Animation transforms, gated per category
+        // by CameraParams (all-off in a runtime build). DebugDrawSubsystem flushes them in the scene view.
+        if (auto* rs = SystemRegistry::GetSystem<RenderingSystem>())
+            Gizmos::Draw(*app->m_Scene, rs->GetCameraParams());
 
         // CaptureSnapshot must run after all ECS mutations for the frame —
         // it freezes the state Render(N-1) will read next iteration.

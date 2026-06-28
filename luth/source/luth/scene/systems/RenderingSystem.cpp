@@ -8,43 +8,11 @@
 #include "luth/renderer/backend/vulkan/VulkanBackend.h"
 #include "luth/resources/FileSystem.h"
 #include "luth/scene/Scene.h"
-#include "luth/scene/components/FogVolume.h"
 #include "luth/scene/components/Transform.h"
-#include "luth/core/DebugDraw.h"
 #include "luth/core/diagnostics/Profiler.h"
 
 namespace Luth
 {
-    namespace
-    {
-        // FogVolume gizmo color. Pack-byte order matches DebugDraw (R, G, B, A in bytes 0..3) —
-        // same convention PhysicsSystem uses for its wire gizmos.
-        constexpr u32 kFogGizmoColor = 0x80FFCC4D;  // soft orange-yellow, half-alpha
-
-        void DrawFogVolumeGizmos(Scene* scene)
-        {
-            LH_PROFILE_FUNCTION();
-
-            if (!scene) return;
-            auto& reg  = scene->Registry();
-            auto  view = reg.view<Component::FogVolume, Component::WorldTransform>();
-            for (auto entity : view)
-            {
-                const auto& fog   = view.get<Component::FogVolume>(entity);
-                const auto& world = view.get<Component::WorldTransform>(entity);
-
-                const Mat4 localT = glm::translate(Mat4(1.0f), fog.localOffset);
-                const Mat4 localR = glm::mat4_cast(fog.localRotation);
-                const Mat4 m      = world.Matrix * localT * localR;
-
-                if (fog.type == Component::FogVolume::Type::Box)
-                    DebugDraw::WireBox(m, -fog.halfExtents, fog.halfExtents, kFogGizmoColor);
-                else
-                    DebugDraw::WireSphere(Vec3(m[3]), fog.radius, kFogGizmoColor);
-            }
-        }
-    }
-
     // ── Construction / Destruction ──
 
     RenderingSystem::RenderingSystem(u32 viewportWidth, u32 viewportHeight)
@@ -229,10 +197,6 @@ namespace Luth
 
         // Build GPU object buffer (after materials are registered)
         m_Pipeline->BuildGPUObjectBuffer(snapshot);
-
-        // FogVolume viewport gizmos — wireframe box/sphere for each fog region. DebugDraw queues
-        // lines for one frame; the DebugDrawSubsystem flushes them as part of the render pass.
-        DrawFogVolumeGizmos(scene);
 
         // Partition snapshot mesh rows into opaque/cutout/transparent buckets.
         // Must follow BuildGPUObjectBuffer so gpuObjectIndex/entityIndex
