@@ -122,9 +122,20 @@ namespace Luth
         VolumetricDensity, VolumetricInScatter,
         // ReSTIR GI reservoir viz — heat-maps the spatial reservoir's M (confidence) + age (staleness).
         RestirGiReservoir,
-        // Emissive radiance only — in-shader override in pbr.frag; isolates emission for raster==RT A/B.
-        Emission
+        // Emissive radiance only — in-shader override in pbr_shade.slang; isolates emission for raster==RT A/B.
+        Emission,
+        // In-shader per-draw channel overrides (obj.shadeMode → pbr_shade.slang); cheap, raster==RT-safe.
+        // ShadowCascades reuses the CSM/RT cascade-tint path. APPENDED — never renumber existing values
+        // (the object buffer, slim-viz offset math, and the live shader branches all key off them).
+        Metallic, Occlusion, ShadowCascades,
+        // Raw screen-space signals — in-shader overrides sampling the same bound textures the lit pass
+        // reads (each gated on its feature; greyed in the picker when off). AO reuses gtao.visualize.
+        AmbientOcclusion, GiRaw, DiRaw, RtReflectionRaw
     };
+
+    // RenderPipeline decodes Slim viz as an offset from SlimNormal — keep these four contiguous.
+    static_assert(static_cast<u8>(ShadeMode::SlimMaterialID) - static_cast<u8>(ShadeMode::SlimNormal) == 3,
+                  "Slim* ShadeModes must stay contiguous (RenderPipeline slim-viz offset math).");
 
     struct GeometryOutput {
         RG::ResourceHandle color;

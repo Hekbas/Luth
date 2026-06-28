@@ -14,12 +14,24 @@ namespace Luth
     // and a small set of typed helpers for buffer / image allocation, persistently-mapped
     // sequential buffers (the GPU tagged-heap backing), and incremental flush. Allocations land
     // under MemoryTracker's Category::GPU bucket exactly once per backing.
+    // GPU memory classification for the Profiler breakdown. Inferred from usage flags at alloc time;
+    // overridable for the texture-vs-render-target split, which usage flags don't cleanly separate here
+    // (this engine's sampled textures also carry COLOR_ATTACHMENT). Count doubles as the "auto-infer" arg.
+    enum class GpuResourceClass : u8
+    {
+        Texture, RenderTarget, Mesh, Buffer, AccelStructure, Other, Count
+    };
+
     struct GPUMemoryStats
     {
         u64 UsedBytes;
         u64 FreeBytes;
         u32 AllocationCount;
         u32 BlockCount;
+
+        // Live bytes + allocation count per GpuResourceClass (indexed by the enum value).
+        u64 ClassBytes[static_cast<u32>(GpuResourceClass::Count)];
+        u32 ClassCount[static_cast<u32>(GpuResourceClass::Count)];
     };
 
     class VulkanAllocator
@@ -30,8 +42,10 @@ namespace Luth
 
         static VmaAllocator Get();
 
-        static VmaAllocation AllocateBuffer(const VkBufferCreateInfo& bufferInfo, VmaMemoryUsage usage, VkBuffer& outBuffer);
-        static VmaAllocation AllocateImage(const VkImageCreateInfo& imageInfo, VmaMemoryUsage usage, VkImage& outImage);
+        static VmaAllocation AllocateBuffer(const VkBufferCreateInfo& bufferInfo, VmaMemoryUsage usage, VkBuffer& outBuffer,
+                                            GpuResourceClass cls = GpuResourceClass::Count);
+        static VmaAllocation AllocateImage(const VkImageCreateInfo& imageInfo, VmaMemoryUsage usage, VkImage& outImage,
+                                           GpuResourceClass cls = GpuResourceClass::Count);
 
         // Persistently-mapped sequential-write buffer for ring-style upload paths
         // (Material SSBO, ObjectSSBO, IndirectBuffer). Modern VMA: VMA_MEMORY_USAGE_AUTO
@@ -41,7 +55,8 @@ namespace Luth
         static VmaAllocation AllocateMappedSequentialBuffer(
             const VkBufferCreateInfo& bufferInfo,
             VkBuffer& outBuffer,
-            void** outMappedData);
+            void** outMappedData,
+            GpuResourceClass cls = GpuResourceClass::Count);
 
         // Flushes a sub-range of a HOST_VISIBLE allocation. No-op when the underlying
         // memory type is HOST_COHERENT (vmaFlushAllocation handles the gating).

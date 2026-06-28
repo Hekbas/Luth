@@ -105,6 +105,15 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
         return o;
     }
     if (i.shadeMode == 13u) { o.color = float4(emission, 1.0);        return o; }   // Emission
+    if (i.shadeMode == 14u) { o.color = float4(metallic.xxx, 1.0);    return o; }   // Metallic
+    if (i.shadeMode == 15u) { o.color = float4(mi.occlusion.xxx, 1.0);return o; }   // Occlusion (material AO)
+
+    // Raw screen-space signals — sampled where the lit shading reads them, gated on the feature
+    // (the picker greys these when off). Ambient Occlusion (17) reuses the gtao.visualize path below.
+    float2 dbgUv = fragCoord.xy / ubo.viewportSize;
+    if (i.shadeMode == 18u && ubo.restirParams.y > 0.5) { o.color = float4(giIrradiance.Sample(dbgUv).rgb, 1.0); return o; }  // GI Raw
+    if (i.shadeMode == 19u && ubo.restirParams.x > 0.5) { o.color = float4(diIrradiance.Sample(dbgUv).rgb, 1.0); return o; }  // DI Raw
+    if (i.shadeMode == 20u && ubo.reflParams.x  > 0.5)  { o.color = float4(reflRadiance.Sample(dbgUv).rgb, 1.0); return o; }  // RT Reflection Raw
 
     // Material-baked AO × screen-space GTAO (half-res R8).
     float ao = mi.occlusion;
@@ -153,16 +162,16 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
         color += (reflRad * ibl.envBRDF - ibl.specularIBL * ubo.iblIntensity) * ao * reflWeight;
     }
 
-    // Debug: raw GTAO buffer.
-    if (gtao.visualize != 0)
+    // Debug: raw GTAO buffer (gtao.visualize toggle or the AmbientOcclusion shade-mode).
+    if (gtao.visualize != 0 || i.shadeMode == 17u)
     {
         float g = gtaoTex.Sample(fragCoord.xy * gtao.invFullResolution).r;
         o.color = float4(g, g, g, 1.0);
         return o;
     }
 
-    // Debug: cascade tint (CSM) / raw RT mask.
-    if (ubo.debugVisualizeCascades > 0.5)
+    // Debug: cascade tint (CSM) / raw RT mask. Driven by the global toggle or the ShadowCascades shade-mode.
+    if (ubo.debugVisualizeCascades > 0.5 || i.shadeMode == 16u)
     {
         if (ubo.rtShadowParams.x > 0.5)
         {

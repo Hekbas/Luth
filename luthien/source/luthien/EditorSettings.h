@@ -53,6 +53,10 @@ namespace Luth
         // Stored as u8 to avoid pulling RenderingSystem.h into this header.
         u8    lastDebugMode             = 3;
 
+        // Render panel UI state — selected category tab + denoiser sub-tab (restored across sessions).
+        int   renderPanelTab            = 0;
+        int   renderDenoiserTab         = 0;
+
         // Selection outline (default mirrors EditorColors::SelectionOutline so existing scenes
         // look unchanged before the user edits the values).
         Vec4  outlineColor          = { 1.0f, 0.6f, 0.0f, 1.0f };

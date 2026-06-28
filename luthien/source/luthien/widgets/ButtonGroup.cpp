@@ -33,7 +33,7 @@ namespace Luth::UI
         }
     }
 
-    bool SegmentedButton(const char* groupId, const char* const* labels, int count, int* selectedIdx)
+    bool SegmentedButton(const char* groupId, const char* const* labels, int count, int* selectedIdx, bool fillWidth)
     {
         if (!labels || !selectedIdx || count <= 0) return false;
 
@@ -41,13 +41,15 @@ namespace Luth::UI
         const ImGuiStyle& style = ImGui::GetStyle();
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, style.ItemSpacing.y));
 
+        const float btnW = fillWidth ? ImGui::GetContentRegionAvail().x / (float)count : 0.0f;
+
         bool changed = false;
         for (int i = 0; i < count; ++i)
         {
             const bool active = (*selectedIdx == i);
             if (active) PushActiveStyle();
             ImGui::PushID(i);
-            if (ImGui::Button(labels[i]) && !active)
+            if (ImGui::Button(labels[i], ImVec2(btnW, 0.0f)) && !active)
             {
                 *selectedIdx = i;
                 changed = true;
