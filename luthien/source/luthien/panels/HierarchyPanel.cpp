@@ -162,6 +162,7 @@ namespace Luth
         if (entity.HasComponent<Camera>())               icon = ICON_FA_VIDEO;
         else if (entity.HasComponent<DirectionalLight>()) icon = ICON_FA_SUN;
         else if (entity.HasComponent<PointLight>())       icon = ICON_FA_LIGHTBULB;
+        else if (entity.HasComponent<SpotLight>())        icon = ICON_FA_SATELLITE_DISH;
         else if (entity.HasComponent<Animation>())        icon = ICON_FA_PERSON_RUNNING;
         else if (entity.HasComponent<MeshRenderer>())     icon = ICON_FA_CUBE;
         
@@ -608,6 +609,23 @@ namespace Luth
                     if (light.IsValid())
                         CommandHistory::Execute(std::make_unique<ComponentAddCommand<PointLight>>(
                             "Add PointLight", m_Context.get(), (entt::entity)light));
+                    CommandHistory::EndCompound();
+                    SetSelectedEntity(light);
+                });
+            }
+            if (ImGui::MenuItem("Spot Light"))
+            {
+                UUID parentUUID = (parent && parent.IsValid())
+                    ? parent.GetComponent<Component::ID>().Value : UUID::Invalid();
+                m_DeferredActions.push_back([this, parentUUID]() {
+                    CommandHistory::BeginCompound("Create Spot Light");
+                    auto cmd = std::make_unique<EntityCreateCommand>(m_Context.get(), "Spot Light", parentUUID);
+                    auto* rawCmd = cmd.get();
+                    CommandHistory::Execute(std::move(cmd));
+                    Entity light = rawCmd->GetCreatedEntity();
+                    if (light.IsValid())
+                        CommandHistory::Execute(std::make_unique<ComponentAddCommand<SpotLight>>(
+                            "Add SpotLight", m_Context.get(), (entt::entity)light));
                     CommandHistory::EndCompound();
                     SetSelectedEntity(light);
                 });

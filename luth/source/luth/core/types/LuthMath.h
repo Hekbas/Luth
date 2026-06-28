@@ -142,6 +142,7 @@ namespace Luth::Math
     // =============================================
     template<class T> inline T Radians(const T& v)                                      { return glm::radians(v); }
     template<class T> inline T Degrees(const T& v)                                      { return glm::degrees(v); }
+    template<class T> inline T Cos(const T& v)                                          { return glm::cos(v); }
 
     // =============================================
     //         Common math (scalar + vector)

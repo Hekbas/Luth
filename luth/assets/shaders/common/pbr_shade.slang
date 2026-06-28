@@ -4,7 +4,7 @@
 import globals;
 import material;
 import material_bindings_raster;   // RasterFetch (Set 1 bindless, Set 2 material SSBO)
-import pbr_lighting;               // ComputeShadowCSM / EvalClusteredPointLights / EvalIblAmbient + GI_PI
+import pbr_lighting;               // ComputeShadowCSM / EvalClusteredLights / EvalIblAmbient + GI_PI
 import brdf;                       // EvalBRDFTimesNdotL
 import restir_common;              // DirectionalLightData
 
@@ -132,12 +132,16 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
         Lo += EvalBRDFTimesNdotL(normalize(-dl.direction), dirRadiance, V, N, albedo.rgb, metallic, roughness) * sr.shadow;
     }
 
-    // Point lights: demodulated ReSTIR DI image, else the Forward+ cluster loop. Remodulate by diffuse
-    // albedo / PI (metals carry no Lambertian diffuse).
+    // Punctual lights: demodulated ReSTIR DI image (points only), else the Forward+ cluster loop. Remodulate
+    // by diffuse albedo / PI (metals carry no Lambertian diffuse). Spots aren't in the DI reservoir, so when
+    // DI is on we still run the cluster loop for spots only; when off, the loop does points + spots.
     if (ubo.restirParams.x > 0.5)
+    {
         Lo += diIrradiance.Sample(screenUv).rgb * (albedo.rgb * (1.0 - metallic) / GI_PI);
+        Lo += EvalClusteredLights(fragCoord, i.worldPos, V, N, albedo.rgb, metallic, roughness, true);
+    }
     else
-        Lo += EvalClusteredPointLights(fragCoord, i.worldPos, V, N, albedo.rgb, metallic, roughness);
+        Lo += EvalClusteredLights(fragCoord, i.worldPos, V, N, albedo.rgb, metallic, roughness, false);
 
     // ReSTIR GI — demodulated indirect diffuse, added on top (independent of the DI gate).
     if (ubo.restirParams.y > 0.5)

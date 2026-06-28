@@ -39,11 +39,26 @@ namespace Luth
         float     intensity;   // 4
     };  // 32 bytes
 
+    // Three vec3 force three 16-B slots under std430; the 4th scalar (cosOuter) needs a fourth → 64 B.
+    // First 48 B mirror PointLightData's vec3+float pairing; cosOuter + pad ride the last slot.
+    // Cone cosines (not angles) so the shader's smoothstep edge test is a bare dot-product compare.
+    struct SpotLightData {
+        Vec3 position;    // 0
+        float     range;       // 12
+        Vec3 direction;   // 16  (beam axis, normalized)
+        float     cosInner;    // 28
+        Vec3 color;       // 32
+        float     intensity;   // 44
+        float     cosOuter;    // 48
+        float     _pad[3];     // 52
+    };  // 64 bytes
+
     // CPU-side aggregate produced by LightGatherer each game stage. Held on LightingSystem;
-    // points vector reuses capacity across frames so steady-state allocations stay flat.
+    // the light vectors reuse capacity across frames so steady-state allocations stay flat.
     struct GatheredLights {
         DirectionalLightData        dirLight{};
         std::vector<PointLightData> points;
+        std::vector<SpotLightData>  spots;
     };
 
     // ── Forward+ clustered lighting ──
@@ -58,17 +73,19 @@ namespace Luth
     inline constexpr u32 k_ClusterCount         = k_ClusterTilesX * k_ClusterTilesY * k_ClusterSlicesZ;  // 6912
     inline constexpr u32 k_MaxLightsPerCluster  = 128;
 
-    // Set 3 binding 0 layout: { LightSSBOHeader header; PointLightData points[header.pointLightCount]; }
-    // Allocated as one contiguous tagged-heap region per frame — header at offset 0, points immediately after.
+    // Set 3 binding 0 layout: { LightSSBOHeader; PointLightData points[pointLightCount]; SpotLightData spots[spotLightCount]; }
+    // One contiguous tagged-heap region per frame — header at 0, points at 48, spots at 48 + pointCount*32.
     // PointLightData / DirectionalLightData are already std430-compatible (vec3 + float pairs in 16B slots).
     struct LightSSBOHeader {
         DirectionalLightData dirLight;          // 32 B
-        u32                  pointLightCount;   //  4
-        u32                  _pad[3];           // 12 (std430 array boundary — points[] starts at offset 48)
+        u32                  pointLightCount;   //  4 (offset 32)
+        u32                  spotLightCount;    //  4 (offset 36)
+        u32                  _pad[2];           //  8 (std430 array boundary — points[] starts at offset 48)
     };
     static_assert(sizeof(LightSSBOHeader) == 48, "LightSSBOHeader std430 layout");
     static_assert(sizeof(DirectionalLightData) == 32, "DirectionalLightData std430 layout");
     static_assert(sizeof(PointLightData)       == 32, "PointLightData std430 layout");
+    static_assert(sizeof(SpotLightData)        == 64, "SpotLightData std430 layout");
 
     // Set 3 binding 1 element. uvec2 (offset, count) into the LightIndexSSBO range for one cluster.
     struct GPUCluster {

@@ -17,6 +17,19 @@ public struct PointLightData
     public float  intensity;
 }
 
+// 64 B, std430 (mirrors C++ SpotLightData). Cone stored as cosines of the half-angles.
+public struct SpotLightData
+{
+    public float3 position;
+    public float  range;
+    public float3 direction;
+    public float  cosInner;
+    public float3 color;
+    public float  intensity;
+    public float  cosOuter;
+    public float  _pad0, _pad1, _pad2;
+}
+
 // 32 B, std430. _pad slots reserve a future point-on-light / uv for area lights + ReSTIR GI.
 public struct Reservoir
 {

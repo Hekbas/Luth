@@ -164,6 +164,17 @@ namespace Luth
                 j["pointLight"] = pj;
             }
 
+            if (entity.HasComponent<SpotLight>()) {
+                auto& sl = entity.GetComponent<SpotLight>();
+                json sj;
+                sj["color"]     = Vec3ToJson(sl.Color);
+                sj["intensity"] = sl.Intensity;
+                sj["range"]     = sl.Range;
+                sj["innerCone"] = sl.InnerConeAngleDeg;
+                sj["outerCone"] = sl.OuterConeAngleDeg;
+                j["spotLight"]  = sj;
+            }
+
             return j;
         }
 
@@ -332,6 +343,17 @@ namespace Luth
                     pl.Color     = Vec3FromJson(pj.value("color", json::array()), {1,1,1});
                     pl.Intensity = pj.value("intensity", 1.0f);
                     pl.Range     = pj.value("range", 350.0f);
+                }
+
+                // SpotLight
+                if (ej.contains("spotLight")) {
+                    const auto& sj = ej["spotLight"];
+                    auto& sl = entity.AddComponent<SpotLight>();
+                    sl.Color             = Vec3FromJson(sj.value("color", json::array()), {1,1,1});
+                    sl.Intensity         = sj.value("intensity", 1.0f);
+                    sl.Range             = sj.value("range", 350.0f);
+                    sl.InnerConeAngleDeg = sj.value("innerCone", 25.0f);
+                    sl.OuterConeAngleDeg = sj.value("outerCone", 45.0f);
                 }
 
                 uuidToEntity[ej.value("uuid", "")] = entity;
