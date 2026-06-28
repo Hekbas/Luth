@@ -12,8 +12,8 @@ namespace Luth
     struct WindowSpec
     {
         std::string Title = "Luth Engine";
-        u32 Width = 1280;
-        u32 Height = 720;
+        u32 Width = 1600;
+        u32 Height = 900;
         bool VSync = false;
         bool Fullscreen = false;
     };
