@@ -159,6 +159,13 @@ namespace Luth
                         auto& dl = e.AddComponent<DirectionalLight>();
                         dl.Color = ml.Color;
                         dl.Intensity = ml.Intensity;
+                    } else if (ml.Type == 2) {
+                        auto& sl = e.AddComponent<SpotLight>();
+                        sl.Color = ml.Color;
+                        sl.Intensity = ml.Intensity;
+                        sl.Range = ml.Range;
+                        sl.InnerConeAngleDeg = ml.InnerConeAngleDeg;
+                        sl.OuterConeAngleDeg = ml.OuterConeAngleDeg;
                     } else {
                         auto& pl = e.AddComponent<PointLight>();
                         pl.Color = ml.Color;
@@ -247,6 +254,7 @@ namespace Luth
         original.CopyComponentIfExists<Animation>(duplicate);
         original.CopyComponentIfExists<DirectionalLight>(duplicate);
         original.CopyComponentIfExists<PointLight>(duplicate);
+        original.CopyComponentIfExists<SpotLight>(duplicate);
         original.CopyComponentIfExists<Collider>(duplicate);
         original.CopyComponentIfExists<RigidBody>(duplicate);
         // PhysicsBodyRuntime is intentionally not copied — PhysicsSystem's on_construct signal will

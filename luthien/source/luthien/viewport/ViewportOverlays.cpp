@@ -255,6 +255,22 @@ namespace Luth
             }
         }
 
+        // --- Spot Lights ---
+        // Billboard icon only (for viewport selection); the cone wireframe lands with the debug-draw refactor.
+        {
+            auto view = registry.view<WorldTransform, SpotLight>();
+            for (auto entity : view) {
+                auto& wt = view.get<WorldTransform>(entity);
+                auto& sl = view.get<SpotLight>(entity);
+
+                Vec3   center      = Vec3(wt.Matrix[3]);
+                ImU32  iconColor   = LightColorToImU32(sl.Color);
+                ImVec2 screenCenter = ProjectToScreen(camera, center);
+                if (screenCenter.x >= 0.0f)
+                    m_Gizmo.DrawGizmoIcon(drawList, screenCenter, ICON_FA_SATELLITE_DISH, iconColor, entity, isHovered, hasValidSelection);
+            }
+        }
+
         drawList->PopClipRect();
     }
 

@@ -655,9 +655,11 @@ namespace Luth
                 case aiLightSource_DIRECTIONAL: ml.Type = 0; break;
                 case aiLightSource_POINT:       ml.Type = 1; break;
                 case aiLightSource_SPOT:
-                    ml.Type = 1;
-                    LH_CORE_WARN("ModelImporter: spot light '{}' imported as point (cone dropped)",
-                        light->mName.C_Str());
+                    // Assimp cone angles are radians; treated as half-angles (glTF convention).
+                    // The gatherer clamps to a sane range, so a full-angle source just imports wide.
+                    ml.Type = 2;
+                    ml.InnerConeAngleDeg = Math::Degrees(light->mAngleInnerCone);
+                    ml.OuterConeAngleDeg = Math::Degrees(light->mAngleOuterCone);
                     break;
                 default:
                     LH_CORE_WARN("ModelImporter: unsupported light type ('{}') skipped", light->mName.C_Str());
@@ -668,7 +670,7 @@ namespace Luth
             float maxc = std::max({ color.x, color.y, color.z });
             if (maxc > 1.0f) { ml.Intensity = maxc; color /= maxc; }
             ml.Color = color;
-            if (ml.Type == 1 && light->mAttenuationQuadratic > 1e-4f)
+            if (ml.Type != 0 && light->mAttenuationQuadratic > 1e-4f)   // point + spot
                 ml.Range = std::clamp(std::sqrt(1.0f / (0.01f * light->mAttenuationQuadratic)), 1.0f, 10000.0f);
             lightByName[light->mName.C_Str()] = (i32)modelData.Lights.size();
             modelData.Lights.push_back(ml);
