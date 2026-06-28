@@ -90,21 +90,45 @@ namespace Luth
             const auto& nodes   = model->GetNodes();
             const auto& cameras = model->GetCameras();
             const auto& lights  = model->GetLights();
+            if (nodes.empty()) return Entity{};
             std::vector<Entity> nodeEntities(nodes.size());
 
+            // Skip a content-less single-child scene root (common FBX artifact) so single-mesh imports are one entity.
+            i32 skipRoot = -1;
+            if (nodes[0].MeshIndices.empty() && nodes[0].CameraIndex < 0 && nodes[0].LightIndex < 0) {
+                i32 rootChildren = 0;
+                for (const auto& n : nodes) if (n.ParentIndex == 0) ++rootChildren;
+                if (rootChildren == 1) skipRoot = 0;
+            }
+
+            Entity importRoot{};
             for (size_t i = 0; i < nodes.size(); ++i) {
+                if ((i32)i == skipRoot) { nodeEntities[i] = Entity{}; continue; }
                 const auto& n = nodes[i];
                 Entity e = CreateEntity(n.Name.empty() ? "Node" : n.Name);
                 nodeEntities[i] = e;
 
                 auto& t = e.GetComponent<Transform>();
-                t.Position = n.Translation;
-                t.Rotation = Math::Degrees(Math::EulerAngles(n.Rotation));
-                t.Scale    = n.Scale;
-                t.IsDirty  = true;
+                if (n.ParentIndex == skipRoot) {
+                    // Fold the skipped root's local transform in so the child keeps its world pose.
+                    const auto& r = nodes[skipRoot];
+                    Mat4 rootM  = Math::Translate(Mat4(1.0f), r.Translation) * Math::ToMat4(r.Rotation) * Math::Scale(Mat4(1.0f), r.Scale);
+                    Mat4 childM = Math::Translate(Mat4(1.0f), n.Translation) * Math::ToMat4(n.Rotation) * Math::Scale(Mat4(1.0f), n.Scale);
+                    Quat q;
+                    DecomposeTransform(rootM * childM, t.Position, q, t.Scale);
+                    t.Rotation = Math::Degrees(Math::EulerAngles(q));
+                } else {
+                    t.Position = n.Translation;
+                    t.Rotation = Math::Degrees(Math::EulerAngles(n.Rotation));
+                    t.Scale    = n.Scale;
+                }
+                t.IsDirty = true;
 
-                if (n.ParentIndex >= 0)            e.SetParent(nodeEntities[n.ParentIndex]);
-                else if (parent && parent.IsValid()) e.SetParent(parent);
+                if (n.ParentIndex >= 0 && n.ParentIndex != skipRoot) e.SetParent(nodeEntities[n.ParentIndex]);
+                else {
+                    if (parent && parent.IsValid()) e.SetParent(parent);
+                    importRoot = e;
+                }
 
                 // One mesh rides on the node entity; extra meshes become identity-local children.
                 if (n.MeshIndices.size() == 1) {
@@ -142,7 +166,7 @@ namespace Luth
                 }
             }
 
-            return nodes.empty() ? Entity{} : nodeEntities[0];
+            return importRoot;
         }
 
         // Skinned / legacy no-tree: root + flat mesh children + bone-entity hierarchy (prior behavior).
