@@ -1,16 +1,18 @@
 #version 450
 
 // Forward+ light-to-cluster assignment.
-// One invocation per cluster. For each point light, sphere-vs-AABB test against the cluster's
+// One invocation per cluster. Point + spot lights both sphere-vs-AABB test against the cluster's
 // view-space AABB; atomicAdd reserves a contiguous slot range in LightIndex; cluster grid gets
-// (offset, count). LightSSBO at binding 0 reads the same VkBuffer that Set 3 exposes — tagged-
-// heap backings carry both UNIFORM and STORAGE usage flags so the shaders can pick freely.
+// (offset, count). Spot indices carry SPOT_INDEX_FLAG so the shading loop picks the right loader.
+// LightSSBO at binding 0 reads the same VkBuffer that Set 3 exposes — tagged-heap backings carry
+// both UNIFORM and STORAGE usage flags so the shaders can pick freely.
 
 const uint TILES_X  = 16u;
 const uint TILES_Y  =  9u;
 const uint SLICES_Z = 48u;
 const uint NUM_CLUSTERS = TILES_X * TILES_Y * SLICES_Z;
 const uint MAX_LIGHTS_PER_CLUSTER = 128u;
+const uint SPOT_INDEX_FLAG = 0x80000000u;   // high bit tags a cluster index as a spot (else point)
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
@@ -32,7 +34,8 @@ struct ClusterAABB {
 layout(std430, set = 0, binding = 0) readonly buffer LightBuffer {
     DirectionalLightData dirLight;
     uint                 pointLightCount;
-    uint                 _pad[3];
+    uint                 spotLightCount;
+    uint                 _pad[2];
     PointLightData       points[];
 } lights;
 
@@ -55,8 +58,9 @@ layout(std430, set = 0, binding = 4) buffer LightIndexCounter {
 layout(push_constant) uniform PC {
     mat4 view;
     uint pointLightCount;
+    uint spotLightCount;
     uint maxLightsPerCluster;
-    uint _pad[2];
+    uint _pad;
 } pc;
 
 void main() {
@@ -77,6 +81,23 @@ void main() {
         vec3 d = posVS - closest;
         if (dot(d, d) <= r * r && localCount < pc.maxLightsPerCluster) {
             local[localCount] = i;
+            localCount += 1u;
+        }
+    }
+
+    // Spot lights share the cluster grid + index list. SpotLightData is 64 B = 2 PointLightData
+    // slots, and its first 16 B (position + range) coincide with PointLightData's, so the typed
+    // points[] view reads spot pos/range directly — GLSL forbids a second flexible array here.
+    // MVP cull = the same sphere(range) test as points; tighter cone-vs-AABB culling is a follow-up.
+    uint ns = pc.spotLightCount;
+    for (uint j = 0u; j < ns; ++j) {
+        uint slot = pc.pointLightCount + 2u * j;
+        vec3 posVS = (pc.view * vec4(lights.points[slot].position, 1.0)).xyz;
+        float r = lights.points[slot].range;
+        vec3 closest = clamp(posVS, cMin, cMax);
+        vec3 d = posVS - closest;
+        if (dot(d, d) <= r * r && localCount < pc.maxLightsPerCluster) {
+            local[localCount] = SPOT_INDEX_FLAG | j;
             localCount += 1u;
         }
     }

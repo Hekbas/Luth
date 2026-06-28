@@ -121,7 +121,7 @@ namespace Luth
             layoutCI.pBindings    = bindings;
             vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_LightAssignSetLayout);
 
-            // Push constant: mat4 view + u32 pointLightCount + u32 maxLightsPerCluster + u32 _pad[2] = 80 B.
+            // Push constant: mat4 view + u32 pointLightCount + u32 spotLightCount + u32 maxLightsPerCluster + u32 _pad = 80 B.
             VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, 80 };
 
             m_LightAssignSpv = loadSpv("shaders/light_assign.comp");
@@ -500,20 +500,23 @@ namespace Luth
         jobCtx->GpuCache.CurrentTag = frameAbs;
 
         auto& heap = Memory::GPUTaggedPageAllocator::Get();
-        const u64 ssboSize = sizeof(LightSSBOHeader) + lights.points.size() * sizeof(PointLightData);
+        const u64 pointBytes = lights.points.size() * sizeof(PointLightData);
+        const u64 spotBytes  = lights.spots.size()  * sizeof(SpotLightData);
+        const u64 ssboSize   = sizeof(LightSSBOHeader) + pointBytes + spotBytes;
         region = heap.Allocate(jobCtx->GpuCache, ssboSize, 16);
         if (!region.buffer) return {};
 
-        // Header at offset 0; flexible PointLightData[] follows at offset 48 (std430 alignment).
+        // Header at offset 0; points[] at offset 48; spots[] right after points (std430 alignment).
         auto* header = static_cast<LightSSBOHeader*>(region.mappedPtr);
         header->dirLight        = lights.dirLight;
         header->pointLightCount = static_cast<u32>(lights.points.size());
-        header->_pad[0] = header->_pad[1] = header->_pad[2] = 0;
+        header->spotLightCount  = static_cast<u32>(lights.spots.size());
+        header->_pad[0] = header->_pad[1] = 0;
+        auto* base = static_cast<u8*>(region.mappedPtr) + sizeof(LightSSBOHeader);
         if (!lights.points.empty())
-        {
-            auto* dst = reinterpret_cast<PointLightData*>(static_cast<u8*>(region.mappedPtr) + sizeof(LightSSBOHeader));
-            std::memcpy(dst, lights.points.data(), lights.points.size() * sizeof(PointLightData));
-        }
+            std::memcpy(base, lights.points.data(), pointBytes);
+        if (!lights.spots.empty())
+            std::memcpy(base + pointBytes, lights.spots.data(), spotBytes);
         heap.FlushRegion(region);
         m_LastLightSSBORegion = region;
         return region;
@@ -1206,10 +1209,14 @@ namespace Luth
 
         auto* pipeline = m_LightAssignPipeline.get();
         FrameDebugger* debugger = &m_Pipeline->GetSystem().GetFrameDebugger();
-        // Snapshot point-light count at graph-build time — LightingSystem::GetLights() is final by now.
+        // Snapshot light counts at graph-build time — LightingSystem::GetLights() is final by now.
         u32 capturedPointCount = 0;
+        u32 capturedSpotCount  = 0;
         if (auto* lightingSys = SystemRegistry::GetSystem<LightingSystem>())
+        {
             capturedPointCount = static_cast<u32>(lightingSys->GetLights().points.size());
+            capturedSpotCount  = static_cast<u32>(lightingSys->GetLights().spots.size());
+        }
 
         rg.AddComputePass<LightAssignData>("LightAssign", RG::QueueFamily::AsyncCompute,
             [&](LightAssignData& d, RG::RenderPassBuilder& builder)
@@ -1218,7 +1225,7 @@ namespace Luth
                 d.grid  = builder.WriteBuffer(cb.grid);
                 d.index = builder.WriteBuffer(out.index);
             },
-            [this, pipeline, debugger, capturedPointCount](LightAssignData&, RG::RenderPassContext& ctx)
+            [this, pipeline, debugger, capturedPointCount, capturedSpotCount](LightAssignData&, RG::RenderPassContext& ctx)
             {
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 if (debugger)
@@ -1242,11 +1249,13 @@ namespace Luth
                 struct LightAssignPC {
                     Mat4 view;
                     u32  pointLightCount;
+                    u32  spotLightCount;
                     u32  maxLightsPerCluster;
-                    u32  _pad0, _pad1;
+                    u32  _pad0;
                 } pc{};
                 pc.view                = view->camera.view;
                 pc.pointLightCount     = capturedPointCount;
+                pc.spotLightCount      = capturedSpotCount;
                 pc.maxLightsPerCluster = k_MaxLightsPerCluster;
                 vkCmdPushConstants(cmd, pipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LightAssignPC), &pc);

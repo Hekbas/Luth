@@ -34,4 +34,14 @@ namespace Luth::Component
         float Intensity = 1.0f;
         float Range = 350.0f;
     };
+
+    // Beam direction is the entity's -Z axis (same convention as DirectionalLight). Cone angles are
+    // half-angles from that axis; inner is the full-bright cap, outer the cutoff. Unshadowed MVP.
+    struct SpotLight {
+        Vec3 Color = Vec3(1.0f);
+        float Intensity = 1.0f;
+        float Range = 350.0f;
+        float InnerConeAngleDeg = 25.0f;
+        float OuterConeAngleDeg = 45.0f;
+    };
 }

@@ -154,6 +154,33 @@ namespace Luth
             out.pointLights = std::span<const PointLightSnapshot>(lightRows, count);
         }
 
+        // ── Spot lights (unbounded — clustered alongside points) ──
+        {
+            auto view = registry.view<Component::WorldTransform, Component::SpotLight>();
+            const size_t maxCount = view.size_hint();
+            auto* lightRows = maxCount > 0
+                ? static_cast<SpotLightSnapshot*>(
+                      mem.Allocate(maxCount * sizeof(SpotLightSnapshot), alignof(SpotLightSnapshot)))
+                : nullptr;
+            size_t count = 0;
+
+            for (auto [entity, wt, sl] : view.each())
+            {
+                if (!wt.ActiveInHierarchy) continue;
+                SpotLightSnapshot* dst = new (lightRows + count) SpotLightSnapshot();
+                dst->position           = Vec3(wt.Matrix[3]);
+                dst->direction          = Math::Normalize(-Vec3(wt.Matrix[2]));   // -Z axis, like the sun
+                dst->color              = sl.Color;
+                dst->intensity          = sl.Intensity;
+                dst->range              = sl.Range;
+                dst->innerConeAngleDeg  = sl.InnerConeAngleDeg;
+                dst->outerConeAngleDeg  = sl.OuterConeAngleDeg;
+                ++count;
+            }
+
+            out.spotLights = std::span<const SpotLightSnapshot>(lightRows, count);
+        }
+
         // ── Fog volumes ──
         // Bake the entity world matrix with the fog's local-offset/rotation so the injection
         // shader inverts a single transform per volume. extentsOrRadius is the active union

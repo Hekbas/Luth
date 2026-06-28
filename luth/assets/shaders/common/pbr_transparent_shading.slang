@@ -6,7 +6,7 @@ import globals;
 import material;
 import material_bindings_raster;  // GetMaterial + RasterFetch + RtConfirmAlphaCandidates (Set 1/2)
 import mat_graph_registry;        // EvalGraphVariant — stock decode (variant 0) or the project's graph override
-import pbr_lighting;              // ComputeShadowCSM / EvalClusteredPointLights / EvalIblAmbient / LoadDirLight + GI_PI
+import pbr_lighting;              // ComputeShadowCSM / EvalClusteredLights / EvalIblAmbient / LoadDirLight + GI_PI
 import brdf;                      // EvalBRDFTimesNdotL
 import restir_common;            // DirectionalLightData
 import froxel;
@@ -79,7 +79,7 @@ public float4 EvalTransparentSurfaceColor(uint materialIndex, uint shadeMode, fl
     Lo += EvalBRDFTimesNdotL(normalize(-dl.direction), dirRadiance, V, nrm,
                              mi.baseColor.rgb, mi.metallic, mi.roughness) * sunVis;
 
-    Lo += EvalClusteredPointLights(fragCoord, worldPos, V, nrm, mi.baseColor.rgb, mi.metallic, mi.roughness);
+    Lo += EvalClusteredLights(fragCoord, worldPos, V, nrm, mi.baseColor.rgb, mi.metallic, mi.roughness, false);
 
     IblResult ibl = EvalIblAmbient(nrm, V, mi.baseColor.rgb, mi.metallic, mi.roughness, mi.occlusion, ubo.iblIntensity);
     float3 color = ibl.ambient + Lo + mi.emissive;

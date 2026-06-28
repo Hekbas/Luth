@@ -3,7 +3,7 @@
 // Set 3 here is bindings 0-3 only; the opaque-depth-coupled screen-space inputs stay with the consumer.
 // see arch/rendering-pipeline.md
 import globals;        // ubo
-import restir_common;  // DirectionalLightData / PointLightData (shared std430 layout) + Luminance
+import restir_common;  // DirectionalLightData / PointLightData / SpotLightData (shared std430 layout) + Luminance
 import brdf;           // EvalBRDFTimesNdotL
 
 // Set 0 b1-b3: IBL (b0 = GlobalUniforms via globals).
@@ -22,6 +22,9 @@ public static const float GI_PI = 3.14159265358979;   // remodulation constant s
 public static const uint k_ClusterTilesX  = 16u;
 public static const uint k_ClusterTilesY  =  9u;
 public static const uint k_ClusterSlicesZ = 48u;
+
+// Cluster light-index tag: spot indices carry the high bit (set by light_assign.comp); plain indices are points.
+public static const uint SPOT_INDEX_FLAG = 0x80000000u;
 
 // LightBuffer header = DirectionalLightData(32) + count(4) + pad[3](12); points[] (32 B each) at offset 48.
 public DirectionalLightData LoadDirLight()
@@ -42,6 +45,23 @@ public PointLightData LoadPoint(uint j)
     p.color     = asfloat(g_Lights.Load3(b + 16u));
     p.intensity = asfloat(g_Lights.Load(b + 28u));
     return p;
+}
+
+// spots[] follow points[] in the same SSBO: base = 48 + pointCount*32 + j*64 (64 B stride).
+public SpotLightData LoadSpot(uint j)
+{
+    uint pointCount = g_Lights.Load(32u);
+    uint b = 48u + pointCount * 32u + j * 64u;
+    SpotLightData s;
+    s.position  = asfloat(g_Lights.Load3(b + 0u));
+    s.range     = asfloat(g_Lights.Load(b + 12u));
+    s.direction = asfloat(g_Lights.Load3(b + 16u));
+    s.cosInner  = asfloat(g_Lights.Load(b + 28u));
+    s.color     = asfloat(g_Lights.Load3(b + 32u));
+    s.intensity = asfloat(g_Lights.Load(b + 44u));
+    s.cosOuter  = asfloat(g_Lights.Load(b + 48u));
+    s._pad0 = s._pad1 = s._pad2 = 0.0;
+    return s;
 }
 
 public uint ComputeClusterID(float4 fragCoord, float2 viewportPx, float nearZ, float farZ)
@@ -142,23 +162,43 @@ public ShadowResult ComputeShadowCSM(float3 worldPos, float3 N)
     return res;
 }
 
-// Unshadowed Forward+ cluster loop — the point-light path for transparents / ReSTIR-disabled surfaces.
-public float3 EvalClusteredPointLights(float4 fragCoord, float3 worldPos, float3 V, float3 N,
-                                       float3 albedo, float metallic, float roughness)
+// Unshadowed Forward+ cluster loop — point + spot lights. Spot indices carry SPOT_INDEX_FLAG; the cone
+// term gates the shared point distance/range falloff. spotsOnly skips points when ReSTIR DI already
+// supplied them via the demodulated image — spots aren't in the DI reservoir yet, so they ride here.
+public float3 EvalClusteredLights(float4 fragCoord, float3 worldPos, float3 V, float3 N,
+                                  float3 albedo, float metallic, float roughness, bool spotsOnly)
 {
     float3 Lo        = float3(0.0);
     uint   clusterID = ComputeClusterID(fragCoord, ubo.viewportSize, ubo.nearZ, ubo.farZ);
     uint2  oc        = g_ClusterGrid[clusterID];
     for (uint k = 0u; k < oc.y; ++k)
     {
-        PointLightData pl = LoadPoint(g_LightIndex[oc.x + k]);
-        float3 toLight = pl.position - worldPos;
+        uint   idx    = g_LightIndex[oc.x + k];
+        bool   isSpot = (idx & SPOT_INDEX_FLAG) != 0u;
+        if (spotsOnly && !isSpot) continue;
+
+        float3 position, color;
+        float  range, intensity, cone = 1.0;
+        if (isSpot)
+        {
+            SpotLightData sl = LoadSpot(idx & 0x7FFFFFFFu);
+            position = sl.position; range = sl.range; color = sl.color; intensity = sl.intensity;
+            float3 L = normalize(sl.position - worldPos);
+            cone = smoothstep(sl.cosOuter, sl.cosInner, dot(-L, sl.direction));   // soft cone edge
+        }
+        else
+        {
+            PointLightData pl = LoadPoint(idx);
+            position = pl.position; range = pl.range; color = pl.color; intensity = pl.intensity;
+        }
+
+        float3 toLight = position - worldPos;
         float  dist    = length(toLight);
         float  atten   = 1.0 / max(dist * dist, 0.0001);
-        float  rolloff = pow(1.0 - clamp(dist / pl.range, 0.0, 1.0), 2.0);
-        float3 ptRadiance = pl.color * pl.intensity * atten * rolloff;
-        if (dot(ptRadiance, ptRadiance) > 0.0001)
-            Lo += EvalBRDFTimesNdotL(normalize(toLight), ptRadiance, V, N, albedo, metallic, roughness);
+        float  rolloff = pow(1.0 - clamp(dist / range, 0.0, 1.0), 2.0);
+        float3 radiance = color * intensity * atten * rolloff * cone;
+        if (dot(radiance, radiance) > 0.0001)
+            Lo += EvalBRDFTimesNdotL(normalize(toLight), radiance, V, N, albedo, metallic, roughness);
     }
     return Lo;
 }
