@@ -89,11 +89,11 @@ Per-frame snapshot of editor toggles the engine needs to read. Populated by `Get
 
 ## Selection System (EditorSelection.h)
 
-Static singleton: `s_SelectedEntity`, `s_SelectedResource`, `s_Version`
-- HierarchyPanel sets entity selection
+Static singleton holding a multi-selection set: `s_SelectedEntities` (vector; primary = last added), `s_SelectedResource`, `s_Version`. Mutators (`SelectEntity` replace / `AddEntity` / `ToggleEntity` / `RemoveEntity` / `ClearSelection`) bump the version and publish `SelectionChangedSignal`.
+- HierarchyPanel: Ctrl-click toggles, Shift-click selects the span to the anchor in visible-row order
 - ProjectPanel sets resource selection
-- InspectorPanel reads current selection
-- ScenePanel uses selected entity for gizmo
+- InspectorPanel edits the primary; with 2+ selected, edits fan across the set via the `MultiEdit` broadcast context (per-member edits + Reset/Remove/Add/Active; combos primary-only)
+- ScenePanel: a plain viewport click selects a model's root first, then the exact clicked part once that model is active (Ctrl/Shift extend/toggle the exact entity); gizmo transforms the whole selection about the active (primary) pivot as one compound undo (root-filtered); LMB-drag marquee select picks entities by screen-projected origin (Shift adds / Ctrl toggles); batch delete (`EntityDestroyMultipleCommand`) removes the whole selection as one undo
 
 ## Command System (Command.h, CommandHistory.h)
 
