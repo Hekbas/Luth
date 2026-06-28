@@ -540,18 +540,13 @@ namespace Luth
                         }
                         else
                         {
-                            // Plain click: hierarchy-aware selection
+                            // First click on a model selects its root; once any part of that model is
+                            // already selected, subsequent clicks select the exact part under the cursor.
                             Entity root = rawEntity.GetRoot();
-                            Entity lastRaw = EditorSelection::GetLastRawPick();
-
-                            // Drill-down: if root is already selected and clicking same mesh again, select child
-                            if (EditorSelection::IsSelected(root) && lastRaw == rawEntity && rawEntity != root)
-                                EditorSelection::SelectEntity(rawEntity);
-                            else
-                                EditorSelection::SelectEntity(root);
+                            Entity primary = EditorSelection::GetSelectedEntity();
+                            bool sameModel = primary.IsValid() && primary.GetRoot() == root;
+                            EditorSelection::SelectEntity(sameModel ? rawEntity : root);
                         }
-
-                        EditorSelection::SetLastRawPick(rawEntity);
                     }
                     else
                     {

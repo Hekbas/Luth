@@ -48,9 +48,18 @@ namespace Luth
         void InstantiateModel(UUID modelUUID, Entity parent);
         bool SubtreeMatchesFilter(Entity entity, const char* filter);
 
+        // Shift-click range select: pick everything between the anchor and the target in the
+        // flattened visible-row order (m_VisibleOrder, rebuilt each draw).
+        void SelectRangeTo(Entity target);
+
     private:
         std::shared_ptr<Scene> m_Context;
         Entity m_Selection;
+
+        // Anchor for shift-range select (last plain/ctrl click). m_VisibleOrder is the flattened
+        // pre-order of rows actually drawn this frame (respects collapse + search filter).
+        Entity m_RangeAnchor;
+        std::vector<Entity> m_VisibleOrder;
 
         Entity m_RenamingEntity;
         bool m_IsRenaming = false;
