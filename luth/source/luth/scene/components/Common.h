@@ -44,4 +44,8 @@ namespace Luth::Component
 
     // Presence marks an inactive entity. Sparse by default (most entities are active).
     struct Disabled {};
+
+    // Presence marks a skeleton-joint entity (created by Scene::InstantiateModel for a
+    // skinned model). Pure marker, no data — the editor keys the bone icon off it.
+    struct Bone {};
 }
