@@ -43,6 +43,11 @@ namespace Luth
         bool m_ShowError    = true;
         bool m_ShowCritical = true;
 
+        // Per-category visibility. Set in the ctor (all on except the verbose
+        // Shaders / Renderer channels). Error / Critical bypass this filter so a
+        // shader-compile or device failure always surfaces even with its channel off.
+        bool m_ShowCategory[static_cast<size_t>(LogCategory::Count)];
+
         char m_SearchBuf[128] = "";
         bool m_AutoScroll     = true;
         bool m_ScrollPending  = false;
