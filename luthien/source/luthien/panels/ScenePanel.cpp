@@ -320,50 +320,70 @@ namespace Luth
                 // Gizmo visibility split — icon toggles all gizmos on/off; chevron lists
                 // per-gizmo flags + the tri-indicator overlay (Grid lives in its own split now).
                 {
-                    // Saved-flags snapshot covers both the legacy gizmo bools and the new physics
-                    // Selected/All pairs so the icon toggle restores everything at once.
-                    static struct {
-                        bool transform; bool bone; bool light; bool camera; bool aabb;
-                        bool physShapesSel, physShapesAll;
-                        bool physAABBsSel,  physAABBsAll;
-                        bool physCoMSel,    physCoMAll;
-                        bool valid;
-                    } s_savedGizmoFlags{};
+                    // All gizmo + physics visibility flags in one list so the eye toggle hides/restores
+                    // them generically; Tri Indicator stays independent (drawn but not eye-gated).
                     bool* xformVisRef = m_Gizmo->GetTransformGizmoVisibleRef();
-                    bool gizState = (*xformVisRef) || settings.showBoneDebug
-                                  || settings.showLightGizmos || settings.showCameraGizmos
-                                  || settings.showAABBGizmos
-                                  || settings.physicsShapesSelected || settings.physicsShapesAll
-                                  || settings.physicsAABBsSelected  || settings.physicsAABBsAll
-                                  || settings.physicsCoMSelected    || settings.physicsCoMAll;
+                    bool* toggles[] = {
+                        xformVisRef,
+                        &settings.lightsSelected,  &settings.lightsAll,
+                        &settings.camerasSelected, &settings.camerasAll,
+                        &settings.boundsSelected,  &settings.boundsAll,
+                        &settings.bonesSelected,   &settings.bonesAll,
+                        &settings.fogSelected,     &settings.fogAll,
+                        &settings.windSelected,    &settings.windAll,
+                        &settings.physicsShapesSelected, &settings.physicsShapesAll,
+                        &settings.physicsAABBsSelected,  &settings.physicsAABBsAll,
+                        &settings.physicsCoMSelected,    &settings.physicsCoMAll,
+                    };
+                    constexpr int kGizmoToggleCount = (int)(sizeof(toggles) / sizeof(toggles[0]));
+                    static bool s_savedGizmo[kGizmoToggleCount] = {};
+                    static bool s_savedGizmoValid = false;
+
+                    bool gizState = false;
+                    for (bool* t : toggles) gizState = gizState || *t;
+
                     if (UI::SplitToggleButton("GizmoVis", ICON_EYE, "Gizmos", &gizState,
-                        [this, &settings, xformVisRef]() {
+                        [&settings, xformVisRef]() {
                             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 2));
                             ImGui::PushFont(Editor::GetMainFont());
-                            ImGui::Checkbox("Transform Gizmo", xformVisRef);
-                            ImGui::Checkbox("Bone Debug",      &settings.showBoneDebug);
-                            ImGui::Checkbox("Light Gizmos",    &settings.showLightGizmos);
-                            ImGui::Checkbox("Camera Gizmos",   &settings.showCameraGizmos);
-                            ImGui::Checkbox("AABB Gizmos",     &settings.showAABBGizmos);
-                            ImGui::Checkbox("Tri Indicator",   &settings.showTriIndicatorOverlay);
+                            ImGui::Checkbox("Transform",     xformVisRef);
+                            ImGui::Checkbox("Tri Indicator", &settings.showTriIndicatorOverlay);
+
+                            auto Row = [](const char* label, const char* idSel, const char* idAll,
+                                          bool& sel, bool& all) {
+                                ImGui::TableNextRow();
+                                ImGui::TableNextColumn(); ImGui::TextUnformatted(label);
+                                ImGui::TableNextColumn(); ImGui::Checkbox(idSel, &sel);
+                                ImGui::TableNextColumn(); ImGui::Checkbox(idAll, &all);
+                            };
+                            constexpr ImGuiTableFlags kFlags =
+                                ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoBordersInBody;
 
                             ImGui::Separator();
-                            ImGui::TextUnformatted("Physics");
-                            if (ImGui::BeginTable("##ScenePhysicsGizmos", 3,
-                                ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoBordersInBody))
+                            ImGui::TextUnformatted("Gizmos");
+                            if (ImGui::BeginTable("##SceneGizmos", 3, kFlags))
                             {
                                 ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthStretch);
                                 ImGui::TableSetupColumn("Selected");
                                 ImGui::TableSetupColumn("All");
                                 ImGui::TableHeadersRow();
+                                Row("Lights",  "##lightsSel",  "##lightsAll",  settings.lightsSelected,  settings.lightsAll);
+                                Row("Cameras", "##camerasSel", "##camerasAll", settings.camerasSelected, settings.camerasAll);
+                                Row("Bounds",  "##boundsSel",  "##boundsAll",  settings.boundsSelected,  settings.boundsAll);
+                                Row("Bones",   "##bonesSel",   "##bonesAll",   settings.bonesSelected,   settings.bonesAll);
+                                Row("Fog",     "##fogSel",     "##fogAll",     settings.fogSelected,     settings.fogAll);
+                                Row("Wind",    "##windSel",    "##windAll",    settings.windSelected,    settings.windAll);
+                                ImGui::EndTable();
+                            }
 
-                                auto Row = [](const char* label, const char* idSel, const char* idAll,
-                                              bool& sel, bool& all) {
-                                    ImGui::TableNextRow();
-                                    ImGui::TableNextColumn(); ImGui::TextUnformatted(label);
-                                    ImGui::TableNextColumn(); ImGui::Checkbox(idSel, &sel);
-                                    ImGui::TableNextColumn(); ImGui::Checkbox(idAll, &all);
-                                };
+                            ImGui::Separator();
+                            ImGui::TextUnformatted("Physics");
+                            if (ImGui::BeginTable("##ScenePhysicsGizmos", 3, kFlags))
+                            {
+                                ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthStretch);
+                                ImGui::TableSetupColumn("Selected");
+                                ImGui::TableSetupColumn("All");
+                                ImGui::TableHeadersRow();
                                 Row("Colliders",      "##physShapesSel", "##physShapesAll",
                                     settings.physicsShapesSelected, settings.physicsShapesAll);
                                 Row("AABBs",          "##physAABBsSel",  "##physAABBsAll",
@@ -378,45 +398,18 @@ namespace Luth
                         }))
                     {
                         if (!gizState) {
-                            // Toggling OFF: snapshot per-flag state so the next ON can restore it.
-                            s_savedGizmoFlags = {
-                                *xformVisRef, settings.showBoneDebug,
-                                settings.showLightGizmos, settings.showCameraGizmos,
-                                settings.showAABBGizmos,
-                                settings.physicsShapesSelected, settings.physicsShapesAll,
-                                settings.physicsAABBsSelected,  settings.physicsAABBsAll,
-                                settings.physicsCoMSelected,    settings.physicsCoMAll,
-                                true
-                            };
-                            *xformVisRef = false;
-                            settings.showBoneDebug = false;
-                            settings.showLightGizmos = false;
-                            settings.showCameraGizmos = false;
-                            settings.showAABBGizmos = false;
-                            settings.physicsShapesSelected = false;
-                            settings.physicsShapesAll      = false;
-                            settings.physicsAABBsSelected  = false;
-                            settings.physicsAABBsAll       = false;
-                            settings.physicsCoMSelected    = false;
-                            settings.physicsCoMAll         = false;
+                            // Toggling OFF: snapshot every flag so the next ON restores the exact set.
+                            for (int i = 0; i < kGizmoToggleCount; ++i) { s_savedGizmo[i] = *toggles[i]; *toggles[i] = false; }
+                            s_savedGizmoValid = true;
                         }
-                        else if (s_savedGizmoFlags.valid) {
-                            *xformVisRef = s_savedGizmoFlags.transform;
-                            settings.showBoneDebug   = s_savedGizmoFlags.bone;
-                            settings.showLightGizmos = s_savedGizmoFlags.light;
-                            settings.showCameraGizmos= s_savedGizmoFlags.camera;
-                            settings.showAABBGizmos  = s_savedGizmoFlags.aabb;
-                            settings.physicsShapesSelected = s_savedGizmoFlags.physShapesSel;
-                            settings.physicsShapesAll      = s_savedGizmoFlags.physShapesAll;
-                            settings.physicsAABBsSelected  = s_savedGizmoFlags.physAABBsSel;
-                            settings.physicsAABBsAll       = s_savedGizmoFlags.physAABBsAll;
-                            settings.physicsCoMSelected    = s_savedGizmoFlags.physCoMSel;
-                            settings.physicsCoMAll         = s_savedGizmoFlags.physCoMAll;
+                        else if (s_savedGizmoValid) {
+                            for (int i = 0; i < kGizmoToggleCount; ++i) *toggles[i] = s_savedGizmo[i];
                         }
                         else {
+                            // No prior snapshot — enable a sensible default set.
                             *xformVisRef = true;
-                            settings.showLightGizmos = true;
-                            settings.showCameraGizmos = true;
+                            settings.lightsSelected        = true;
+                            settings.camerasSelected       = true;
                             settings.physicsShapesSelected = true;
                         }
                     }

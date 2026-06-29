@@ -52,7 +52,8 @@ namespace Luth
     void ViewportOverlays::DrawLights(const std::shared_ptr<Scene>& scene,
                                       const EditorCamera& camera, Entity selected)
     {
-        if (!Editor::GetSettings().showLightGizmos) return;
+        const auto& gs = Editor::GetSettings();
+        if (!gs.lightsSelected && !gs.lightsAll) return;   // icons show whenever lights are enabled (either scope)
         if (!scene) return;
 
         auto& registry = scene->Registry();
@@ -93,7 +94,8 @@ namespace Luth
     void ViewportOverlays::DrawCameras(const std::shared_ptr<Scene>& scene,
                                        const EditorCamera& camera, Entity selected)
     {
-        if (!Editor::GetSettings().showCameraGizmos) return;
+        const auto& gs = Editor::GetSettings();
+        if (!gs.camerasSelected && !gs.camerasAll) return;   // icons show whenever cameras are enabled (either scope)
         if (!scene) return;
 
         auto& registry = scene->Registry();

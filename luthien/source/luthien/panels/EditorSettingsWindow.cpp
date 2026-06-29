@@ -152,11 +152,46 @@ namespace Luth
             }
             case 4: { // Gizmos
                 Header("Gizmos");
+
+                // Table-format paired toggles (mirrors the Physics tab); lives outside BeginProperties.
+                const bool tableMatch = !filter
+                    || ContainsCI("Lights",  filter) || ContainsCI("Cameras", filter)
+                    || ContainsCI("Bounds",  filter) || ContainsCI("Bones",   filter)
+                    || ContainsCI("Fog",     filter) || ContainsCI("Wind",    filter);
+                if (tableMatch) {
+                    if (ImGui::BeginTable("##PrefsGizmosTable", 3,
+                        ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoBordersInBody))
+                    {
+                        ImGui::TableSetupColumn("Category", ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableSetupColumn("Selected");
+                        ImGui::TableSetupColumn("All");
+                        ImGui::TableHeadersRow();
+
+                        auto Row = [&](const char* label, const char* idSel, const char* idAll,
+                                       bool& sel, bool& all) {
+                            ImGui::TableNextRow();
+                            ImGui::TableNextColumn(); ImGui::TextUnformatted(label);
+                            ImGui::TableNextColumn();
+                            if (ImGui::Checkbox(idSel, &sel)) committedAny = true;
+                            ImGui::TableNextColumn();
+                            if (ImGui::Checkbox(idAll, &all)) committedAny = true;
+                            ++rowsRendered;
+                        };
+                        Row("Lights",  "##gizLightsSel",  "##gizLightsAll",  s.lightsSelected,  s.lightsAll);
+                        Row("Cameras", "##gizCamerasSel", "##gizCamerasAll", s.camerasSelected, s.camerasAll);
+                        Row("Bounds",  "##gizBoundsSel",  "##gizBoundsAll",  s.boundsSelected,  s.boundsAll);
+                        Row("Bones",   "##gizBonesSel",   "##gizBonesAll",   s.bonesSelected,   s.bonesAll);
+                        Row("Fog",     "##gizFogSel",     "##gizFogAll",     s.fogSelected,     s.fogAll);
+                        Row("Wind",    "##gizWindSel",    "##gizWindAll",    s.windSelected,    s.windAll);
+
+                        ImGui::EndTable();
+                    }
+                    ImGui::Spacing();
+                }
+
                 if (UI::BeginProperties("PrefsGizmos")) {
-                    if (Match("Light Gizmos"))  { committedAny |= UI::Property("Light Gizmos",  s.showLightGizmos).committed; ++rowsRendered; }
-                    if (Match("Camera Gizmos")) { committedAny |= UI::Property("Camera Gizmos", s.showCameraGizmos).committed; ++rowsRendered; }
-                    if (Match("AABB Gizmos"))   { committedAny |= UI::Property("AABB Gizmos",   s.showAABBGizmos).committed; ++rowsRendered; }
-                    if (Match("Bone Debug"))    { committedAny |= UI::Property("Bone Debug",    s.showBoneDebug).committed; ++rowsRendered; }
+                    if (Match("Unselected Alpha"))
+                        { committedAny |= UI::Property("Unselected Alpha", s.gizmoAlphaUnselected, 0.01f, 0.0f, 1.0f).committed; ++rowsRendered; }
                     UI::EndProperties();
                 }
                 break;

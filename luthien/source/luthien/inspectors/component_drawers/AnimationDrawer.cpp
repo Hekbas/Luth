@@ -122,7 +122,7 @@ namespace Luth::ComponentDrawers
                         }
                     }
 
-                    UI::Property("Show Bones", Editor::GetSettings().showBoneDebug);
+                    UI::Property("Show Bones", Editor::GetSettings().bonesSelected);
 
                     UI::EndProperties();
                 }
