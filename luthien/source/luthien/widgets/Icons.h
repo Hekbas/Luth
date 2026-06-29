@@ -95,7 +95,9 @@
 #define ICON_ANIMATION         ICON_PH_PERSON_SIMPLE_RUN
 #define ICON_PHYSICS           ICON_PH_BOUNDING_BOX
 #define ICON_FOG               ICON_PH_CLOUD_FOG
+#define ICON_FOG_FILL          ICON_PHF_CLOUD_FOG
 #define ICON_WIND              ICON_PH_WIND
+#define ICON_WIND_FILL         ICON_PHF_WIND
 #define ICON_CUBE              ICON_PH_CUBE
 #define ICON_SHAPES            ICON_PH_SHAPES
 
