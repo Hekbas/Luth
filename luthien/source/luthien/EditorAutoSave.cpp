@@ -304,6 +304,11 @@ namespace Luth
             s_RecoveryModalOpened = true;
         }
 
+        // Center on the main viewport when shown; the .ini-persisted position can
+        // land off-screen if the window layout or resolution changed since last run.
+        const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
         if (!ImGui::BeginPopupModal(kModalID, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             return;
 
