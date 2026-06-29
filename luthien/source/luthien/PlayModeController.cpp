@@ -20,7 +20,7 @@ namespace Luth
 
         auto scene = Editor::GetActiveScene();
         if (!scene) {
-            LH_CORE_WARN("PlayModeController::EnterPlay — no active scene");
+            LH_LOG(Editor, warn, "PlayModeController::EnterPlay — no active scene");
             return;
         }
 
@@ -33,7 +33,7 @@ namespace Luth
         s_State = PlayState::Playing;
         s_StepRequested = false;
         PublishPlayState(from, s_State);
-        LH_CORE_INFO("Play: enter");
+        LH_LOG(Editor, info, "Play: enter");
     }
 
     void PlayModeController::Pause()
@@ -42,7 +42,7 @@ namespace Luth
         const PlayState from = s_State;
         s_State = PlayState::Paused;
         PublishPlayState(from, s_State);
-        LH_CORE_INFO("Play: pause");
+        LH_LOG(Editor, info, "Play: pause");
     }
 
     void PlayModeController::Resume()
@@ -51,7 +51,7 @@ namespace Luth
         const PlayState from = s_State;
         s_State = PlayState::Playing;
         PublishPlayState(from, s_State);
-        LH_CORE_INFO("Play: resume");
+        LH_LOG(Editor, info, "Play: resume");
     }
 
     void PlayModeController::Stop()
@@ -61,7 +61,7 @@ namespace Luth
         auto scene = Editor::GetActiveScene();
         if (scene && !s_Snapshot.empty()) {
             if (!SceneSerializer::LoadFromString(*scene, s_Snapshot, /*preserveAssets=*/true)) {
-                LH_CORE_ERROR("PlayModeController::Stop — failed to restore scene snapshot");
+                LH_LOG(Editor, error, "PlayModeController::Stop — failed to restore scene snapshot");
             }
         }
         s_Snapshot.clear();
@@ -74,7 +74,7 @@ namespace Luth
         s_State = PlayState::Editing;
         s_StepRequested = false;
         PublishPlayState(from, s_State);
-        LH_CORE_INFO("Play: stop (scene restored)");
+        LH_LOG(Editor, info, "Play: stop (scene restored)");
     }
 
     void PlayModeController::RequestStep()

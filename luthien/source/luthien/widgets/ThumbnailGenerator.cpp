@@ -57,14 +57,14 @@ namespace Luth::UI
                 srcPath = meta.Path;
             }
             if (srcPath.empty() || !fs::exists(srcPath)) {
-                LH_CORE_WARN("Thumbnail: source missing for {}", asset.ToString());
+                LH_LOG(Editor, warn, "Thumbnail: source missing for {}", asset.ToString());
                 ThumbnailCacheInternal::NotifyBakeFailed(asset);
                 return;
             }
 
             Image::LoadResult8 src = Image::Load(srcPath);
             if (!src.valid) {
-                LH_CORE_WARN("Thumbnail: Image::Load failed for {}", srcPath.string());
+                LH_LOG(Editor, warn, "Thumbnail: Image::Load failed for {}", srcPath.string());
                 ThumbnailCacheInternal::NotifyBakeFailed(asset);
                 return;
             }
@@ -86,7 +86,7 @@ namespace Luth::UI
                 resized = std::move(src.pixels);
             } else if (!Image::Resize(src.pixels.data(), src.width, src.height,
                                       resized.data(),     dstW,      dstH, 4)) {
-                LH_CORE_WARN("Thumbnail: Image::Resize failed for {}", asset.ToString());
+                LH_LOG(Editor, warn, "Thumbnail: Image::Resize failed for {}", asset.ToString());
                 ThumbnailCacheInternal::NotifyBakeFailed(asset);
                 return;
             }
@@ -112,10 +112,10 @@ namespace Luth::UI
             try {
                 BakeTexture(ctx->asset, ctx->targetSize);
             } catch (const std::exception& e) {
-                LH_CORE_ERROR("Thumbnail: bake threw for {}: {}", asset.ToString(), e.what());
+                LH_LOG(Editor, error, "Thumbnail: bake threw for {}: {}", asset.ToString(), e.what());
                 ThumbnailCacheInternal::NotifyBakeFailed(asset);
             } catch (...) {
-                LH_CORE_ERROR("Thumbnail: bake threw non-std exception for {}", asset.ToString());
+                LH_LOG(Editor, error, "Thumbnail: bake threw non-std exception for {}", asset.ToString());
                 ThumbnailCacheInternal::NotifyBakeFailed(asset);
             }
             LH_DELETE(Memory::Category::Editor, ctx);
@@ -159,10 +159,10 @@ namespace Luth::UI
                 ThumbnailCacheInternal::PushTextureCompletion(
                     asset, std::move(baked.pixels), baked.width, baked.height);
             } catch (const std::exception& e) {
-                LH_CORE_ERROR("Thumbnail: mesh bake threw for {}: {}", asset.ToString(), e.what());
+                LH_LOG(Editor, error, "Thumbnail: mesh bake threw for {}: {}", asset.ToString(), e.what());
                 ThumbnailCacheInternal::NotifyBakeFailed(asset);
             } catch (...) {
-                LH_CORE_ERROR("Thumbnail: mesh bake threw non-std exception for {}", asset.ToString());
+                LH_LOG(Editor, error, "Thumbnail: mesh bake threw non-std exception for {}", asset.ToString());
                 ThumbnailCacheInternal::NotifyBakeFailed(asset);
             }
         }
@@ -206,10 +206,10 @@ namespace Luth::UI
                     asset, std::move(baked.pixels), baked.width, baked.height);
                 ThumbnailCacheInternal::SetEntryDeps(asset, std::move(deps));
             } catch (const std::exception& e) {
-                LH_CORE_ERROR("Thumbnail: material bake threw for {}: {}", asset.ToString(), e.what());
+                LH_LOG(Editor, error, "Thumbnail: material bake threw for {}: {}", asset.ToString(), e.what());
                 ThumbnailCacheInternal::NotifyBakeFailed(asset);
             } catch (...) {
-                LH_CORE_ERROR("Thumbnail: material bake threw non-std exception for {}", asset.ToString());
+                LH_LOG(Editor, error, "Thumbnail: material bake threw non-std exception for {}", asset.ToString());
                 ThumbnailCacheInternal::NotifyBakeFailed(asset);
             }
         }
@@ -251,17 +251,17 @@ namespace Luth::UI
                 }
                 Image::LoadResult8 img = Image::LoadFromMemory(bytes.data(), bytes.size());
                 if (!img.valid) {
-                    LH_CORE_WARN("Thumbnail: disk decode failed for {}", asset.ToString());
+                    LH_LOG(Editor, warn, "Thumbnail: disk decode failed for {}", asset.ToString());
                     ThumbnailCacheInternal::NotifyBakeFailed(asset);
                     return;
                 }
                 ThumbnailCacheInternal::PushTextureCompletion(asset, std::move(img.pixels),
                                                               img.width, img.height);
             } catch (const std::exception& e) {
-                LH_CORE_ERROR("Thumbnail: disk-load threw for {}: {}", asset.ToString(), e.what());
+                LH_LOG(Editor, error, "Thumbnail: disk-load threw for {}: {}", asset.ToString(), e.what());
                 ThumbnailCacheInternal::NotifyBakeFailed(asset);
             } catch (...) {
-                LH_CORE_ERROR("Thumbnail: disk-load threw non-std exception for {}", asset.ToString());
+                LH_LOG(Editor, error, "Thumbnail: disk-load threw non-std exception for {}", asset.ToString());
                 ThumbnailCacheInternal::NotifyBakeFailed(asset);
             }
         });

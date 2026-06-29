@@ -64,7 +64,7 @@ namespace Luth::Physics
                 }
                 if (points.size() < 4)
                 {
-                    LH_CORE_WARN("ShapeCache: ConvexHull needs >=4 points (mesh '{}' has {})",
+                    LH_LOG(Physics, warn, "ShapeCache: ConvexHull needs >=4 points (mesh '{}' has {})",
                                  mesh.Name, points.size());
                     return nullptr;
                 }
@@ -72,7 +72,7 @@ namespace Luth::Physics
                 auto result = settings.Create();
                 if (!result.IsValid())
                 {
-                    LH_CORE_WARN("ShapeCache: ConvexHullShape::Create failed for mesh '{}': {}",
+                    LH_LOG(Physics, warn, "ShapeCache: ConvexHullShape::Create failed for mesh '{}': {}",
                                  mesh.Name, std::string(result.GetError().c_str()));
                     return nullptr;
                 }
@@ -83,7 +83,7 @@ namespace Luth::Physics
             {
                 if (mesh.Indices.empty() || (mesh.Indices.size() % 3) != 0)
                 {
-                    LH_CORE_WARN("ShapeCache: MeshShape index count {} is not a positive multiple "
+                    LH_LOG(Physics, warn, "ShapeCache: MeshShape index count {} is not a positive multiple "
                                  "of 3 (mesh '{}')", mesh.Indices.size(), mesh.Name);
                     return nullptr;
                 }
@@ -113,7 +113,7 @@ namespace Luth::Physics
                 auto result = settings.Create();
                 if (!result.IsValid())
                 {
-                    LH_CORE_WARN("ShapeCache: MeshShape::Create failed for mesh '{}': {}",
+                    LH_LOG(Physics, warn, "ShapeCache: MeshShape::Create failed for mesh '{}': {}",
                                  mesh.Name, std::string(result.GetError().c_str()));
                     return nullptr;
                 }
@@ -183,7 +183,7 @@ namespace Luth::Physics
                         }
                         if (firstTime)
                         {
-                            LH_CORE_WARN("ShapeCache: model '{}' has PhysicsBake = None — body "
+                            LH_LOG(Physics, warn, "ShapeCache: model '{}' has PhysicsBake = None — body "
                                          "skipped. Set 'Bake Mode' to Auto in the Model importer "
                                          "and reimport to enable.",
                                          meta.Path.filename().string());
@@ -202,7 +202,7 @@ namespace Luth::Physics
             auto& meshes = model->GetMeshesData();
             if (c.meshRef.meshIndex >= meshes.size())
             {
-                LH_CORE_WARN("ShapeCache: meshIndex {} out of range ({} meshes in model)", c.meshRef.meshIndex, meshes.size());
+                LH_LOG(Physics, warn, "ShapeCache: meshIndex {} out of range ({} meshes in model)", c.meshRef.meshIndex, meshes.size());
                 return { nullptr, false };
             }
 

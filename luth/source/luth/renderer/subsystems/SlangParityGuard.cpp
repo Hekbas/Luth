@@ -63,10 +63,10 @@ namespace Luth
             m_GateSpv = sh->GetSpirV();
         if (m_GateSpv.empty())
         {
-            LH_CORE_WARN("SlangParity: {} SPIR-V unavailable — codegen gate not run", kGateName);
+            LH_LOG(Renderer, warn, "SlangParity: {} SPIR-V unavailable — codegen gate not run", kGateName);
             return;
         }
-        LH_CORE_INFO("SlangParity: gate on {} -> {} SPIR-V words", kGateName, m_GateSpv.size());
+        LH_LOG(Renderer, info, "SlangParity: gate on {} -> {} SPIR-V words", kGateName, m_GateSpv.size());
         CheckSlangSpirv();
     }
 
@@ -84,10 +84,10 @@ namespace Luth
         s.spirvPass       = scan.caps && scan.nonUniform > 0;
 
         if (s.spirvPass)
-            LH_CORE_INFO("SlangParity: bindless SPIR-V OK — {} NonUniform decorations, caps present",
+            LH_LOG(Renderer, info, "SlangParity: bindless SPIR-V OK — {} NonUniform decorations, caps present",
                          scan.nonUniform);
         else
-            LH_CORE_WARN("SlangParity: SPIR-V REGRESSION — caps {}, {} NonUniform decorations (slang#10525?)",
+            LH_LOG(Renderer, warn, "SlangParity: SPIR-V REGRESSION — caps {}, {} NonUniform decorations (slang#10525?)",
                          scan.caps ? "present" : "MISSING", scan.nonUniform);
     }
 

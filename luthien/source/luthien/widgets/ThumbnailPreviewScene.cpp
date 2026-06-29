@@ -138,7 +138,7 @@ namespace Luth::UI::ThumbnailPreviewScene
         bool LoadShader(const char* relPath, std::vector<u32>& out)
         {
             auto sh = ShaderLibrary::LoadEngine(relPath);
-            if (!sh) { LH_CORE_ERROR("Thumbnail: failed to load engine shader '{}'", relPath); return false; }
+            if (!sh) { LH_LOG(Editor, error, "Thumbnail: failed to load engine shader '{}'", relPath); return false; }
             out = sh->GetSpirV();
             return !out.empty();
         }
@@ -427,7 +427,7 @@ namespace Luth::UI::ThumbnailPreviewScene
         if (!CreateWhiteTexture())      { Shutdown(); return false; }
         // Non-fatal: on failure material graph previews fall back to the stock Lambert shader.
         if (!CreatePreviewResources())
-            LH_CORE_WARN("Thumbnail: graph-preview resources failed — material previews stay Lambert");
+            LH_LOG(Editor, warn, "Thumbnail: graph-preview resources failed — material previews stay Lambert");
 
         s_Initialized = true;
         return true;
@@ -516,7 +516,7 @@ namespace Luth::UI::ThumbnailPreviewScene
             auto base = AssetManager::LoadImmediate(kSphereUUID);
             s_SphereModel = std::dynamic_pointer_cast<Model>(base);
             if (!s_SphereModel) {
-                LH_CORE_WARN("Thumbnail: failed to load Sphere primitive for material bake");
+                LH_LOG(Editor, warn, "Thumbnail: failed to load Sphere primitive for material bake");
                 return false;
             }
             return true;

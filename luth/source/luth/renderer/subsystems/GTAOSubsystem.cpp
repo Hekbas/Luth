@@ -55,7 +55,7 @@ namespace Luth
                 m_PrefilterSpv = sh->GetSpirV();
             if (m_PrefilterSpv.empty())
             {
-                LH_CORE_ERROR("GTAOSubsystem: failed to load gtao_depth_prefilter.comp!");
+                LH_LOG(Renderer, error, "GTAOSubsystem: failed to load gtao_depth_prefilter.comp!");
                 return;
             }
             m_PrefilterPipeline = std::make_unique<VKComputePipeline>(
@@ -104,7 +104,7 @@ namespace Luth
                 m_MainSpv = sh->GetSpirV();
             if (m_MainSpv.empty())
             {
-                LH_CORE_ERROR("GTAOSubsystem: failed to load gtao_main.comp!");
+                LH_LOG(Renderer, error, "GTAOSubsystem: failed to load gtao_main.comp!");
                 return;
             }
             m_MainPipeline = std::make_unique<VKComputePipeline>(
@@ -138,7 +138,7 @@ namespace Luth
                 m_DenoiseSpv = sh->GetSpirV();
             if (m_DenoiseSpv.empty())
             {
-                LH_CORE_ERROR("GTAOSubsystem: failed to load gtao_denoise.comp!");
+                LH_LOG(Renderer, error, "GTAOSubsystem: failed to load gtao_denoise.comp!");
                 return;
             }
             m_DenoisePipeline = std::make_unique<VKComputePipeline>(

@@ -124,7 +124,7 @@ namespace Luth::JobSystem
             f.Stack = AllocateFiberStack(stackSize);
             if (!f.Stack.UsableBottom)
             {
-                LH_CORE_CRITICAL("FiberStack allocation failed; aborting Fiber::Create");
+                LH_LOG(Jobs, critical, "FiberStack allocation failed; aborting Fiber::Create");
                 return f;
             }
             f.StackBottom = f.Stack.UsableBottom;

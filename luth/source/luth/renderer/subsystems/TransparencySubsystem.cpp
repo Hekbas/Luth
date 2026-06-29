@@ -101,7 +101,7 @@ namespace Luth
         if (m_TransparentFragSpv.empty() || m_OitStoreFragSpv.empty() ||
             m_FullscreenVertSpv.empty() || m_ResolveFragSpv.empty())
         {
-            LH_CORE_ERROR("TransparencySubsystem: failed to load transparent-tier shaders!");
+            LH_LOG(Renderer, error, "TransparencySubsystem: failed to load transparent-tier shaders!");
             return;
         }
 

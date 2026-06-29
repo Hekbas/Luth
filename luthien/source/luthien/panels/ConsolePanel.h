@@ -43,6 +43,11 @@ namespace Luth
         bool m_ShowError    = true;
         bool m_ShowCritical = true;
 
+        // Per-category visibility, all on by default (set in ctor) — noise is hidden by the level
+        // filter, not by muting channels. Error / Critical bypass this filter so a shader-compile or
+        // device failure still surfaces if the user has muted that channel.
+        bool m_ShowCategory[static_cast<size_t>(LogCategory::Count)];
+
         char m_SearchBuf[128] = "";
         bool m_AutoScroll     = true;
         bool m_ScrollPending  = false;

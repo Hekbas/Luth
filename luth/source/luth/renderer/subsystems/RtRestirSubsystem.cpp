@@ -182,7 +182,7 @@ namespace Luth
             m_ShadeSpv = sh->GetSpirV();
         if (m_InitialSpv.empty() || m_TemporalSpv.empty() || m_SpatialSpv.empty() || m_ShadeSpv.empty())
         {
-            LH_CORE_ERROR("RtRestirSubsystem: failed to load restir_initial/temporal/spatial/shade.comp SPIR-V");
+            LH_LOG(Renderer, error, "RtRestirSubsystem: failed to load restir_initial/temporal/spatial/shade.comp SPIR-V");
             return;
         }
 

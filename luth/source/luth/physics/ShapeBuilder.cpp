@@ -26,7 +26,7 @@ namespace Luth::Physics
                 {
                     if (c.boxHalfExtents.x <= 0.0f || c.boxHalfExtents.y <= 0.0f || c.boxHalfExtents.z <= 0.0f)
                     {
-                        LH_CORE_WARN("ShapeBuilder: Box halfExtents must be positive (got {}, {}, {})",
+                        LH_LOG(Physics, warn, "ShapeBuilder: Box halfExtents must be positive (got {}, {}, {})",
                                      c.boxHalfExtents.x, c.boxHalfExtents.y, c.boxHalfExtents.z);
                         return nullptr;
                     }
@@ -39,7 +39,7 @@ namespace Luth::Physics
                 {
                     if (c.sphereRadius <= 0.0f)
                     {
-                        LH_CORE_WARN("ShapeBuilder: Sphere radius must be positive (got {})", c.sphereRadius);
+                        LH_LOG(Physics, warn, "ShapeBuilder: Sphere radius must be positive (got {})", c.sphereRadius);
                         return nullptr;
                     }
                     JPH::SphereShapeSettings settings(c.sphereRadius);
@@ -51,7 +51,7 @@ namespace Luth::Physics
                 {
                     if (c.capsule.radius <= 0.0f || c.capsule.halfHeight <= 0.0f)
                     {
-                        LH_CORE_WARN("ShapeBuilder: Capsule radius/halfHeight must be positive (got {}, {})",
+                        LH_LOG(Physics, warn, "ShapeBuilder: Capsule radius/halfHeight must be positive (got {}, {})",
                                      c.capsule.radius, c.capsule.halfHeight);
                         return nullptr;
                     }

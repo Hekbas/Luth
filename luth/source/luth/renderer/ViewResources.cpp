@@ -203,7 +203,7 @@ namespace Luth
             VkResult result = vkAllocateDescriptorSets(device, &ai, outArr.data());
             if (result != VK_SUCCESS)
             {
-                LH_CORE_ERROR("ViewResources: allocCycled '{}' failed (VkResult {}); bump pool sizes", tagPrefix, (int)result);
+                LH_LOG(Renderer, error, "ViewResources: allocCycled '{}' failed (VkResult {}); bump pool sizes", tagPrefix, (int)result);
                 for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) outArr[i] = VK_NULL_HANDLE;
                 return;
             }

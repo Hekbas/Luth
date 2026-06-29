@@ -363,7 +363,7 @@ namespace Luth
                       m_BPLayers, m_OvBpFilter, m_LayerPairFilter);
         m_System.SetContactListener(&m_ContactListener);
 
-        LH_CORE_INFO("PhysicsSystem initialized: {} max bodies, {} pairs, {} contacts",
+        LH_LOG(Physics, info, "PhysicsSystem initialized: {} max bodies, {} pairs, {} contacts",
                      kMaxBodies, kMaxBodyPairs, kMaxContactConstraints);
     }
 
@@ -757,7 +757,7 @@ namespace Luth
         if ((collider.type == Component::Collider::Type::MeshRef) &&
             rb.motion != Component::RigidBody::Motion::Static)
         {
-            LH_CORE_WARN("PhysicsSystem: MeshRef requires Static body — skipping entity {}",
+            LH_LOG(Physics, warn, "PhysicsSystem: MeshRef requires Static body — skipping entity {}",
                          (u32)entity);
             return BuildResult::Failed;
         }
@@ -793,7 +793,7 @@ namespace Luth
 
         if (reg.any_of<Component::Parent>(entity))
         {
-            LH_CORE_WARN("PhysicsSystem: entity {} has a Parent — physics-driven Transform sync ignores"
+            LH_LOG(Physics, warn, "PhysicsSystem: entity {} has a Parent — physics-driven Transform sync ignores"
                          " hierarchy and may drift", (u32)entity);
         }
 
@@ -848,7 +848,7 @@ namespace Luth
         const JPH::BodyID id = bi.CreateAndAddBody(bcs, activation);
         if (id.IsInvalid())
         {
-            LH_CORE_WARN("PhysicsSystem: CreateAndAddBody failed for entity {}", (u32)entity);
+            LH_LOG(Physics, warn, "PhysicsSystem: CreateAndAddBody failed for entity {}", (u32)entity);
             return BuildResult::Failed;
         }
 
@@ -938,7 +938,7 @@ namespace Luth
             if (hasRB && hasCC)
             {
                 if (m_WarnedBothComponents.insert(entity).second)
-                    LH_CORE_WARN("PhysicsSystem: entity {} has both RigidBody and CharacterController — drop",
+                    LH_LOG(Physics, warn, "PhysicsSystem: entity {} has both RigidBody and CharacterController — drop",
                                  (u32)entity);
                 continue;
             }
@@ -1050,7 +1050,7 @@ namespace Luth
         if (collider.type != Component::Collider::Type::Capsule)
         {
             if (m_WarnedNonCapsule.insert(entity).second)
-                LH_CORE_WARN("PhysicsSystem: CharacterController on entity {} needs a Capsule Collider "
+                LH_LOG(Physics, warn, "PhysicsSystem: CharacterController on entity {} needs a Capsule Collider "
                              "— got type {} — skipping", (u32)entity, (int)collider.type);
             return BuildResult::Failed;
         }
@@ -1067,7 +1067,7 @@ namespace Luth
         const Quat rot = Quat(Math::Radians(transform.Rotation));
         if (reg.any_of<Component::Parent>(entity))
         {
-            LH_CORE_WARN("PhysicsSystem: character entity {} has a Parent — pose sync ignores hierarchy "
+            LH_LOG(Physics, warn, "PhysicsSystem: character entity {} has a Parent — pose sync ignores hierarchy "
                          "and may drift", (u32)entity);
         }
 
@@ -1503,7 +1503,7 @@ namespace Luth
         // is cheap; reaching it consistently means gameplay needs a per-frame DrainEvents call
         // sized to the scene.
         if (const u32 lost = m_ContactListener.ConsumeOverflowCount(); lost > 0)
-            LH_CORE_WARN("PhysicsSystem: dropped {} contact event(s) - queue saturated", lost);
+            LH_LOG(Physics, warn, "PhysicsSystem: dropped {} contact event(s) - queue saturated", lost);
 
         return written;
     }

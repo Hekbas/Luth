@@ -17,7 +17,7 @@ namespace Luth
         if (s_Instance) return;
         s_Instance = LH_NEW(Memory::Category::Rendering, UploadContext);
         s_Instance->CreateResources();
-        LH_CORE_INFO("Upload Context Initialized (Staging: 64MB)");
+        LH_LOG(Renderer, info, "Upload Context Initialized (Staging: 64MB)");
     }
 
     void UploadContext::Shutdown()

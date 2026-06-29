@@ -41,7 +41,7 @@ namespace Luth
             memcpy(m_PrevCpuScratch + i * MATRIX_SIZE, &identity, MATRIX_SIZE);
         }
 
-        LH_CORE_INFO("BoneMatrixBuffer initialized ({0} entities x {1} bones x 2 halves = {2} KB)",
+        LH_LOG(Renderer, info, "BoneMatrixBuffer initialized ({0} entities x {1} bones x 2 halves = {2} KB)",
             MAX_SKINNED_ENTITIES, BONES_PER_ENTITY, (2 * BUFFER_SIZE) / 1024);
     }
 
@@ -75,7 +75,7 @@ namespace Luth
 
         if (m_FreeBlocks.empty())
         {
-            LH_CORE_ERROR("BoneMatrixBuffer: Out of blocks! (max {0})", MAX_SKINNED_ENTITIES);
+            LH_LOG(Renderer, error, "BoneMatrixBuffer: Out of blocks! (max {0})", MAX_SKINNED_ENTITIES);
             return 0;
         }
 

@@ -44,7 +44,7 @@ namespace Luth
         {
             const std::string path = "luth_gpucrash_" + std::to_string(s_DumpCounter.fetch_add(1)) + ".nv-gpudmp";
             WriteBlob(path, dump, size);
-            LH_CORE_CRITICAL("Aftermath: GPU crash dump written -> {} ({} bytes). Open it in Nsight Graphics.",
+            LH_LOG(Renderer, critical, "Aftermath: GPU crash dump written -> {} ({} bytes). Open it in Nsight Graphics.",
                              path, size);
         }
 
@@ -79,13 +79,13 @@ namespace Luth
                                         LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
         if (!s_AftermathDll)
         {
-            LH_CORE_WARN("Aftermath: GFSDK_Aftermath_Lib.x64.dll not found - GPU crash dumps disabled "
+            LH_LOG(Renderer, warn, "Aftermath: GFSDK_Aftermath_Lib.x64.dll not found - GPU crash dumps disabled "
                          "(copy it next to the exe or build with AFTERMATH_SDK set)");
             return;
         }
         if (!LoadEntryPoints(s_AftermathDll))
         {
-            LH_CORE_WARN("Aftermath: DLL missing expected entry points (version mismatch?) - disabled");
+            LH_LOG(Renderer, warn, "Aftermath: DLL missing expected entry points (version mismatch?) - disabled");
             FreeLibrary(s_AftermathDll);
             s_AftermathDll = nullptr;
             return;
@@ -99,11 +99,11 @@ namespace Luth
         s_Initialized = GFSDK_Aftermath_SUCCEED(r);
         if (s_Initialized)
         {
-            LH_CORE_INFO("Aftermath GPU crash dumps enabled");
+            LH_LOG(Renderer, info, "Aftermath GPU crash dumps enabled");
         }
         else
         {
-            LH_CORE_WARN("Aftermath: EnableGpuCrashDumps failed (0x{:x}) - disabled", static_cast<u32>(r));
+            LH_LOG(Renderer, warn, "Aftermath: EnableGpuCrashDumps failed (0x{:x}) - disabled", static_cast<u32>(r));
             FreeLibrary(s_AftermathDll);
             s_AftermathDll = nullptr;
         }
@@ -112,7 +112,7 @@ namespace Luth
     void AftermathCrashTracker::OnDeviceLost()
     {
         if (!s_Initialized) return;
-        LH_CORE_CRITICAL("Aftermath: device lost - collecting GPU crash dump (this can take a few seconds)...");
+        LH_LOG(Renderer, critical, "Aftermath: device lost - collecting GPU crash dump (this can take a few seconds)...");
 
         // The dump is produced asynchronously on a driver thread; poll until it finishes. Bounded to
         // ~5s so a stuck collection never hangs shutdown. This is a crash path, so blocking is fine.
@@ -126,7 +126,7 @@ namespace Luth
             s_GetCrashDumpStatus(&status);
         }
         if (status != GFSDK_Aftermath_CrashDump_Status_Finished)
-            LH_CORE_CRITICAL("Aftermath: crash dump did not finish (status={}).", static_cast<int>(status));
+            LH_LOG(Renderer, critical, "Aftermath: crash dump did not finish (status={}).", static_cast<int>(status));
     }
 
     void AftermathCrashTracker::Shutdown()

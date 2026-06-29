@@ -38,9 +38,9 @@ namespace Luth
         void* pUserData)
     {
         if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
-            LH_CORE_ERROR("Validation Layer: {0}", pCallbackData->pMessage);
+            LH_LOG(Renderer, error, "Validation Layer: {0}", pCallbackData->pMessage);
         else if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
-            LH_CORE_WARN("Validation Layer: {0}", pCallbackData->pMessage);
+            LH_LOG(Renderer, warn, "Validation Layer: {0}", pCallbackData->pMessage);
 
         return VK_FALSE;
     }
@@ -201,7 +201,7 @@ namespace Luth
             else if (tok == "gpuav" || tok == "gpu")        m_ValTiers.gpuav = true;
             else if (tok == "rt")                           m_ValTiers.rtValidation = true;
             else if (tok == "uncapped" || tok == "verbose") m_ValTiers.uncapped = true;
-            else LH_CORE_WARN("LUTH_VALIDATION: unknown tier '{}' (sync|bp|gpuav|rt|uncapped|all|off)", tok);
+            else LH_LOG(Renderer, warn, "LUTH_VALIDATION: unknown tier '{}' (sync|bp|gpuav|rt|uncapped|all|off)", tok);
         }
     }
 
@@ -213,7 +213,7 @@ namespace Luth
         ResolveValidationConfig();
 
         if (m_EnableValidationLayers && !CheckValidationLayerSupport()) {
-            LH_CORE_ERROR("Validation layers requested, but not available!");
+            LH_LOG(Renderer, error, "Validation layers requested, but not available!");
             m_EnableValidationLayers = false;
         }
 
@@ -271,7 +271,7 @@ namespace Luth
         }
         if (m_ValTiers.bestPractices) valFeatures.push_back(VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT);
         if (m_ValTiers.gpuav)
-            LH_CORE_WARN("LUTH_VALIDATION: GPU-AV on - perturbs submit timing (can mask races) and "
+            LH_LOG(Renderer, warn, "LUTH_VALIDATION: GPU-AV on - perturbs submit timing (can mask races) and "
                          "consumes a descriptor set (maxBoundDescriptorSets-1)");
 
         VkValidationFeaturesEXT validationFeatures{ VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT };
@@ -303,7 +303,7 @@ namespace Luth
         }
 
         if (vkCreateInstance(&createInfo, nullptr, &m_Instance) != VK_SUCCESS) {
-            LH_CORE_CRITICAL("Failed to create Vulkan instance!");
+            LH_LOG(Renderer, critical, "Failed to create Vulkan instance!");
         }
     }
 
@@ -359,7 +359,7 @@ namespace Luth
     {
         uint32_t deviceCount = 0;
         vkEnumeratePhysicalDevices(m_Instance, &deviceCount, nullptr);
-        if (deviceCount == 0) LH_CORE_CRITICAL("Failed to find GPUs with Vulkan support!");
+        if (deviceCount == 0) LH_LOG(Renderer, critical, "Failed to find GPUs with Vulkan support!");
 
         std::vector<VkPhysicalDevice> devices(deviceCount);
         vkEnumeratePhysicalDevices(m_Instance, &deviceCount, devices.data());
@@ -376,7 +376,7 @@ namespace Luth
             {
                 m_PhysicalDevice = device;
                 m_PhysicalDeviceProperties = props;
-                LH_CORE_INFO("Vulkan GPU: {0}", props.deviceName);
+                LH_LOG(Renderer, info, "Vulkan GPU: {0}", props.deviceName);
                 return;
             }
             if (fallback == VK_NULL_HANDLE) fallback = device;
@@ -388,11 +388,11 @@ namespace Luth
             VkPhysicalDeviceProperties props;
             vkGetPhysicalDeviceProperties(m_PhysicalDevice, &props);
             m_PhysicalDeviceProperties = props;
-            LH_CORE_WARN("Vulkan GPU (non-discrete): {0}", props.deviceName);
+            LH_LOG(Renderer, warn, "Vulkan GPU (non-discrete): {0}", props.deviceName);
             return;
         }
 
-        LH_CORE_CRITICAL("No Vulkan device meets baseline (VK_KHR_swapchain + RT extensions "
+        LH_LOG(Renderer, critical, "No Vulkan device meets baseline (VK_KHR_swapchain + RT extensions "
                          "[acceleration_structure, ray_tracing_pipeline, ray_query, deferred_host_operations] "
                          "+ graphics queue) — Luth is RT-mandatory per rt-renderer arc");
     }
@@ -410,7 +410,7 @@ namespace Luth
         props2.pNext = &m_RtPipelineProperties;
         vkGetPhysicalDeviceProperties2(m_PhysicalDevice, &props2);
 
-        LH_CORE_INFO("RT: shaderGroupHandleSize={} baseAlignment={} handleAlignment={} maxRecursionDepth={} maxGeometryCount={}",
+        LH_LOG(Renderer, info, "RT: shaderGroupHandleSize={} baseAlignment={} handleAlignment={} maxRecursionDepth={} maxGeometryCount={}",
             m_RtPipelineProperties.shaderGroupHandleSize,
             m_RtPipelineProperties.shaderGroupBaseAlignment,
             m_RtPipelineProperties.shaderGroupHandleAlignment,
@@ -438,7 +438,7 @@ namespace Luth
             if (m_GraphicsFamily == kInvalid && (f & VK_QUEUE_GRAPHICS_BIT))
                 m_GraphicsFamily = i;
         }
-        if (m_GraphicsFamily == kInvalid) LH_CORE_CRITICAL("Failed to find Graphics Queue Family!");
+        if (m_GraphicsFamily == kInvalid) LH_LOG(Renderer, critical, "Failed to find Graphics Queue Family!");
 
         // Async-compute pass: COMPUTE_BIT without GRAPHICS_BIT.
         for (u32 i = 0; i < queueFamilyCount; ++i)
@@ -488,7 +488,7 @@ namespace Luth
         {
             const u32 b = queueFamilies[m_ComputeFamily].timestampValidBits;
             if (b != 0 && graphicsBits != 0 && b != graphicsBits)
-                LH_CORE_CRITICAL("Compute family timestampValidBits ({}) differs from graphics ({}) — GPU timer "
+                LH_LOG(Renderer, critical, "Compute family timestampValidBits ({}) differs from graphics ({}) — GPU timer "
                                  "math would corrupt on the compute stream; per-family period support not implemented.",
                                  b, graphicsBits);
         }
@@ -496,7 +496,7 @@ namespace Luth
         {
             const u32 b = queueFamilies[m_TransferFamily].timestampValidBits;
             if (b != 0 && graphicsBits != 0 && b != graphicsBits)
-                LH_CORE_CRITICAL("Transfer family timestampValidBits ({}) differs from graphics ({}) — GPU timer "
+                LH_LOG(Renderer, critical, "Transfer family timestampValidBits ({}) differs from graphics ({}) — GPU timer "
                                  "math would corrupt on the transfer stream; per-family period support not implemented.",
                                  b, graphicsBits);
         }
@@ -537,7 +537,7 @@ namespace Luth
                      && availRq.rayQuery;
         if (!ok)
         {
-            LH_CORE_CRITICAL("Required Vulkan 1.1/1.2/1.3 + RT features missing on selected device — "
+            LH_LOG(Renderer, critical, "Required Vulkan 1.1/1.2/1.3 + RT features missing on selected device — "
                 "shaderDrawParameters={} descriptorBindingPartiallyBound={} "
                 "descriptorBindingSampledImageUpdateAfterBind={} descriptorBindingStorageBufferUpdateAfterBind={} "
                 "descriptorBindingStorageImageUpdateAfterBind={} descriptorBindingUniformBufferUpdateAfterBind={} "
@@ -695,11 +695,11 @@ namespace Luth
         {
             deviceExtensions.push_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
             m_CheckpointsAvailable = true;
-            LH_CORE_INFO("VK_NV_device_diagnostic_checkpoints enabled - TDR localization active");
+            LH_LOG(Renderer, info, "VK_NV_device_diagnostic_checkpoints enabled - TDR localization active");
         }
         else
         {
-            LH_CORE_INFO("VK_NV_device_diagnostic_checkpoints unavailable on this device");
+            LH_LOG(Renderer, info, "VK_NV_device_diagnostic_checkpoints unavailable on this device");
         }
 
         // NVIDIA driver-level ray-tracing validation — catches malformed AS builds (degenerate / OOB
@@ -711,11 +711,11 @@ namespace Luth
             deviceExtensions.push_back(VK_NV_RAY_TRACING_VALIDATION_EXTENSION_NAME);
             rtValidationFeatures.rayTracingValidation = VK_TRUE;
             rqFeatures.pNext = &rtValidationFeatures;  // extend the feature chain tail
-            LH_CORE_INFO("VK_NV_ray_tracing_validation enabled - RT AS/SBT validation active");
+            LH_LOG(Renderer, info, "VK_NV_ray_tracing_validation enabled - RT AS/SBT validation active");
         }
         else if (m_ValTiers.rtValidation)
         {
-            LH_CORE_INFO("VK_NV_ray_tracing_validation unavailable (set NV_ALLOW_RAYTRACING_VALIDATION=1)");
+            LH_LOG(Renderer, info, "VK_NV_ray_tracing_validation unavailable (set NV_ALLOW_RAYTRACING_VALIDATION=1)");
         }
 
 #if defined(LUTH_ENABLE_AFTERMATH)
@@ -740,7 +740,7 @@ namespace Luth
             diagFeatures.pNext = const_cast<void*>(createInfo.pNext);
             diagConfig.pNext   = &diagFeatures;
             createInfo.pNext   = &diagConfig;
-            LH_CORE_INFO("VK_NV_device_diagnostics_config enabled - Aftermath resource tracking active");
+            LH_LOG(Renderer, info, "VK_NV_device_diagnostics_config enabled - Aftermath resource tracking active");
         }
 #endif
 
@@ -748,7 +748,7 @@ namespace Luth
         createInfo.ppEnabledExtensionNames = deviceExtensions.data();
 
         if (vkCreateDevice(m_PhysicalDevice, &createInfo, nullptr, &m_Device) != VK_SUCCESS) {
-            LH_CORE_CRITICAL("Failed to create logical device!");
+            LH_LOG(Renderer, critical, "Failed to create logical device!");
         }
 
         // KHR ray-tracing entry points are device-level — load right after vkCreateDevice,
@@ -769,7 +769,7 @@ namespace Luth
         // then async-compute (if distinct), then async-transfer (if distinct) — distinctFamilies was built that way.
         m_ConcurrentFamilyIndices = distinctFamilies;
 
-        LH_CORE_INFO("Queue layout — graphics={}, compute={} ({}), transfer={} ({})",
+        LH_LOG(Renderer, info, "Queue layout — graphics={}, compute={} ({}), transfer={} ({})",
             m_GraphicsFamily,
             m_ComputeFamily,  m_ComputeIsAsync  ? "async" : "aliased",
             m_TransferFamily, m_TransferIsAsync ? "async" : "aliased");
@@ -789,7 +789,7 @@ namespace Luth
         // call sites would dispatch through null and trip the validation layer or crash at use site.
         #define LH_LOAD_RT_FN(field) \
             m_RtFn.field = (PFN_##field)vkGetDeviceProcAddr(m_Device, #field); \
-            if (!m_RtFn.field) LH_CORE_CRITICAL("RT entry point missing: " #field)
+            if (!m_RtFn.field) LH_LOG(Renderer, critical, "RT entry point missing: " #field)
 
         LH_LOAD_RT_FN(vkCreateAccelerationStructureKHR);
         LH_LOAD_RT_FN(vkDestroyAccelerationStructureKHR);
@@ -811,7 +811,7 @@ namespace Luth
             (PFN_vkGetQueueCheckpointDataNV)vkGetDeviceProcAddr(m_Device, "vkGetQueueCheckpointDataNV");
         if (!m_CheckpointFn.vkCmdSetCheckpointNV || !m_CheckpointFn.vkGetQueueCheckpointDataNV)
         {
-            LH_CORE_WARN("VK_NV_device_diagnostic_checkpoints fp load failed — disabling");
+            LH_LOG(Renderer, warn, "VK_NV_device_diagnostic_checkpoints fp load failed — disabling");
             m_CheckpointFn = {};
             m_CheckpointsAvailable = false;
         }
@@ -922,7 +922,7 @@ namespace Luth
         std::lock_guard<std::mutex> lock(m_QueueMutex);
         if (vkQueueSubmit(m_GraphicsQueue, 1, &submitInfo, fence) != VK_SUCCESS)
         {
-            LH_CORE_ERROR("VulkanContext: Queue Submit Failed!");
+            LH_LOG(Renderer, error, "VulkanContext: Queue Submit Failed!");
             return false;
         }
         return true;
@@ -941,7 +941,7 @@ namespace Luth
         const VkResult r = vkQueueSubmit2(m_GraphicsQueue, 1, &submitInfo, fence);
         if (r != VK_SUCCESS)
         {
-            LH_CORE_ERROR("VulkanContext: Graphics SubmitInfo2 failed — VkResult={}", (int)r);
+            LH_LOG(Renderer, error, "VulkanContext: Graphics SubmitInfo2 failed — VkResult={}", (int)r);
             if (r == VK_ERROR_DEVICE_LOST) DumpCheckpointsOnDeviceLost("Graphics submit");
             return false;
         }
@@ -956,7 +956,7 @@ namespace Luth
         const VkResult r = vkQueueSubmit2(m_ComputeQueue, 1, &submitInfo, fence);
         if (r != VK_SUCCESS)
         {
-            LH_CORE_ERROR("VulkanContext: Compute SubmitInfo2 failed — VkResult={}", (int)r);
+            LH_LOG(Renderer, error, "VulkanContext: Compute SubmitInfo2 failed — VkResult={}", (int)r);
             if (r == VK_ERROR_DEVICE_LOST) DumpCheckpointsOnDeviceLost("Compute submit");
             return false;
         }
@@ -969,7 +969,7 @@ namespace Luth
         const VkResult r = vkQueueSubmit2(m_TransferQueue, 1, &submitInfo, fence);
         if (r != VK_SUCCESS)
         {
-            LH_CORE_ERROR("VulkanContext: Transfer SubmitInfo2 failed — VkResult={}", (int)r);
+            LH_LOG(Renderer, error, "VulkanContext: Transfer SubmitInfo2 failed — VkResult={}", (int)r);
             if (r == VK_ERROR_DEVICE_LOST) DumpCheckpointsOnDeviceLost("Transfer submit");
             return false;
         }
@@ -992,10 +992,10 @@ namespace Luth
         // "no checkpoints recorded" is expected, not informative. see arch/gpu-crash-debugging.md
         AftermathCrashTracker::OnDeviceLost();
 
-        LH_CORE_CRITICAL("─── GPU device lost (origin: {}) — dumping checkpoints ───", originLabel);
+        LH_LOG(Renderer, critical, "─── GPU device lost (origin: {}) — dumping checkpoints ───", originLabel);
         if (!m_CheckpointsAvailable || !m_CheckpointFn.vkGetQueueCheckpointDataNV)
         {
-            LH_CORE_CRITICAL("  VK_NV_device_diagnostic_checkpoints unavailable — no localization possible");
+            LH_LOG(Renderer, critical, "  VK_NV_device_diagnostic_checkpoints unavailable — no localization possible");
             return;
         }
 
@@ -1006,17 +1006,17 @@ namespace Luth
             m_CheckpointFn.vkGetQueueCheckpointDataNV(queue, &count, nullptr);
             if (count == 0)
             {
-                LH_CORE_CRITICAL("  [{}] no checkpoints recorded", qLabel);
+                LH_LOG(Renderer, critical, "  [{}] no checkpoints recorded", qLabel);
                 return;
             }
             std::vector<VkCheckpointDataNV> data(count, { VK_STRUCTURE_TYPE_CHECKPOINT_DATA_NV });
             m_CheckpointFn.vkGetQueueCheckpointDataNV(queue, &count, data.data());
 
-            LH_CORE_CRITICAL("  [{}] {} checkpoint(s) in-flight or just-executed:", qLabel, count);
+            LH_LOG(Renderer, critical, "  [{}] {} checkpoint(s) in-flight or just-executed:", qLabel, count);
             for (const auto& cp : data)
             {
                 const char* name = GpuCheckpointRegistry::Resolve(cp.pCheckpointMarker);
-                LH_CORE_CRITICAL("    stage=0x{:08x} marker={}",
+                LH_LOG(Renderer, critical, "    stage=0x{:08x} marker={}",
                                  (u32)cp.stage, name ? name : "(unknown)");
             }
         };
@@ -1024,7 +1024,7 @@ namespace Luth
         dump("Graphics", m_GraphicsQueue);
         if (m_ComputeIsAsync)  dump("Compute",  m_ComputeQueue);
         if (m_TransferIsAsync) dump("Transfer", m_TransferQueue);
-        LH_CORE_CRITICAL("─── End checkpoint dump ───");
+        LH_LOG(Renderer, critical, "─── End checkpoint dump ───");
     }
 
     VkResult VulkanContext::Present(const VkPresentInfoKHR& presentInfo)

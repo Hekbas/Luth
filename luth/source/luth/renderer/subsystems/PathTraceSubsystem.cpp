@@ -73,7 +73,7 @@ namespace Luth
             m_Spv = sh->GetSpirV();
         if (m_Spv.empty())
         {
-            LH_CORE_ERROR("PathTraceSubsystem: failed to load path_trace.slang SPIR-V");
+            LH_LOG(Renderer, error, "PathTraceSubsystem: failed to load path_trace.slang SPIR-V");
             return;
         }
 

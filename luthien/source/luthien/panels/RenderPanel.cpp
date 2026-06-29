@@ -71,7 +71,7 @@ namespace Luth
     RenderPanel::RenderPanel()
     {
         m_WindowID = "Render";
-        LH_CORE_INFO("Created Render panel");
+        LH_LOG(Editor, info, "Created Render panel");
     }
 
     void RenderPanel::OnInit()

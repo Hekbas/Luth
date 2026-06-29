@@ -81,7 +81,7 @@ namespace Luth
     void Editor::Init(Window* window)
     {
         s_Window = window;
-        LH_CORE_INFO("Initializing Luth Editor");
+        LH_LOG(Editor, info, "Initializing Luth Editor");
 
         // Settings must be loaded first so InitImGui can apply the persisted style,
         // which populates io.Fonts before the Vulkan font atlas is built.
@@ -130,12 +130,12 @@ namespace Luth
     {
         IMGUI_CHECKVERSION();
         s_Context = ImGui::CreateContext();
-        LH_CORE_TRACE(" - Created ImGui context");
+        LH_LOG(Editor, trace, " - Created ImGui context");
 
         ImGuiIO& io = ImGui::GetIO();
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
         io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-        LH_CORE_TRACE(" - Enabled docking + multi-viewport");
+        LH_LOG(Editor, trace, " - Enabled docking + multi-viewport");
 
         // Apply persisted style BEFORE CreateFontsTexture: LoadFonts populates
         // io.Fonts. Window-chrome colors belong here too since Matrix tints them.
@@ -154,7 +154,7 @@ namespace Luth
         #endif
 
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan) {
-            LH_CORE_TRACE(" - Initialized ImGui GLFW/Vulkan backend");
+            LH_LOG(Editor, trace, " - Initialized ImGui GLFW/Vulkan backend");
             // Callbacks installed manually in WinWindow for event routing.
             ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)window->GetNativeWindow(), false);
 
@@ -264,7 +264,7 @@ namespace Luth
         UI::ThumbnailCache::Shutdown();
         EditorAutoSave::Shutdown();
 
-        LH_CORE_TRACE("Cleaning up {} panels", s_Panels.size());
+        LH_LOG(Editor, trace, "Cleaning up {} panels", s_Panels.size());
         // Run OnShutdown before destroying — gives panels a chance to detach from
         // engine subsystems (Log sinks, EventBus subscriptions) while the rest of
         // the editor is still alive. Without this hop, a post-clear LH_CORE_* call
@@ -316,7 +316,7 @@ namespace Luth
         s_Context = nullptr;
         s_Window = nullptr;
         s_ActiveScene.reset();
-        LH_CORE_INFO("Editor system shutdown completed");
+        LH_LOG(Editor, info, "Editor system shutdown completed");
     }
 
     void Editor::BeginFrame()
@@ -383,14 +383,14 @@ namespace Luth
         }
         catch (const std::exception& e)
         {
-            LH_CORE_ERROR("Panel '{}' threw in OnGather: {}", panel->GetWindowID(), e.what());
+            LH_LOG(Editor, error, "Panel '{}' threw in OnGather: {}", panel->GetWindowID(), e.what());
             StackTrace::LogStackTrace(1, 32);
             panel->m_SnapshotFragment = nullptr;
             if (++panel->m_CrashStreak >= 3) panel->m_Crashed = true;
         }
         catch (...)
         {
-            LH_CORE_ERROR("Panel '{}' threw non-std exception in OnGather", panel->GetWindowID());
+            LH_LOG(Editor, error, "Panel '{}' threw non-std exception in OnGather", panel->GetWindowID());
             StackTrace::LogStackTrace(1, 32);
             panel->m_SnapshotFragment = nullptr;
             if (++panel->m_CrashStreak >= 3) panel->m_Crashed = true;
@@ -405,13 +405,13 @@ namespace Luth
         }
         catch (const std::exception& e)
         {
-            LH_CORE_ERROR("Panel '{}' threw in OnDraw: {}", panel->GetWindowID(), e.what());
+            LH_LOG(Editor, error, "Panel '{}' threw in OnDraw: {}", panel->GetWindowID(), e.what());
             StackTrace::LogStackTrace(1, 32);
             if (++panel->m_CrashStreak >= 3) panel->m_Crashed = true;
         }
         catch (...)
         {
-            LH_CORE_ERROR("Panel '{}' threw non-std exception in OnDraw", panel->GetWindowID());
+            LH_LOG(Editor, error, "Panel '{}' threw non-std exception in OnDraw", panel->GetWindowID());
             StackTrace::LogStackTrace(1, 32);
             if (++panel->m_CrashStreak >= 3) panel->m_Crashed = true;
         }
@@ -549,7 +549,7 @@ namespace Luth
             if (report.ModelPath != s_LastReportedModel && (report.HasUnresolved() || report.HasDegraded())) {
                 s_LastReportedModel = report.ModelPath;
                 if (report.HasDegraded())
-                    LH_CORE_WARN("Import: {0} texture(s) routed at reduced fidelity (see warnings above)",
+                    LH_LOG(Editor, warn, "Import: {0} texture(s) routed at reduced fidelity (see warnings above)",
                                  report.Degraded.size());
                 if (report.HasUnresolved())
                     TextureRemapDialog::Open(report);
@@ -572,7 +572,7 @@ namespace Luth
             std::ofstream f(layoutDir / "Default.ini");
             if (f.is_open()) {
                 f.write(iniData, size);
-                LH_CORE_INFO("Saved first-run default layout to layouts/Default.ini");
+                LH_LOG(Editor, info, "Saved first-run default layout to layouts/Default.ini");
             }
             s_NeedDefaultLayoutSave = false;
         }
@@ -669,7 +669,7 @@ namespace Luth
         // Random window transparency
         style.Alpha = 0.8f + dist(rng) * 0.2f;
 
-        LH_CORE_INFO("Applied random style - Hue: {0}, WindowRounding: {1}",
+        LH_LOG(Editor, info, "Applied random style - Hue: {0}, WindowRounding: {1}",
                     hue, style.WindowRounding);
     }
 
@@ -706,7 +706,7 @@ namespace Luth
         s_ScenePath.clear();
         s_IsDirty = false;
 
-        LH_CORE_INFO("New scene created");
+        LH_LOG(Editor, info, "New scene created");
     }
 
     void Editor::OpenScene()
@@ -839,7 +839,7 @@ namespace Luth
         const fs::path jsonPath = fs::exists(bJson) ? bJson : uJson;
 
         if (!fs::exists(iniPath)) {
-            LH_CORE_WARN("Workspace '{}' not found", name);
+            LH_LOG(Editor, warn, "Workspace '{}' not found", name);
             return false;
         }
 
@@ -851,7 +851,7 @@ namespace Luth
 
         std::ifstream f(iniPath, std::ios::binary | std::ios::ate);
         if (!f.is_open()) {
-            LH_CORE_ERROR("Failed to open workspace ini '{}'", iniPath.string());
+            LH_LOG(Editor, error, "Failed to open workspace ini '{}'", iniPath.string());
             return false;
         }
         auto size = f.tellg();
@@ -865,7 +865,7 @@ namespace Luth
         const bool isBuiltin = Workspace::IsBuiltinPath(iniPath);
         EventBus::Enqueue<WorkspaceChangedSignal>(BusType::MainThread, name, isBuiltin);
 
-        LH_CORE_INFO("Loaded workspace '{}' from '{}'", name, iniPath.string());
+        LH_LOG(Editor, info, "Loaded workspace '{}' from '{}'", name, iniPath.string());
         return true;
     }
 
@@ -874,7 +874,7 @@ namespace Luth
         namespace fs = std::filesystem;
 
         if (fs::exists(BuiltinIni(name))) {
-            LH_CORE_WARN("Cannot overwrite built-in workspace '{}' — pick a different name", name);
+            LH_LOG(Editor, warn, "Cannot overwrite built-in workspace '{}' — pick a different name", name);
             return false;
         }
 
@@ -892,7 +892,7 @@ namespace Luth
         const char* iniData = ImGui::SaveIniSettingsToMemory(&size);
         std::ofstream f(iniPath);
         if (!f.is_open()) {
-            LH_CORE_ERROR("Failed to write workspace ini '{}'", iniPath.string());
+            LH_LOG(Editor, error, "Failed to write workspace ini '{}'", iniPath.string());
             return false;
         }
         f.write(iniData, size);
@@ -903,7 +903,7 @@ namespace Luth
 
         s_Settings.panelOpen    = snap;
         s_Settings.activeLayout = name;
-        LH_CORE_INFO("Saved workspace '{}' to '{}'", name, iniPath.string());
+        LH_LOG(Editor, info, "Saved workspace '{}' to '{}'", name, iniPath.string());
         return true;
     }
 
@@ -913,11 +913,11 @@ namespace Luth
         if (oldName == newName) return true;
 
         if (fs::exists(BuiltinIni(oldName))) {
-            LH_CORE_WARN("Cannot rename built-in workspace '{}'", oldName);
+            LH_LOG(Editor, warn, "Cannot rename built-in workspace '{}'", oldName);
             return false;
         }
         if (fs::exists(UserIni(newName)) || fs::exists(BuiltinIni(newName))) {
-            LH_CORE_WARN("Cannot rename workspace '{}' to '{}': target exists", oldName, newName);
+            LH_LOG(Editor, warn, "Cannot rename workspace '{}' to '{}': target exists", oldName, newName);
             return false;
         }
 
@@ -928,7 +928,7 @@ namespace Luth
         if (s_Settings.activeLayout == oldName)
             s_Settings.activeLayout = newName;
 
-        LH_CORE_INFO("Renamed workspace '{}' -> '{}'", oldName, newName);
+        LH_LOG(Editor, info, "Renamed workspace '{}' -> '{}'", oldName, newName);
         return true;
     }
 
@@ -937,7 +937,7 @@ namespace Luth
         namespace fs = std::filesystem;
 
         if (fs::exists(BuiltinIni(name))) {
-            LH_CORE_WARN("Cannot delete built-in workspace '{}'", name);
+            LH_LOG(Editor, warn, "Cannot delete built-in workspace '{}'", name);
             return false;
         }
 
@@ -952,7 +952,7 @@ namespace Luth
             s_Settings.activeLayout = "Default";
             LoadWorkspace("Default");
         }
-        LH_CORE_INFO("Deleted workspace '{}'", name);
+        LH_LOG(Editor, info, "Deleted workspace '{}'", name);
         return true;
     }
 
@@ -1390,6 +1390,6 @@ namespace Luth
         const std::string projName = FileSystem::ProjectPath().filename().string();
         EventBus::Enqueue<ProjectChangedSignal>(BusType::MainThread, projPath, projName);
 
-        LH_CORE_INFO("Editor: Project changed, panels refreshed");
+        LH_LOG(Editor, info, "Editor: Project changed, panels refreshed");
     }
 }

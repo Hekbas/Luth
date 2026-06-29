@@ -80,7 +80,7 @@ namespace Luth
         allocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
 
         if (vmaCreateAllocator(&allocatorInfo, &s_Data->allocator) != VK_SUCCESS) {
-            LH_CORE_CRITICAL("Failed to create VMA allocator!");
+            LH_LOG(Renderer, critical, "Failed to create VMA allocator!");
         }
     }
 
@@ -166,7 +166,7 @@ namespace Luth
         Memory::MemoryTracker::RecordAlloc(Memory::Category::GPU, vmaAllocInfo.size);
         RecordClass(cls, vmaAllocInfo.size);
 
-        LH_CORE_TRACE("VMA Alloc Image: {0}x{1}", imageInfo.extent.width, imageInfo.extent.height);
+        LH_LOG(Renderer, trace, "VMA Alloc Image: {0}x{1}", imageInfo.extent.width, imageInfo.extent.height);
 
         return allocation;
     }
@@ -186,7 +186,7 @@ namespace Luth
         Memory::MemoryTracker::RecordFree(Memory::Category::GPU, vmaAllocInfo.size);
         UnrecordClass(vmaAllocInfo.pUserData, vmaAllocInfo.size);
 
-        LH_CORE_TRACE("VMA Free Image");
+        LH_LOG(Renderer, trace, "VMA Free Image");
         vmaDestroyImage(s_Data->allocator, image, allocation);
     }
 

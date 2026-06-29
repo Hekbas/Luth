@@ -21,11 +21,11 @@ namespace Luth
         {
             if (SLANG_FAILED(slang::createGlobalSession(out.writeRef())) || !out)
             {
-                LH_CORE_ERROR("Slang: createGlobalSession failed — prebuilt DLLs missing or core module not found");
+                LH_LOG(Shaders, error, "Slang: createGlobalSession failed — prebuilt DLLs missing or core module not found");
                 return false;
             }
             static std::once_flag s_ready;
-            std::call_once(s_ready, []() { LH_CORE_INFO("Slang in-process compiler ready ({})", SLANG_TAG_VERSION); });
+            std::call_once(s_ready, []() { LH_LOG(Shaders, info, "Slang in-process compiler ready ({})", SLANG_TAG_VERSION); });
             return true;
         }
 
@@ -66,7 +66,7 @@ namespace Luth
         void LogDiag(slang::IBlob* d, const fs::path& ctx)
         {
             if (d && d->getBufferSize() > 0)
-                LH_CORE_ERROR("Slang ({}):\n{}", ctx.filename().string(),
+                LH_LOG(Shaders, error, "Slang ({}):\n{}", ctx.filename().string(),
                               static_cast<const char*>(d->getBufferPointer()));
         }
 
@@ -99,7 +99,7 @@ namespace Luth
             target.flags = kDefaultTargetFlags;             // SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY
             target.floatingPointMode = SLANG_FLOATING_POINT_MODE_PRECISE;
             if (target.profile == SLANG_PROFILE_UNKNOWN)
-                LH_CORE_WARN("Slang: profile 'spirv_1_5' unknown on this build — emitting at target default");
+                LH_LOG(Shaders, warn, "Slang: profile 'spirv_1_5' unknown on this build — emitting at target default");
 
             slang::CompilerOptionEntry opts[] = {
                 { slang::CompilerOptionName::DebugInformation,
@@ -156,12 +156,12 @@ namespace Luth
             std::string source = ReadFile(src);
             if (source.empty())
             {
-                LH_CORE_ERROR("SlangCompiler: cannot read source '{}'", src.string());
+                LH_LOG(Shaders, error, "SlangCompiler: cannot read source '{}'", src.string());
                 return nullptr;
             }
             if (!MakeSession(outGlobal.get(), src.parent_path(), outSession))
             {
-                LH_CORE_ERROR("SlangCompiler: createSession failed for '{}'", src.string());
+                LH_LOG(Shaders, error, "SlangCompiler: createSession failed for '{}'", src.string());
                 return nullptr;
             }
 
@@ -197,7 +197,7 @@ namespace Luth
         {
             if (SLANG_FAILED(module->findEntryPointByName(entryPoint, ep.writeRef())) || !ep)
             {
-                LH_CORE_ERROR("SlangCompiler: entry '{}' not found in '{}' (needs a [shader(...)] attribute)",
+                LH_LOG(Shaders, error, "SlangCompiler: entry '{}' not found in '{}' (needs a [shader(...)] attribute)",
                               entryPoint, sourcePath.string());
                 return {};
             }
@@ -205,7 +205,7 @@ namespace Luth
         else if (SLANG_FAILED(module->findAndCheckEntryPoint(entryPoint, ToSlangStage(stage), ep.writeRef(), diag.writeRef())) || !ep)
         {
             LogDiag(diag, sourcePath);
-            LH_CORE_ERROR("SlangCompiler: entry '{}' not found in '{}'", entryPoint, sourcePath.string());
+            LH_LOG(Shaders, error, "SlangCompiler: entry '{}' not found in '{}'", entryPoint, sourcePath.string());
             return {};
         }
 
@@ -311,7 +311,7 @@ namespace Luth
             if (SLANG_FAILED(module->findAndCheckEntryPoint(req.name, ToSlangStage(req.stage), ep.writeRef(), diag.writeRef())) || !ep)
             {
                 LogDiag(diag, sourcePath);
-                LH_CORE_ERROR("SlangCompiler: link-spec entry '{}' not found in '{}'", req.name, sourcePath.string());
+                LH_LOG(Shaders, error, "SlangCompiler: link-spec entry '{}' not found in '{}'", req.name, sourcePath.string());
                 return result;
             }
             parts.push_back(ep.get());
@@ -371,13 +371,13 @@ namespace Luth
         slang::TypeReflection* type = layout->findTypeByName(typeName);
         if (!type)
         {
-            LH_CORE_WARN("SlangCompiler: type '{}' not found in '{}'", typeName, sourcePath.filename().string());
+            LH_LOG(Shaders, warn, "SlangCompiler: type '{}' not found in '{}'", typeName, sourcePath.filename().string());
             return out;
         }
         slang::TypeLayoutReflection* tl = layout->getTypeLayout(type, slang::LayoutRules::Default);
         if (!tl)
         {
-            LH_CORE_WARN("SlangCompiler: no layout for '{}' in '{}'", typeName, sourcePath.filename().string());
+            LH_LOG(Shaders, warn, "SlangCompiler: no layout for '{}' in '{}'", typeName, sourcePath.filename().string());
             return out;
         }
 

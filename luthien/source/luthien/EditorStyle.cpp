@@ -103,7 +103,7 @@ namespace Luth::EditorStyle
             sf.Font.MergeMainWithSolid = it->value("mergeMainWithSolid", false);
             sf.Font.IconFontSize       = it->value("iconSize", 14.0f);
         } else {
-            LH_CORE_WARN("Style JSON missing 'font' block for '{}'", sf.Preset.Name);
+            LH_LOG(Editor, warn, "Style JSON missing 'font' block for '{}'", sf.Preset.Name);
             return std::nullopt;
         }
 
@@ -142,7 +142,7 @@ namespace Luth::EditorStyle
             for (auto& [key, val] : it->items()) {
                 auto m = nameMap.find(key);
                 if (m == nameMap.end()) {
-                    LH_CORE_WARN("Unknown ImGui color '{}' in style '{}'", key, sf.Preset.Name);
+                    LH_LOG(Editor, warn, "Unknown ImGui color '{}' in style '{}'", key, sf.Preset.Name);
                     continue;
                 }
                 p.Colors[m->second] = JsonToVec4(val);
@@ -155,14 +155,14 @@ namespace Luth::EditorStyle
     std::optional<StyleFile> LoadFromFile(const fs::path& path)
     {
         if (!fs::exists(path)) {
-            LH_CORE_WARN("Style file not found: {}", path.string());
+            LH_LOG(Editor, warn, "Style file not found: {}", path.string());
             return std::nullopt;
         }
         try {
             std::ifstream file(path);
             return Deserialise(json::parse(file));
         } catch (const std::exception& e) {
-            LH_CORE_ERROR("Failed to load style '{}': {}", path.string(), e.what());
+            LH_LOG(Editor, error, "Failed to load style '{}': {}", path.string(), e.what());
             return std::nullopt;
         }
     }
@@ -174,10 +174,10 @@ namespace Luth::EditorStyle
                 fs::create_directories(path.parent_path());
             std::ofstream file(path);
             file << Serialise(preset, font).dump(4);
-            LH_CORE_INFO("Saved style '{}' to '{}'", preset.Name, path.string());
+            LH_LOG(Editor, info, "Saved style '{}' to '{}'", preset.Name, path.string());
             return true;
         } catch (const std::exception& e) {
-            LH_CORE_ERROR("Failed to save style '{}': {}", path.string(), e.what());
+            LH_LOG(Editor, error, "Failed to save style '{}': {}", path.string(), e.what());
             return false;
         }
     }
@@ -188,7 +188,7 @@ namespace Luth::EditorStyle
     {
         std::string path = (FileSystem::EngineAssetsPath("fonts") / filename).string();
         if (!fs::exists(path)) {
-            LH_CORE_WARN("Icon font not found: {}", path);
+            LH_LOG(Editor, warn, "Icon font not found: {}", path);
             return nullptr;
         }
 
@@ -199,7 +199,7 @@ namespace Luth::EditorStyle
 
         ImFont* font = ImGui::GetIO().Fonts->AddFontFromFileTTF(path.c_str(), size, &config, iconRanges);
         if (!font) {
-            LH_CORE_WARN("Failed to load icon font: {}", path);
+            LH_LOG(Editor, warn, "Failed to load icon font: {}", path);
         }
         return font;
     }
@@ -217,7 +217,7 @@ namespace Luth::EditorStyle
             Editor::MainFontRef() = io.Fonts->AddFontFromFileTTF(mainPath.c_str(), config.MainFontSize, &fontCfg);
         }
         else {
-            LH_CORE_WARN("Main font not found: {}", mainPath);
+            LH_LOG(Editor, warn, "Main font not found: {}", mainPath);
         }
 
         if (config.MergeMainWithSolid) {

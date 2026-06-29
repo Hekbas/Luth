@@ -116,6 +116,10 @@ namespace Luth
     ConsolePanel::ConsolePanel()
     {
         m_WindowID = "Console";
+
+        // All channels visible by default — the level filter (Trace/Debug off) is what hides the
+        // verbose bursts, so muting a whole channel is left to the user rather than imposed up front.
+        for (bool& v : m_ShowCategory) v = true;
     }
 
     ConsolePanel::~ConsolePanel()
@@ -171,6 +175,20 @@ namespace Luth
         ImGui::SameLine();
         ImGui::Checkbox("Auto-scroll", &m_AutoScroll);
 
+        // ── Category filter dropdown ──
+        ImGui::SameLine();
+        if (ImGui::Button(ICON_FA_FILTER " Categories"))
+            ImGui::OpenPopup("##categories");
+        if (ImGui::BeginPopup("##categories")) {
+            if (ImGui::SmallButton("All"))  { for (bool& v : m_ShowCategory) v = true;  }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("None")) { for (bool& v : m_ShowCategory) v = false; }
+            ImGui::Separator();
+            for (size_t i = 0; i < static_cast<size_t>(LogCategory::Count); ++i)
+                ImGui::Checkbox(LogCategoryName(static_cast<LogCategory>(i)), &m_ShowCategory[i]);
+            ImGui::EndPopup();
+        }
+
         // Right-align level toggles. Cluster width = 6 buttons + 5 inter-spacings.
         constexpr int kLevels = 6;
         constexpr float kBtnW = 28.0f;
@@ -215,6 +233,12 @@ namespace Luth
                     default:                 show = true;           break;
                 }
                 if (!show) continue;
+
+                // Category filter — Error/Critical always surface regardless of channel toggle.
+                if (!m_ShowCategory[static_cast<size_t>(e.category)]
+                    && e.level != LogLevel::Error && e.level != LogLevel::Critical)
+                    continue;
+
                 if (m_SearchBuf[0] && !ContainsCaseInsensitive(e.message, m_SearchBuf))
                     continue;
 
@@ -228,6 +252,8 @@ namespace Luth
                 ImGui::PushFont(Editor::GetFASolid());
                 ImGui::TextUnformatted(LevelIcon(e.level));
                 ImGui::PopFont();
+                ImGui::SameLine();
+                ImGui::TextDisabled("[%s]", LogCategoryName(e.category));
                 ImGui::SameLine();
                 ImGui::TextWrapped("%s", e.message.c_str());
                 ImGui::PopStyleColor();

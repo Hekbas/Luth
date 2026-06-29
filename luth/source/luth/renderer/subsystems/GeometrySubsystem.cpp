@@ -71,7 +71,7 @@ namespace Luth
          || m_DepthPrepassVertSpv.empty() || m_DepthPrepassSkinnedVertSpv.empty()
          || m_SlimGBufferVertSpv.empty() || m_SlimGBufferSkinnedVertSpv.empty() || m_SlimGBufferFragSpv.empty())
         {
-            LH_CORE_ERROR("GeometrySubsystem: shader SPIR-V empty after asset load!");
+            LH_LOG(Renderer, error, "GeometrySubsystem: shader SPIR-V empty after asset load!");
             return;
         }
 
@@ -192,7 +192,7 @@ namespace Luth
         auto spv = cullShader ? cullShader->GetSpirV() : std::vector<u32>{};
         if (spv.empty())
         {
-            LH_CORE_ERROR("GeometrySubsystem: failed to load gpu_cull.comp!");
+            LH_LOG(Renderer, error, "GeometrySubsystem: failed to load gpu_cull.comp!");
             return;
         }
         m_CullPipeline = std::make_unique<VKComputePipeline>(
@@ -617,7 +617,7 @@ namespace Luth
             static std::atomic<bool> warned{ false };
             bool expected = false;
             if (warned.compare_exchange_strong(expected, true))
-                LH_CORE_WARN("GPU object cap ({}) exceeded — up to {} draws dropped. Raise k_MaxGPUObjects or add culling/LOD.",
+                LH_LOG(Renderer, warn, "GPU object cap ({}) exceeded — up to {} draws dropped. Raise k_MaxGPUObjects or add culling/LOD.",
                              (u32)RenderPipeline::k_MaxGPUObjects, dropped);
         }
 
@@ -775,7 +775,7 @@ namespace Luth
                 sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "DepthPrepass", "SceneDepth", true,
                     { "depthPrepass", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });
 
-                if (!m_DepthPrepassPipeline) { LH_CORE_ERROR("DepthPrepass pipeline is null!"); sys.GetFrameDebugger().EndCapturePass(); return; }
+                if (!m_DepthPrepassPipeline) { LH_LOG(Renderer, error, "DepthPrepass pipeline is null!"); sys.GetFrameDebugger().EndCapturePass(); return; }
 
                 const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
@@ -937,7 +937,7 @@ namespace Luth
                 sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "SlimGBufferPass", "SlimNormal", false,
                     { "slim_gbuffer", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, false, false });
 
-                if (!m_SlimGBufferPipeline) { LH_CORE_ERROR("SlimGBuffer pipeline is null!"); sys.GetFrameDebugger().EndCapturePass(); return; }
+                if (!m_SlimGBufferPipeline) { LH_LOG(Renderer, error, "SlimGBuffer pipeline is null!"); sys.GetFrameDebugger().EndCapturePass(); return; }
 
                 const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();

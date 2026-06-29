@@ -64,7 +64,7 @@ namespace Luth
     void VulkanSwapchain::CreateSurface()
     {
         if (glfwCreateWindowSurface(VulkanContext::Get().GetInstance(), (GLFWwindow*)m_WindowHandle, nullptr, &m_Surface) != VK_SUCCESS) {
-            LH_CORE_CRITICAL("Failed to create window surface!");
+            LH_LOG(Renderer, critical, "Failed to create window surface!");
         }
 
         // Surface presentation support is not spec-guaranteed (true on desktop GPUs in practice).
@@ -72,7 +72,7 @@ namespace Luth
         VkBool32 presentSupport = VK_FALSE;
         vkGetPhysicalDeviceSurfaceSupportKHR(ctx.GetPhysicalDevice(), ctx.GetGraphicsFamily(), m_Surface, &presentSupport);
         if (!presentSupport)
-            LH_CORE_CRITICAL("Graphics queue family does not support presentation on this surface");
+            LH_LOG(Renderer, critical, "Graphics queue family does not support presentation on this surface");
     }
 
     void VulkanSwapchain::CreateSwapchain(u32 width, u32 height)
@@ -150,7 +150,7 @@ namespace Luth
         createInfo.oldSwapchain = VK_NULL_HANDLE;
 
         if (vkCreateSwapchainKHR(device, &createInfo, nullptr, &m_Swapchain) != VK_SUCCESS) {
-            LH_CORE_CRITICAL("Failed to create swapchain!");
+            LH_LOG(Renderer, critical, "Failed to create swapchain!");
         }
 
         vkGetSwapchainImagesKHR(device, m_Swapchain, &imageCount, nullptr);
@@ -179,7 +179,7 @@ namespace Luth
             createInfo.subresourceRange.layerCount = 1;
 
             if (vkCreateImageView(VulkanContext::Get().GetDevice(), &createInfo, nullptr, &m_ImageViews[i]) != VK_SUCCESS) {
-                LH_CORE_CRITICAL("Failed to create image views!");
+                LH_LOG(Renderer, critical, "Failed to create image views!");
             }
         }
     }
@@ -218,7 +218,7 @@ namespace Luth
         }
         if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
         {
-            LH_CORE_ERROR("Failed to acquire swap chain image (VkResult={})", (int)result);
+            LH_LOG(Renderer, error, "Failed to acquire swap chain image (VkResult={})", (int)result);
             return UINT32_MAX;
         }
 
@@ -252,7 +252,7 @@ namespace Luth
         }
         else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
         {
-            LH_CORE_ERROR("Failed to present swapchain image (VkResult={})", (int)result);
+            LH_LOG(Renderer, error, "Failed to present swapchain image (VkResult={})", (int)result);
         }
 
         return result;

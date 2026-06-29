@@ -137,11 +137,11 @@ namespace Luth
         // accidentally destroys it when a per-frame TLAS first replaces the m_LastResult slot.
         if (BuildEmptyTlas(m_PersistentEmptyTlas, m_PersistentEmptyTlasBuf, m_PersistentEmptyTlasAlloc))
         {
-            LH_CORE_INFO("RtSubsystem: persistent empty TLAS built (frame-0 binding-6 safety)");
+            LH_LOG(Renderer, info, "RtSubsystem: persistent empty TLAS built (frame-0 binding-6 safety)");
         }
         else
         {
-            LH_CORE_CRITICAL("RtSubsystem: persistent empty TLAS build failed — Set 0 binding 6 will be null on frame 0");
+            LH_LOG(Renderer, critical, "RtSubsystem: persistent empty TLAS build failed — Set 0 binding 6 will be null on frame 0");
         }
 
         // Pass-local sampler — linear clamp-to-edge for both SceneDepth + SlimNormal reads.
@@ -183,7 +183,7 @@ namespace Luth
             m_ShadowSpv = sh->GetSpirV();
         if (m_ShadowSpv.empty())
         {
-            LH_CORE_ERROR("RtSubsystem: failed to load rt_sun_shadows.slang SPIR-V");
+            LH_LOG(Renderer, error, "RtSubsystem: failed to load rt_sun_shadows.slang SPIR-V");
         }
         else
         {
@@ -194,7 +194,7 @@ namespace Luth
         auto raygenSpv = ShaderCompiler::Compile(FileSystem::EngineAssetsPath("shaders/rt_smoke.rgen"));
         if (raygenSpv.empty())
         {
-            LH_CORE_CRITICAL("RtSubsystem: smoke shader compile failed — check ShaderCompiler RT mappings");
+            LH_LOG(Renderer, critical, "RtSubsystem: smoke shader compile failed — check ShaderCompiler RT mappings");
             return;
         }
 
@@ -208,7 +208,7 @@ namespace Luth
         VKRayTracingPipeline pipe(stages, {}, {}, 1);
         if (pipe.GetPipeline() == VK_NULL_HANDLE)
         {
-            LH_CORE_CRITICAL("RtSubsystem: smoke pipeline create failed");
+            LH_LOG(Renderer, critical, "RtSubsystem: smoke pipeline create failed");
             return;
         }
 
@@ -216,7 +216,7 @@ namespace Luth
         RtShaderBindingTable sbt(pipe, counts);
         if (sbt.GetBuffer() == VK_NULL_HANDLE)
         {
-            LH_CORE_CRITICAL("RtSubsystem: smoke SBT build failed");
+            LH_LOG(Renderer, critical, "RtSubsystem: smoke SBT build failed");
             return;
         }
 
@@ -231,9 +231,9 @@ namespace Luth
                 1, 1, 1);
         });
 
-        LH_CORE_INFO("RtSubsystem: smoke-test traceRays OK");
+        LH_LOG(Renderer, info, "RtSubsystem: smoke-test traceRays OK");
 #else
-        LH_CORE_INFO("RtSubsystem: idle (Release build — smoke test disabled)");
+        LH_LOG(Renderer, info, "RtSubsystem: idle (Release build — smoke test disabled)");
 #endif
     }
 
@@ -333,7 +333,7 @@ namespace Luth
             VulkanContext::Get().PushDeletion([oldPipe]() { delete oldPipe; });
         }
         BuildShadowPipeline();
-        LH_CORE_INFO("RtSubsystem: sun-shadow pipeline rebuilt after shader reload ({})", name);
+        LH_LOG(Renderer, info, "RtSubsystem: sun-shadow pipeline rebuilt after shader reload ({})", name);
         return true;
     }
 

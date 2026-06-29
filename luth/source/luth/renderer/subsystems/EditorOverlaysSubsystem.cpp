@@ -69,7 +69,7 @@ namespace Luth
             m_SelectionMaskSkinnedVertSpv.empty() ||
             m_OutlineFragSpv.empty() || m_GridFragSpv.empty() || m_FullscreenVertSpv.empty())
         {
-            LH_CORE_ERROR("EditorOverlaysSubsystem: shader SPIR-V empty after asset load!");
+            LH_LOG(Renderer, error, "EditorOverlaysSubsystem: shader SPIR-V empty after asset load!");
             return;
         }
 

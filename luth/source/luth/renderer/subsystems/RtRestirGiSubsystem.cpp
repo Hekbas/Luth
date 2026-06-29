@@ -170,7 +170,7 @@ namespace Luth
             m_ShadeSpv = sh->GetSpirV();
         if (m_InitialSpv.empty() || m_TemporalSpv.empty() || m_SpatialSpv.empty() || m_ShadeSpv.empty())
         {
-            LH_CORE_ERROR("RtRestirGiSubsystem: failed to load restir_gi_initial/temporal/spatial/shade.comp SPIR-V");
+            LH_LOG(Renderer, error, "RtRestirGiSubsystem: failed to load restir_gi_initial/temporal/spatial/shade.comp SPIR-V");
             return;
         }
 

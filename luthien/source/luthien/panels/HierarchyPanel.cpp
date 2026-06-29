@@ -22,7 +22,7 @@ namespace Luth
     HierarchyPanel::HierarchyPanel()
     {
         m_WindowID = "Hierarchy";
-        LH_CORE_INFO("Created Hierarchy panel");
+        LH_LOG(Editor, info, "Created Hierarchy panel");
     }
 
     void HierarchyPanel::OnInit()

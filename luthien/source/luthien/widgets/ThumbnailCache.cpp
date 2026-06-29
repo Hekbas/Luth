@@ -280,7 +280,7 @@ namespace Luth::UI
                     // ImGui descriptor pool exhausted (size=2000). Mark Failed so
                     // we don't busy-loop dispatching against an exhausted pool;
                     // a future polish epic will own a dedicated thumbnail pool.
-                    LH_CORE_WARN("Thumbnail: ImGui descriptor pool exhausted for {}", c.asset.ToString());
+                    LH_LOG(Editor, warn, "Thumbnail: ImGui descriptor pool exhausted for {}", c.asset.ToString());
                     MarkFailed(c.asset);
                     continue;
                 }
@@ -308,10 +308,10 @@ namespace Luth::UI
                     ctx.PushDeletion([oldSet]() { ImGui_ImplVulkan_RemoveTexture(oldSet); });
                 }
             } catch (const std::exception& e) {
-                LH_CORE_ERROR("Thumbnail: Drain threw for {}: {}", c.asset.ToString(), e.what());
+                LH_LOG(Editor, error, "Thumbnail: Drain threw for {}: {}", c.asset.ToString(), e.what());
                 MarkFailed(c.asset);
             } catch (...) {
-                LH_CORE_ERROR("Thumbnail: Drain threw non-std exception for {}", c.asset.ToString());
+                LH_LOG(Editor, error, "Thumbnail: Drain threw non-std exception for {}", c.asset.ToString());
                 MarkFailed(c.asset);
             }
         }
@@ -457,7 +457,7 @@ namespace Luth::UI
         }
 
         if (!entries.empty())
-            LH_CORE_INFO("Thumbnail: queued {} entries from disk cache", entries.size());
+            LH_LOG(Editor, info, "Thumbnail: queued {} entries from disk cache", entries.size());
     }
 
     void ThumbnailCache::Clear()

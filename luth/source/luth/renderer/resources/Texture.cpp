@@ -9,7 +9,7 @@ namespace Luth
     std::shared_ptr<Texture> Texture::Create(u32 width, u32 height, TextureFormat format, const void* data)
     {
         if (width == 0 || height == 0) {
-            LH_CORE_ERROR("Texture creation failed: Invalid dimensions {0}x{1}", width, height);
+            LH_LOG(Renderer, error, "Texture creation failed: Invalid dimensions {0}x{1}", width, height);
             return nullptr;
         }
 
@@ -24,7 +24,7 @@ namespace Luth
     std::shared_ptr<Texture> Texture::Create(u32 width, u32 height, TextureFormat format, const void* data, const TextureSettings& settings)
     {
         if (width == 0 || height == 0) {
-            LH_CORE_ERROR("Texture creation failed: Invalid dimensions {0}x{1}", width, height);
+            LH_LOG(Renderer, error, "Texture creation failed: Invalid dimensions {0}x{1}", width, height);
             return nullptr;
         }
 

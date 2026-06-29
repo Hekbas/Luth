@@ -25,10 +25,10 @@ namespace Luth
     void ShaderLibrary::Register(const std::string& name, std::shared_ptr<Shader> shader)
     {
         if (s_Shaders.count(name))
-            LH_CORE_WARN("ShaderLibrary: overwriting existing shader '{}'", name);
+            LH_LOG(Shaders, warn, "ShaderLibrary: overwriting existing shader '{}'", name);
 
         s_Shaders[name] = shader;
-        LH_CORE_INFO("ShaderLibrary: registered '{}'", name);
+        LH_LOG(Shaders, debug, "ShaderLibrary: registered '{}'", name);
     }
 
     std::shared_ptr<Shader> ShaderLibrary::Get(const std::string& name)
@@ -36,7 +36,7 @@ namespace Luth
         auto it = s_Shaders.find(name);
         if (it == s_Shaders.end())
         {
-            LH_CORE_ERROR("ShaderLibrary: shader '{}' not found", name);
+            LH_LOG(Shaders, error, "ShaderLibrary: shader '{}' not found", name);
             return nullptr;
         }
         return it->second;
@@ -61,7 +61,7 @@ namespace Luth
         auto sh = std::static_pointer_cast<Shader>(AssetManager::LoadImmediate(uuid));
         if (!sh)
         {
-            LH_CORE_ERROR("ShaderLibrary::LoadEngine: failed to load '{0}'", engineRelPath);
+            LH_LOG(Shaders, error, "ShaderLibrary::LoadEngine: failed to load '{0}'", engineRelPath);
             return nullptr;
         }
 
@@ -75,16 +75,16 @@ namespace Luth
         auto it = s_Shaders.find(name);
         if (it == s_Shaders.end())
         {
-            LH_CORE_ERROR("ShaderLibrary::Reload: shader '{}' not found", name);
+            LH_LOG(Shaders, error, "ShaderLibrary::Reload: shader '{}' not found", name);
             return false;
         }
 
-        LH_CORE_INFO("ShaderLibrary: reloading '{}'...", name);
+        LH_LOG(Shaders, info, "ShaderLibrary: reloading '{}'...", name);
         it->second->Reload();
 
         if (!it->second->IsValid())
         {
-            LH_CORE_ERROR("ShaderLibrary: reload of '{}' failed — keeping old pipeline", name);
+            LH_LOG(Shaders, error, "ShaderLibrary: reload of '{}' failed -- keeping old pipeline", name);
             return false;
         }
 

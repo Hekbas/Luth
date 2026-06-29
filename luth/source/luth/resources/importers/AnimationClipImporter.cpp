@@ -12,7 +12,7 @@ namespace Luth
         AnimationAssetData data;
         if (!AssetSerializer::DeserializeAnimation(source, data))
         {
-            LH_CORE_ERROR("AnimationClipImporter: Failed to read source {0}", source.string());
+            LH_LOG(Assets, error, "AnimationClipImporter: Failed to read source {0}", source.string());
             return false;
         }
         return AssetSerializer::SerializeAnimation(destination, data);

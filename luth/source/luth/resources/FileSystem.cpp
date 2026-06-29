@@ -23,7 +23,7 @@ namespace Luth
         s_AssetsRoot.clear();
         s_HasProject = false;
 
-        LH_CORE_INFO("FileSystem: Engine root = {}", s_EngineRoot.string());
+        LH_LOG(Assets, info, "FileSystem: Engine root = {}", s_EngineRoot.string());
     }
 
     // ── Phase 2: Set project root (called when user selects a project) ──
@@ -34,8 +34,8 @@ namespace Luth
         s_AssetsRoot  = s_ProjectRoot / "assets";
         s_HasProject  = true;
 
-        LH_CORE_INFO("FileSystem: Project root = {}", s_ProjectRoot.string());
-        LH_CORE_INFO("FileSystem: Assets root  = {}", s_AssetsRoot.string());
+        LH_LOG(Assets, info, "FileSystem: Project root = {}", s_ProjectRoot.string());
+        LH_LOG(Assets, info, "FileSystem: Assets root  = {}", s_AssetsRoot.string());
 
         EnsureBaseStructure();
     }

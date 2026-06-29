@@ -20,7 +20,7 @@ namespace Luth
     ProjectPanel::ProjectPanel()
     {
         m_WindowID = "Project";
-        LH_CORE_INFO("Created Project panel");
+        LH_LOG(Editor, info, "Created Project panel");
     }
 
     void ProjectPanel::OnInit()
@@ -776,7 +776,7 @@ namespace Luth
             Refresh();
         }
         catch (std::exception& e) {
-            LH_CORE_ERROR("Rename failed: {0}", e.what());
+            LH_LOG(Editor, error, "Rename failed: {0}", e.what());
         }
     }
 }

@@ -12,7 +12,7 @@ namespace Luth
     ResourcePanel::ResourcePanel()
     {
         m_WindowID = "Resources";
-        LH_CORE_INFO("Created Resource panel");
+        LH_LOG(Editor, info, "Created Resource panel");
     }
 
     void ResourcePanel::OnInit()

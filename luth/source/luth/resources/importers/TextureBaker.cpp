@@ -67,7 +67,7 @@ namespace Luth::TextureBaker
         Image::LoadResult8 rough = Image::Load(roughnessSrc);
         Image::LoadResult8 metal = Image::Load(metalnessSrc);
         if (!rough.valid || !metal.valid) {
-            LH_CORE_WARN("TextureBaker: failed to load metal/rough inputs for '{0}'", baseName);
+            LH_LOG(Assets, warn, "TextureBaker: failed to load metal/rough inputs for '{0}'", baseName);
             return UUID::Invalid();
         }
 
@@ -89,11 +89,11 @@ namespace Luth::TextureBaker
         if (!fs::exists(outDir)) fs::create_directories(outDir);
         const fs::path outPath = outDir / (baseName + "_metalRough_baked.png");
         if (!Image::SavePng(outPath, out.data(), w, h, 4u)) {
-            LH_CORE_WARN("TextureBaker: failed to write '{0}'", outPath.string());
+            LH_LOG(Assets, warn, "TextureBaker: failed to write '{0}'", outPath.string());
             return UUID::Invalid();
         }
 
-        LH_CORE_INFO("TextureBaker: packed metalRough '{0}' ({1}x{2})", outPath.filename().string(), w, h);
+        LH_LOG(Assets, info, "TextureBaker: packed metalRough '{0}' ({1}x{2})", outPath.filename().string(), w, h);
         return RegisterBaked(outPath, TextureRole::LinearData, { roughnessUuid, metalnessUuid });
     }
 
@@ -104,7 +104,7 @@ namespace Luth::TextureBaker
         SpecGlossResult result;
         Image::LoadResult8 sg = Image::Load(in.specGlossSrc);
         if (!sg.valid) {
-            LH_CORE_WARN("TextureBaker: failed to load spec-gloss input for '{0}'", baseName);
+            LH_LOG(Assets, warn, "TextureBaker: failed to load spec-gloss input for '{0}'", baseName);
             return result;
         }
         const u32 w = sg.width, h = sg.height;
@@ -157,14 +157,14 @@ namespace Luth::TextureBaker
         const fs::path mrPath   = outDir / (baseName + "_metalRough_baked.png");
         if (!Image::SavePng(basePath, baseOut.data(), w, h, 4u) ||
             !Image::SavePng(mrPath, mrOut.data(), w, h, 4u)) {
-            LH_CORE_WARN("TextureBaker: failed to write spec-gloss outputs for '{0}'", baseName);
+            LH_LOG(Assets, warn, "TextureBaker: failed to write spec-gloss outputs for '{0}'", baseName);
             return result;
         }
 
         const std::vector<UUID> deps = { in.specGlossUuid, in.diffuseUuid };
         result.baseColor  = RegisterBaked(basePath, TextureRole::Color, deps);
         result.metalRough = RegisterBaked(mrPath, TextureRole::LinearData, deps);
-        LH_CORE_INFO("TextureBaker: converted spec-gloss '{0}' ({1}x{2})", baseName, w, h);
+        LH_LOG(Assets, info, "TextureBaker: converted spec-gloss '{0}' ({1}x{2})", baseName, w, h);
         return result;
     }
 }

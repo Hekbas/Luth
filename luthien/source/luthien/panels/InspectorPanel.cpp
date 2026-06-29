@@ -25,7 +25,7 @@ namespace Luth
     InspectorPanel::InspectorPanel()
     {
         m_WindowID = "Inspector";
-        LH_CORE_INFO("Created Inspector panel");
+        LH_LOG(Editor, info, "Created Inspector panel");
     }
 
     void InspectorPanel::OnInit() {}

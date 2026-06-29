@@ -192,7 +192,7 @@ namespace Luth
         gaInfo.signalSemaphoreInfoCount = 1;
         gaInfo.pSignalSemaphoreInfos    = &gaSignal;
         if (!VulkanContext::Get().SubmitGraphics2(gaInfo, VK_NULL_HANDLE))
-            LH_CORE_ERROR("VulkanBackend::SubmitView — graphics-A submit failed (frame {}, view {}).", frameIndex, viewSlot);
+            LH_LOG(Renderer, error, "VulkanBackend::SubmitView — graphics-A submit failed (frame {}, view {}).", frameIndex, viewSlot);
 
         // ── async-compute submit ──
         // Only fires when the view's RG routed any pass to AsyncCompute. Compute waits the gA value at ALL_COMMANDS
@@ -243,7 +243,7 @@ namespace Luth
             cInfo.signalSemaphoreInfoCount = 1;
             cInfo.pSignalSemaphoreInfos    = &cSignal;
             if (!VulkanContext::Get().SubmitCompute2(cInfo, VK_NULL_HANDLE))
-                LH_CORE_ERROR("VulkanBackend::SubmitView — compute submit failed (frame {}, view {}).", frameIndex, viewSlot);
+                LH_LOG(Renderer, error, "VulkanBackend::SubmitView — compute submit failed (frame {}, view {}).", frameIndex, viewSlot);
             m_CurrentFrameLastComputeValue = computeSignalValue;
         }
 
@@ -306,7 +306,7 @@ namespace Luth
         gbInfo.signalSemaphoreInfoCount = gbSignalCount;
         gbInfo.pSignalSemaphoreInfos    = gbSignals;
         if (!VulkanContext::Get().SubmitGraphics2(gbInfo, VK_NULL_HANDLE))
-            LH_CORE_ERROR("VulkanBackend::SubmitView — graphics-B submit failed (frame {}, view {}).", frameIndex, viewSlot);
+            LH_LOG(Renderer, error, "VulkanBackend::SubmitView — graphics-B submit failed (frame {}, view {}).", frameIndex, viewSlot);
 
         // Cache per-frame final timeline values + present on the last view. AcquireImage reads these caches when
         // gating GPU-N-2 page reclaim (skips compute wait when the per-frame value is 0).
@@ -406,7 +406,7 @@ namespace Luth
         poolInfo.queueFamilyIndex = VulkanContext::Get().GetGraphicsFamily();
 
         if (vkCreateCommandPool(VulkanContext::Get().GetDevice(), &poolInfo, nullptr, &m_PrimaryCommandPool) != VK_SUCCESS) {
-            LH_CORE_CRITICAL("Failed to create primary command pool!");
+            LH_LOG(Renderer, critical, "Failed to create primary command pool!");
         }
 
         // Allocate gA + gB per-view rings from the graphics pool. Total = MAX_VIEWS_PER_FRAME × MAX_FRAMES_IN_FLIGHT
@@ -422,9 +422,9 @@ namespace Luth
         allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocInfo.commandBufferCount = perRing;
         if (vkAllocateCommandBuffers(VulkanContext::Get().GetDevice(), &allocInfo, gaFlat.data()) != VK_SUCCESS)
-            LH_CORE_CRITICAL("Failed to allocate graphics-A per-view primary command buffers!");
+            LH_LOG(Renderer, critical, "Failed to allocate graphics-A per-view primary command buffers!");
         if (vkAllocateCommandBuffers(VulkanContext::Get().GetDevice(), &allocInfo, gbFlat.data()) != VK_SUCCESS)
-            LH_CORE_CRITICAL("Failed to allocate graphics-B per-view primary command buffers!");
+            LH_LOG(Renderer, critical, "Failed to allocate graphics-B per-view primary command buffers!");
 
         for (u32 f = 0; f < MAX_FRAMES_IN_FLIGHT; ++f)
         for (u32 v = 0; v < MAX_VIEWS_PER_FRAME;  ++v)
@@ -444,7 +444,7 @@ namespace Luth
         poolInfo.queueFamilyIndex = VulkanContext::Get().GetComputeFamily();
 
         if (vkCreateCommandPool(VulkanContext::Get().GetDevice(), &poolInfo, nullptr, &m_ComputePrimaryCommandPool) != VK_SUCCESS) {
-            LH_CORE_CRITICAL("Failed to create compute primary command pool!");
+            LH_LOG(Renderer, critical, "Failed to create compute primary command pool!");
         }
 
         constexpr u32 perRing = MAX_VIEWS_PER_FRAME * MAX_FRAMES_IN_FLIGHT;
@@ -455,7 +455,7 @@ namespace Luth
         allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocInfo.commandBufferCount = perRing;
         if (vkAllocateCommandBuffers(VulkanContext::Get().GetDevice(), &allocInfo, flat.data()) != VK_SUCCESS)
-            LH_CORE_CRITICAL("Failed to allocate compute per-view primary command buffers!");
+            LH_LOG(Renderer, critical, "Failed to allocate compute per-view primary command buffers!");
 
         for (u32 f = 0; f < MAX_FRAMES_IN_FLIGHT; ++f)
         for (u32 v = 0; v < MAX_VIEWS_PER_FRAME;  ++v)

@@ -30,7 +30,7 @@ namespace Luth
 
         if (vkCreateSemaphore(VulkanContext::Get().GetDevice(), &createInfo, nullptr, &m_Semaphore) != VK_SUCCESS)
         {
-            LH_CORE_CRITICAL("Failed to create Timeline Semaphore!");
+            LH_LOG(Renderer, critical, "Failed to create Timeline Semaphore!");
         }
     }
 
@@ -52,7 +52,7 @@ namespace Luth
 
         if (vkSignalSemaphore(VulkanContext::Get().GetDevice(), &signalInfo) != VK_SUCCESS)
         {
-            LH_CORE_ERROR("Failed to signal Timeline Semaphore!");
+            LH_LOG(Renderer, error, "Failed to signal Timeline Semaphore!");
         }
     }
 
@@ -73,7 +73,7 @@ namespace Luth
         u64 value = 0;
         if (vkGetSemaphoreCounterValue(VulkanContext::Get().GetDevice(), m_Semaphore, &value) != VK_SUCCESS)
         {
-            LH_CORE_ERROR("Failed to get Timeline Semaphore value!");
+            LH_LOG(Renderer, error, "Failed to get Timeline Semaphore value!");
         }
         return value;
     }

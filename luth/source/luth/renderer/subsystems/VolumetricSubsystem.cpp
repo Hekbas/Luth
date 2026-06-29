@@ -99,7 +99,7 @@ namespace Luth
                 m_InjectDensitySpv = sh->GetSpirV();
             if (m_InjectDensitySpv.empty())
             {
-                LH_CORE_ERROR("VolumetricSubsystem: failed to load volumetric_inject_density.comp!");
+                LH_LOG(Renderer, error, "VolumetricSubsystem: failed to load volumetric_inject_density.comp!");
                 return;
             }
             // Pipeline layout: Set 0 = GlobalSubsystem's, Set 1 = density-only inject state.
@@ -160,7 +160,7 @@ namespace Luth
                 m_InjectScatterSpv = sh->GetSpirV();
             if (m_InjectScatterSpv.empty())
             {
-                LH_CORE_ERROR("VolumetricSubsystem: failed to load volumetric_inject_scatter.slang!");
+                LH_LOG(Renderer, error, "VolumetricSubsystem: failed to load volumetric_inject_scatter.slang!");
                 return;
             }
             // Cutout 5-set layout: Set 3 Material + Set 4 bindless feed material_bindings_rt.slang's RT alpha-test.
@@ -200,7 +200,7 @@ namespace Luth
                 m_IntegrateSpv = sh->GetSpirV();
             if (m_IntegrateSpv.empty())
             {
-                LH_CORE_ERROR("VolumetricSubsystem: failed to load volumetric_integrate.comp!");
+                LH_LOG(Renderer, error, "VolumetricSubsystem: failed to load volumetric_integrate.comp!");
                 return;
             }
             m_IntegratePipeline = std::make_unique<VKComputePipeline>(
@@ -247,7 +247,7 @@ namespace Luth
                 m_ResolveSpv = sh->GetSpirV();
             if (m_ResolveSpv.empty())
             {
-                LH_CORE_ERROR("VolumetricSubsystem: failed to load volumetric_resolve.comp!");
+                LH_LOG(Renderer, error, "VolumetricSubsystem: failed to load volumetric_resolve.comp!");
                 return;
             }
             // Set 0 = GlobalUniforms (prevViewProjection + prevViewParams + temporalAlpha).
@@ -293,7 +293,7 @@ namespace Luth
                 m_CompositeFragSpv = sh->GetSpirV();
             if (m_FullscreenVertSpv.empty() || m_CompositeFragSpv.empty())
             {
-                LH_CORE_ERROR("VolumetricSubsystem: failed to load composite shaders!");
+                LH_LOG(Renderer, error, "VolumetricSubsystem: failed to load composite shaders!");
                 return;
             }
 
@@ -385,7 +385,7 @@ namespace Luth
                 bakeSpv = sh->GetSpirV();
             if (bakeSpv.empty())
             {
-                LH_CORE_ERROR("VolumetricSubsystem: failed to load volumetric_noise_bake.comp!");
+                LH_LOG(Renderer, error, "VolumetricSubsystem: failed to load volumetric_noise_bake.comp!");
                 return;
             }
 
@@ -495,7 +495,7 @@ namespace Luth
                 bakeSpv = sh->GetSpirV();
             if (bakeSpv.empty())
             {
-                LH_CORE_ERROR("VolumetricSubsystem: failed to load blue_noise_bake.comp!");
+                LH_LOG(Renderer, error, "VolumetricSubsystem: failed to load blue_noise_bake.comp!");
                 return;
             }
 

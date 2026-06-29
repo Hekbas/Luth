@@ -82,7 +82,7 @@ namespace Luth
             std::ofstream out(meta.Path);
             if (!out.is_open())
             {
-                LH_CORE_ERROR("PhysicsMaterialEditor: cannot open {} for write", meta.Path.string());
+                LH_LOG(Editor, error, "PhysicsMaterialEditor: cannot open {} for write", meta.Path.string());
                 return;
             }
             out << json.dump(4);

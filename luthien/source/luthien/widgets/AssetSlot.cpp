@@ -94,7 +94,7 @@ namespace Luth::UI
                 }
                 else
                 {
-                    LH_CORE_WARN("Invalid asset type dropped. Expected {0}, got {1}", (int)type, (int)meta.Type);
+                    LH_LOG(Editor, warn, "Invalid asset type dropped. Expected {0}, got {1}", (int)type, (int)meta.Type);
                 }
             }
             ImGui::EndDragDropTarget();

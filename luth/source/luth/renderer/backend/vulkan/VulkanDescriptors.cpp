@@ -251,7 +251,7 @@ namespace Luth
         LH_PROFILE_FUNCTION();
 
         if (m_FreeIndices.empty()) {
-            LH_CORE_ERROR("Bindless descriptor set full!");
+            LH_LOG(Renderer, error, "Bindless descriptor set full!");
             return INVALID_BINDLESS_SLOT;
         }
 
@@ -314,7 +314,7 @@ namespace Luth
 
         if (m_FreeSamplerIndices.empty())
         {
-            LH_CORE_ERROR("Bindless sampler array full!");
+            LH_LOG(Renderer, error, "Bindless sampler array full!");
             return INVALID_BINDLESS_SLOT;
         }
 

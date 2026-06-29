@@ -30,7 +30,7 @@ namespace Luth
         VKPipeline* ptr = pipeline.get();
         m_Pipelines.emplace(key, std::move(pipeline));
 
-        LH_CORE_INFO("Created pipeline variant: shader={} mode={} cull={} poly={}", shaderUUID.ToString(), static_cast<int>(mode), static_cast<int>(cullMode), static_cast<int>(polygonMode));
+        LH_LOG(Renderer, info, "Created pipeline variant: shader={} mode={} cull={} poly={}", shaderUUID.ToString(), static_cast<int>(mode), static_cast<int>(cullMode), static_cast<int>(polygonMode));
         return ptr;
     }
 
@@ -41,7 +41,7 @@ namespace Luth
         });
 
         if (count > 0)
-            LH_CORE_INFO("Invalidated {} pipeline(s) for shader {}", count, shaderUUID.ToString());
+            LH_LOG(Renderer, info, "Invalidated {} pipeline(s) for shader {}", count, shaderUUID.ToString());
     }
 
     void PipelineManager::Clear()
@@ -67,7 +67,7 @@ namespace Luth
             }
         }
         if (count > 0)
-            LH_CORE_INFO("Deferred-invalidated {} pipeline(s) for shader {}", count, shaderUUID.ToString());
+            LH_LOG(Renderer, info, "Deferred-invalidated {} pipeline(s) for shader {}", count, shaderUUID.ToString());
     }
 
     void PipelineManager::DeferredClear()

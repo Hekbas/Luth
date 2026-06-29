@@ -100,7 +100,7 @@ namespace Luth
         }
         catch (const std::exception& e)
         {
-            LH_CORE_WARN("ProjectLauncher: Failed to load recent projects: {}", e.what());
+            LH_LOG(Editor, warn, "ProjectLauncher: Failed to load recent projects: {}", e.what());
         }
     }
 
@@ -126,7 +126,7 @@ namespace Luth
         }
         catch (const std::exception& e)
         {
-            LH_CORE_ERROR("ProjectLauncher: Failed to save recent projects: {}", e.what());
+            LH_LOG(Editor, error, "ProjectLauncher: Failed to save recent projects: {}", e.what());
         }
     }
 

@@ -42,7 +42,7 @@ namespace Luth
 
         if (engineAssetsRoot.empty() || !fs::exists(engineAssetsRoot))
         {
-            LH_CORE_WARN("AssetDatabase: Engine assets root not found: {}", engineAssetsRoot.string());
+            LH_LOG(Assets, warn, "AssetDatabase: Engine assets root not found: {}", engineAssetsRoot.string());
             return;
         }
 
@@ -79,7 +79,7 @@ namespace Luth
             if (!uuid.IsValid())
             {
                 uuid = MetaFile::Create(path, type);
-                LH_CORE_INFO("AssetDatabase: Generated meta for engine asset {}", path.filename().string());
+                LH_LOG(Assets, debug, "AssetDatabase: Generated meta for engine asset {}", path.filename().string());
             }
 
             s_Assets[uuid] = { path, type };
@@ -105,7 +105,7 @@ namespace Luth
         // Ensure engine artifact cache directory exists
         fs::create_directories(FileSystem::EnginePath("Library/Artifacts"));
 
-        LH_CORE_INFO("AssetDatabase: Registered {} engine assets", engineAssetCount);
+        LH_LOG(Assets, info, "AssetDatabase: Registered {} engine assets", engineAssetCount);
     }
 
     // ── Phase 2: Load project assets (called when user selects a project) ──
@@ -124,7 +124,7 @@ namespace Luth
 
         if (!fs::exists(projectAssetsRoot))
         {
-            LH_CORE_WARN("AssetDatabase: Project assets root does not exist: {}", projectAssetsRoot.string());
+            LH_LOG(Assets, warn, "AssetDatabase: Project assets root does not exist: {}", projectAssetsRoot.string());
             return;
         }
 
@@ -168,13 +168,13 @@ namespace Luth
                 if (meta.Load(metaPath))
                     uuid = meta.GetUUID();
                 else
-                    LH_CORE_ERROR("AssetDatabase: Failed to load meta file: {}", metaPath.string());
+                    LH_LOG(Assets, error, "AssetDatabase: Failed to load meta file: {}", metaPath.string());
             }
 
             if (!uuid.IsValid())
             {
                 uuid = MetaFile::Create(path, type);
-                LH_CORE_INFO("AssetDatabase: Generated meta file for {} -> UUID {}", path.filename().string(), uuid.ToString());
+                LH_LOG(Assets, debug, "AssetDatabase: Generated meta file for {} -> UUID {}", path.filename().string(), uuid.ToString());
             }
 
             s_Assets[uuid] = { path, type };
@@ -187,7 +187,7 @@ namespace Luth
                 u64 currentHash = CalculateAssetHash(path, metaPath);
                 if (s_ArtifactHashes[uuid] != currentHash || !fs::exists(GetArtifactPath(uuid)))
                 {
-                    LH_CORE_INFO("AssetDatabase: Re-importing {}", path.filename().string());
+                    LH_LOG(Assets, debug, "AssetDatabase: Re-importing {}", path.filename().string());
                     s_ArtifactHashes[uuid] = currentHash;
                     fs::path artifact = GetArtifactPath(uuid);
                     if (fs::exists(artifact)) fs::remove(artifact);
@@ -203,12 +203,12 @@ namespace Luth
             assetPath.replace_extension("");
             if (!fs::exists(assetPath))
             {
-                LH_CORE_WARN("AssetDatabase: Deleting orphaned meta file: {}", path.filename().string());
+                LH_LOG(Assets, warn, "AssetDatabase: Deleting orphaned meta file: {}", path.filename().string());
                 fs::remove(path);
             }
         }
 
-        LH_CORE_INFO("AssetDatabase: Scanned {} project assets", projectAssetCount);
+        LH_LOG(Assets, info, "AssetDatabase: Scanned {} project assets", projectAssetCount);
         SaveLibraryState_Unlocked();
     }
 
@@ -242,7 +242,7 @@ namespace Luth
         s_ArtifactHashes.clear();
         s_ProjectRoot.clear();
 
-        LH_CORE_INFO("AssetDatabase: Project unloaded, {} engine assets remain", s_Assets.size());
+        LH_LOG(Assets, info, "AssetDatabase: Project unloaded, {} engine assets remain", s_Assets.size());
     }
 
     // ── Shutdown ──
@@ -437,7 +437,7 @@ namespace Luth
 
         nlohmann::json gltf;
         try { in >> gltf; }
-        catch (...) { LH_CORE_WARN("CopyGltfBuffers: cannot parse {0}", srcGltf.filename().string()); return; }
+        catch (...) { LH_LOG(Assets, warn, "CopyGltfBuffers: cannot parse {0}", srcGltf.filename().string()); return; }
 
         if (!gltf.contains("buffers")) return;
         for (const auto& buf : gltf["buffers"]) {
@@ -450,12 +450,12 @@ namespace Luth
             fs::path dst = destDir / rel;
             std::error_code ec;
             if (!fs::exists(src, ec)) {
-                LH_CORE_WARN("CopyGltfBuffers: referenced buffer missing: {0}", src.string());
+                LH_LOG(Assets, warn, "CopyGltfBuffers: referenced buffer missing: {0}", src.string());
                 continue;
             }
             fs::create_directories(dst.parent_path(), ec);
             fs::copy_file(src, dst, fs::copy_options::overwrite_existing, ec);
-            if (ec) LH_CORE_WARN("CopyGltfBuffers: copy failed {0}: {1}", src.string(), ec.message());
+            if (ec) LH_LOG(Assets, warn, "CopyGltfBuffers: copy failed {0}: {1}", src.string(), ec.message());
         }
     }
 
@@ -464,20 +464,20 @@ namespace Luth
         LH_PROFILE_FUNCTION();
         try {
             if (!fs::exists(sourcePath)) {
-                LH_CORE_ERROR("IngestFile: source not found: {0}", sourcePath.string());
+                LH_LOG(Assets, error, "IngestFile: source not found: {0}", sourcePath.string());
                 return;
             }
 
             AssetType resType = FileSystem::ClassifyFileType(sourcePath);
             if (resType == AssetType::None) {
-                LH_CORE_WARN("IngestFile: unsupported file type: {0}", sourcePath.string());
+                LH_LOG(Assets, warn, "IngestFile: unsupported file type: {0}", sourcePath.string());
                 return;
             }
 
             fs::path destPath = destDir / sourcePath.filename();
             FileSystem::CreateDirectories(destDir);
             fs::copy_file(sourcePath, destPath, fs::copy_options::overwrite_existing);
-            LH_CORE_INFO("Imported {0} to {1}", sourcePath.filename().string(), destPath.string());
+            LH_LOG(Assets, info, "Imported {0} to {1}", sourcePath.filename().string(), destPath.string());
 
             // For model assets, discover and copy adjacent textures
             if (resType == AssetType::Model) {
@@ -519,7 +519,7 @@ namespace Luth
                     }
                 }
                 if (copiedAny)
-                    LH_CORE_INFO("Copied adjacent textures to {0}", texDestDir.filename().string());
+                    LH_LOG(Assets, info, "Copied adjacent textures to {0}", texDestDir.filename().string());
             }
 
             UUID newUuid = MetaFile::Create(destPath, resType);
@@ -528,17 +528,17 @@ namespace Luth
             if (AssetManager::HasImporter(resType))
                 AssetManager::Import(newUuid);
 
-            LH_CORE_INFO("Created asset {0} with UUID {1}", destPath.filename().string(), newUuid.ToString());
+            LH_LOG(Assets, info, "Created asset {0} with UUID {1}", destPath.filename().string(), newUuid.ToString());
 
             // Notify subscribers now: pre-registration makes the watcher's later Created event a dedup no-op.
             for (auto& cb : s_ChangeCallbacks)
                 cb();
         }
         catch (const fs::filesystem_error& err) {
-            LH_CORE_ERROR("IngestFile failed: {0} - {1}", sourcePath.string(), err.what());
+            LH_LOG(Assets, error, "IngestFile failed: {0} - {1}", sourcePath.string(), err.what());
         }
         catch (const std::exception& ex) {
-            LH_CORE_ERROR("IngestFile error: {0} - {1}", sourcePath.string(), ex.what());
+            LH_LOG(Assets, error, "IngestFile error: {0} - {1}", sourcePath.string(), ex.what());
         }
     }
 
@@ -565,7 +565,7 @@ namespace Luth
         });
 
         s_FileWatcher->Start(true);
-        LH_CORE_INFO("AssetDatabase: File watcher started on '{}'", s_ProjectRoot.string());
+        LH_LOG(Assets, info, "AssetDatabase: File watcher started on '{}'", s_ProjectRoot.string());
     }
 
     void AssetDatabase::StopWatching()
@@ -627,7 +627,7 @@ namespace Luth
                         uuid = MetaFile::Create(path, type);
 
                     RegisterAsset_Unlocked(path, uuid, type);
-                    LH_CORE_INFO("AssetDatabase: Hot-added '{}'", path.filename().string());
+                    LH_LOG(Assets, info, "AssetDatabase: Hot-added '{}'", path.filename().string());
 
                     if (AssetManager::HasImporter(type))
                         s_DirtyAssets.push_back(uuid);
@@ -661,7 +661,7 @@ namespace Luth
                     AssetManager::Evict(uuid);
 
                     s_DirtyAssets.push_back(uuid);
-                    LH_CORE_INFO("AssetDatabase: Hot-modified '{}', queued for reimport", path.filename().string());
+                    LH_LOG(Assets, info, "AssetDatabase: Hot-modified '{}', queued for reimport", path.filename().string());
                     anyChange = true;
 
                     // If a .frag changed, also mark the paired .vert dirty so its artifact is refreshed
@@ -675,7 +675,7 @@ namespace Luth
                             fs::path vertArtifact = GetArtifactPath(vertUuid);
                             if (fs::exists(vertArtifact)) fs::remove(vertArtifact);
                             s_DirtyAssets.push_back(vertUuid);
-                            LH_CORE_INFO("AssetDatabase: .frag changed, cascading reimport to paired '{}'", vertPath.filename().string());
+                            LH_LOG(Assets, info, "AssetDatabase: .frag changed, cascading reimport to paired '{}'", vertPath.filename().string());
                         }
                     }
                 }
@@ -691,7 +691,7 @@ namespace Luth
                     if (fs::exists(metaPath)) fs::remove(metaPath);
 
                     UnregisterAsset_Unlocked(uuid);
-                    LH_CORE_INFO("AssetDatabase: Hot-removed '{}'", path.filename().string());
+                    LH_LOG(Assets, info, "AssetDatabase: Hot-removed '{}'", path.filename().string());
                     anyChange = true;
                 }
             }

@@ -12,7 +12,7 @@ namespace Luth::MaterialLayoutGuard
         SlangCompiler::StructLayout sl = SlangCompiler::ReflectStructLayout(slangPath, typeName);
         if (!sl.ok)
         {
-            LH_CORE_WARN("MaterialLayoutGuard: reflection unavailable for '{}' — layout check skipped", typeName);
+            LH_LOG(Renderer, warn, "MaterialLayoutGuard: reflection unavailable for '{}' — layout check skipped", typeName);
             return false;
         }
 
@@ -27,26 +27,26 @@ namespace Luth::MaterialLayoutGuard
             if (!rf)
             {
                 match = false;
-                LH_CORE_ERROR("MaterialLayoutGuard: {}::{} missing from Slang reflection (C++ offset {})",
+                LH_LOG(Renderer, error, "MaterialLayoutGuard: {}::{} missing from Slang reflection (C++ offset {})",
                               typeName, cf.name, cf.offset);
             }
             else if (rf->offset != cf.offset)
             {
                 match = false;
-                LH_CORE_ERROR("MaterialLayoutGuard: {}::{} offset drift — C++ {} vs Slang {}",
+                LH_LOG(Renderer, error, "MaterialLayoutGuard: {}::{} offset drift — C++ {} vs Slang {}",
                               typeName, cf.name, cf.offset, rf->offset);
             }
         }
 
         if (!match)
         {
-            LH_CORE_ERROR("MaterialLayoutGuard: {} LAYOUT DRIFT — C++ {} B/{} fields vs Slang {} B/{} fields",
+            LH_LOG(Renderer, error, "MaterialLayoutGuard: {} LAYOUT DRIFT — C++ {} B/{} fields vs Slang {} B/{} fields",
                           typeName, cppSize, cppFields.size(), sl.size, sl.fields.size());
             assert(false && "MaterialLayoutGuard: C++/Slang struct layout drift — see log");
             return false;
         }
 
-        LH_CORE_INFO("MaterialLayoutGuard: {} verified ({} fields, {} B)", typeName, cppFields.size(), sl.size);
+        LH_LOG(Renderer, info, "MaterialLayoutGuard: {} verified ({} fields, {} B)", typeName, cppFields.size(), sl.size);
         return true;
     }
 }

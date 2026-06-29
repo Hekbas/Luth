@@ -58,9 +58,9 @@ namespace Luth
             try {
                 cb();
             } catch (const std::exception& e) {
-                LH_CORE_ERROR("MainThreadPump callback threw: {}", e.what());
+                LH_LOG(Jobs, error, "MainThreadPump callback threw: {}", e.what());
             } catch (...) {
-                LH_CORE_ERROR("MainThreadPump callback threw a non-std exception");
+                LH_LOG(Jobs, error, "MainThreadPump callback threw a non-std exception");
             }
 
             Memory::MemoryTracker::RecordFree(Memory::Category::Editor, sizeof(Callback));

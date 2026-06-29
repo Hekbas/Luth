@@ -204,7 +204,7 @@ namespace Luth
             m_BloomUpSpv.empty() || m_PostProcessFragSpv.empty() ||
             m_SlimVizFragSpv.empty() || m_TaaResolveFragSpv.empty())
         {
-            LH_CORE_ERROR("PostProcessSubsystem: shader SPIR-V empty after asset load!");
+            LH_LOG(Renderer, error, "PostProcessSubsystem: shader SPIR-V empty after asset load!");
             return;
         }
 

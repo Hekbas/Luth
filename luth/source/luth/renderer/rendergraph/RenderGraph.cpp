@@ -286,7 +286,7 @@ namespace Luth::RG
             s_dumped = true;
             std::ofstream(s_dumpPath) << DumpGraphDot();
             std::ofstream(std::string(s_dumpPath) + ".json") << DumpGraphJson();
-            LH_CORE_INFO("RenderGraph dumped to {} (+ .json)", s_dumpPath);
+            LH_LOG(Renderer, info, "RenderGraph dumped to {} (+ .json)", s_dumpPath);
         }
     }
 
@@ -516,14 +516,14 @@ namespace Luth::RG
             if (m_Passes.size() != s_lastSig)
             {
                 s_lastSig = m_Passes.size();
-                LH_CORE_INFO("[RG] barrier trace — {} passes", m_Passes.size());
+                LH_LOG(Renderer, info, "[RG] barrier trace — {} passes", m_Passes.size());
                 for (u32 i = 0; i < m_Passes.size(); ++i)
                 {
                     const auto& p = m_Passes[i];
                     if (p.culled) continue;
                     auto line = [&](const char* kind, const std::string& rname, u32 prod,
                                     ResourceState before, ResourceState after, bool xq, BarrierReason reason) {
-                        LH_CORE_INFO("[RG]   {}[{}] {} {}: {} -> {}  producer={}  xq={}  reason={}",
+                        LH_LOG(Renderer, info, "[RG]   {}[{}] {} {}: {} -> {}  producer={}  xq={}  reason={}",
                             p.name, i, kind, rname, ToString(before), ToString(after),
                             prod == UINT32_MAX ? std::string("-") : std::to_string(prod), xq ? 1 : 0, ToString(reason));
                     };
