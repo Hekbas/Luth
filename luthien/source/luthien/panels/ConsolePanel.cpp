@@ -24,12 +24,12 @@ namespace Luth
         const char* LevelIcon(LogLevel l)
         {
             switch (l) {
-                case LogLevel::Trace:    return ICON_FA_BUG;
-                case LogLevel::Debug:    return ICON_FA_BUG;
-                case LogLevel::Info:     return ICON_FA_CIRCLE_INFO;
-                case LogLevel::Warn:     return ICON_FA_TRIANGLE_EXCLAMATION;
-                case LogLevel::Error:    return ICON_FA_CIRCLE_EXCLAMATION;
-                case LogLevel::Critical: return ICON_FA_CIRCLE_XMARK;
+                case LogLevel::Trace:    return ICON_BUG;
+                case LogLevel::Debug:    return ICON_BUG;
+                case LogLevel::Info:     return ICON_INFO;
+                case LogLevel::Warn:     return ICON_WARNING;
+                case LogLevel::Error:    return ICON_WARNING_CIRCLE;
+                case LogLevel::Critical: return ICON_ERROR;
                 default:                 return "";
             }
         }
@@ -103,7 +103,7 @@ namespace Luth
                                                                 state ? bgOn.z + 0.15f : 0.30f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_Text,          state ? fgOn : fgOff);
 
-            ImGui::PushFont(Editor::GetFASolid());
+            ImGui::PushFont(Editor::GetIconRegular());
             if (ImGui::Button(icon, ImVec2(kBtnW, kBtnH))) state = !state;
             ImGui::PopFont();
             ImGui::PopStyleColor(4);
@@ -164,20 +164,20 @@ namespace Luth
     void ConsolePanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
         LH_PROFILE_FUNCTION();
-        if (!BeginWindow(ICON_FA_TERMINAL "  Console")) {
+        if (!BeginWindow(ICON_TERMINAL "  Console")) {
             ImGui::End();
             return;
         }
 
         // ── Toolbar row 1: Clear + Auto-scroll left, level toggles right ──
-        if (ImGui::Button(ICON_FA_TRASH " Clear"))
+        if (ImGui::Button(ICON_TRASH " Clear"))
             m_Entries.clear();
         ImGui::SameLine();
         ImGui::Checkbox("Auto-scroll", &m_AutoScroll);
 
         // ── Category filter dropdown ──
         ImGui::SameLine();
-        if (ImGui::Button(ICON_FA_FILTER " Categories"))
+        if (ImGui::Button(ICON_FILTER " Categories"))
             ImGui::OpenPopup("##categories");
         if (ImGui::BeginPopup("##categories")) {
             if (ImGui::SmallButton("All"))  { for (bool& v : m_ShowCategory) v = true;  }
@@ -198,16 +198,16 @@ namespace Luth
         ImGui::SameLine();
         if (ImGui::GetCursorPosX() < rightX) ImGui::SetCursorPosX(rightX);
 
-        LevelToggle("##trace",    ICON_FA_BUG,                    "Trace",    kColTrace,    m_ShowTrace);    ImGui::SameLine();
-        LevelToggle("##debug",    ICON_FA_BUG,                    "Debug",    kColDebug,    m_ShowDebug);    ImGui::SameLine();
-        LevelToggle("##info",     ICON_FA_CIRCLE_INFO,            "Info",     kColInfo,     m_ShowInfo);     ImGui::SameLine();
-        LevelToggle("##warn",     ICON_FA_TRIANGLE_EXCLAMATION,   "Warning",  kColWarn,     m_ShowWarn);     ImGui::SameLine();
-        LevelToggle("##error",    ICON_FA_CIRCLE_EXCLAMATION,     "Error",    kColError,    m_ShowError);    ImGui::SameLine();
-        LevelToggle("##critical", ICON_FA_CIRCLE_XMARK,           "Critical", kColCritical, m_ShowCritical);
+        LevelToggle("##trace",    ICON_BUG,                    "Trace",    kColTrace,    m_ShowTrace);    ImGui::SameLine();
+        LevelToggle("##debug",    ICON_BUG,                    "Debug",    kColDebug,    m_ShowDebug);    ImGui::SameLine();
+        LevelToggle("##info",     ICON_INFO,            "Info",     kColInfo,     m_ShowInfo);     ImGui::SameLine();
+        LevelToggle("##warn",     ICON_WARNING,   "Warning",  kColWarn,     m_ShowWarn);     ImGui::SameLine();
+        LevelToggle("##error",    ICON_WARNING_CIRCLE,     "Error",    kColError,    m_ShowError);    ImGui::SameLine();
+        LevelToggle("##critical", ICON_ERROR,           "Critical", kColCritical, m_ShowCritical);
 
         // ── Toolbar row 2: search ──
         ImGui::SetNextItemWidth(-1.0f);
-        ImGui::InputTextWithHint("##search", ICON_FA_MAGNIFYING_GLASS "  Filter...",
+        ImGui::InputTextWithHint("##search", ICON_SEARCH "  Filter...",
                                  m_SearchBuf, sizeof(m_SearchBuf));
 
         ImGui::Separator();
@@ -249,7 +249,7 @@ namespace Luth
                 ImGui::PushStyleColor(ImGuiCol_Text, col);
                 ImGui::TextDisabled("%s", ts);
                 ImGui::SameLine();
-                ImGui::PushFont(Editor::GetFASolid());
+                ImGui::PushFont(Editor::GetIconRegular());
                 ImGui::TextUnformatted(LevelIcon(e.level));
                 ImGui::PopFont();
                 ImGui::SameLine();

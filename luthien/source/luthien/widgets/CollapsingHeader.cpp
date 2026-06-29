@@ -70,8 +70,8 @@ namespace Luth::UI
 
         window->DrawList->AddRectFilled(bb.Min, bb.Max, bg_col, 4.0f, is_open ? ImDrawFlags_RoundCornersTop : ImDrawFlags_RoundCornersAll);
 
-        ImGui::PushFont(Editor::GetFASolid());
-        const char* icon = is_open ? ICON_FA_CARET_DOWN : ICON_FA_CARET_RIGHT;
+        ImGui::PushFont(Editor::GetIconFill());
+        const char* icon = is_open ? ICON_CARET_DOWN_FILL : ICON_CARET_RIGHT_FILL;
         ImVec2 icon_size = ImGui::CalcTextSize(icon);
         ImVec2 icon_pos = ImVec2(bb.Min.x + 8.0f, bb.Min.y + (size.y - icon_size.y) * 0.5f);
         window->DrawList->AddText(icon_pos, ImGui::GetColorU32(ImGuiCol_Text), icon);

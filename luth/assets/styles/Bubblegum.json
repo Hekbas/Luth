@@ -3,7 +3,6 @@
     "font": {
         "mainFont": "HoneySalt.otf",
         "mainSize": 14.0,
-        "mergeMainWithSolid": true,
         "iconSize": 14.0
     },
     "dockingSeparatorSize": 0.0,

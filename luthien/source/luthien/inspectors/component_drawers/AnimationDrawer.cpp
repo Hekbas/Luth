@@ -143,13 +143,19 @@ namespace Luth::ComponentDrawers
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(spacing, 4.0f));
 
                 if (animation.Playing) {
-                    if (ImGui::Button(ICON_FA_PAUSE "##AnimPause", ImVec2(buttonWidth, 24))) {
+                    ImGui::PushFont(Editor::GetIconFill());
+                    const bool pauseClicked = ImGui::Button(ICON_PAUSE_FILL "##AnimPause", ImVec2(buttonWidth, 24));
+                    ImGui::PopFont();
+                    if (pauseClicked) {
                         CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Animation, bool>>(
                             "Pause Animation", entity.GetScene(), (entt::entity)entity,
                             &Animation::Playing, true, false));
                     }
                 } else {
-                    if (ImGui::Button(ICON_FA_PLAY "##AnimPlay", ImVec2(buttonWidth, 24))) {
+                    ImGui::PushFont(Editor::GetIconFill());
+                    const bool playClicked = ImGui::Button(ICON_PLAY_FILL "##AnimPlay", ImVec2(buttonWidth, 24));
+                    ImGui::PopFont();
+                    if (playClicked) {
                         CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Animation, bool>>(
                             "Play Animation", entity.GetScene(), (entt::entity)entity,
                             &Animation::Playing, false, true));
@@ -157,7 +163,10 @@ namespace Luth::ComponentDrawers
                 }
                 ImGui::SameLine();
 
-                if (ImGui::Button(ICON_FA_STOP "##AnimStop", ImVec2(buttonWidth, 24))) {
+                ImGui::PushFont(Editor::GetIconFill());
+                const bool stopClicked = ImGui::Button(ICON_STOP_FILL "##AnimStop", ImVec2(buttonWidth, 24));
+                ImGui::PopFont();
+                if (stopClicked) {
                     CommandHistory::BeginCompound("Stop Animation");
                     CommandHistory::Execute(std::make_unique<ComponentPropertyCommand<Animation, bool>>(
                         "Stop Playing", entity.GetScene(), (entt::entity)entity,
@@ -169,14 +178,14 @@ namespace Luth::ComponentDrawers
                 }
                 ImGui::SameLine();
 
-                const char* loopIcon = ICON_FA_ARROW_RIGHT;
+                const char* loopIcon = ICON_ARROW_RIGHT;
                 const char* loopTooltip = "Loop: Off";
                 if (animation.LoopMode == AnimationLoopMode::One) {
-                    loopIcon = ICON_FA_ARROW_ROTATE_RIGHT;
+                    loopIcon = ICON_REDO;
                     loopTooltip = "Loop: One";
                 }
                 else if (animation.LoopMode == AnimationLoopMode::All) {
-                    loopIcon = ICON_FA_ARROWS_ROTATE;
+                    loopIcon = ICON_REFRESH;
                     loopTooltip = "Loop: All";
                 }
 

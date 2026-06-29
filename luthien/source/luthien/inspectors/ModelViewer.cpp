@@ -21,7 +21,7 @@ namespace Luth
         // Interactive 3D preview pinned in the footer (sub-task O).
         ImTextureID headerThumb = UI::ThumbnailCache::Get(model.Handle, AssetType::Model);
         const auto& headerInfo = model.GetCachedModelInfo();
-        UI::InspectorHeader(headerThumb, ICON_FA_CUBE, 48.0f, [&]() {
+        UI::InspectorHeader(headerThumb, ICON_CUBE, 48.0f, [&]() {
             const ImVec4 nameCol = { 0.4f, 0.8f, 1.0f, 1.0f };
             ImGui::TextColored(nameCol, "%s (Model)", model.GetName().c_str());
             ImGui::TextDisabled("%d meshes  ·  %d verts  ·  %s",

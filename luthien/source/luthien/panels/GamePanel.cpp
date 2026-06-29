@@ -96,8 +96,8 @@ namespace Luth
     void GamePanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
         LH_PROFILE_FUNCTION();
-        ImGui::PushFont(Editor::GetFASolid());
-        std::string title = ICON_FA_GAMEPAD + std::string("  Game");
+        ImGui::PushFont(Editor::GetIconRegular());
+        std::string title = ICON_GAMEPAD + std::string("  Game");
 
         if (BeginWindow(title.c_str(), ImGuiWindowFlags_NoScrollbar))
         {

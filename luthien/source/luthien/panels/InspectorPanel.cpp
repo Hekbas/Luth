@@ -43,8 +43,8 @@ namespace Luth
     void InspectorPanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
         LH_PROFILE_FUNCTION();
-        ImGui::PushFont(Editor::GetFASolid());
-        std::string inspector = ICON_FA_CIRCLE_INFO + std::string("  Inspector");
+        ImGui::PushFont(Editor::GetIconRegular());
+        std::string inspector = ICON_INFO + std::string("  Inspector");
 
         if (BeginWindow(inspector.c_str()))
         {
@@ -129,7 +129,7 @@ namespace Luth
 
             // Lock button — right-anchored in the same row
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-            const char* lockIcon = m_IsLocked ? ICON_FA_LOCK : ICON_FA_LOCK_OPEN;
+            const char* lockIcon = m_IsLocked ? ICON_LOCK : ICON_UNLOCK;
             if (ImGui::Button(lockIcon, ImVec2(ImGui::GetFrameHeight(), ImGui::GetFrameHeight()))) {
                 m_IsLocked = !m_IsLocked;
                 if (m_IsLocked)

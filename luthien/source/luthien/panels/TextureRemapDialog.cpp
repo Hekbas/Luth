@@ -45,8 +45,8 @@ namespace Luth
             ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize))
         {
             // --- Title bar ---
-            ImGui::PushFont(Editor::GetFASolid());
-            ImGui::TextColored(EditorColors::WarningYellow, ICON_FA_TRIANGLE_EXCLAMATION "  Missing Textures");
+            ImGui::PushFont(Editor::GetIconRegular());
+            ImGui::TextColored(EditorColors::WarningYellow, ICON_WARNING "  Missing Textures");
             ImGui::PopFont();
             ImGui::SameLine(ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(s_Report.ModelPath.filename().string().c_str()).x);
             ImGui::TextDisabled("%s", s_Report.ModelPath.filename().string().c_str());
@@ -89,7 +89,7 @@ namespace Luth
                 // Resolved / user-provided path
                 if (!userPath.empty()) {
                     ImGui::SameLine();
-                    ImGui::TextColored(EditorColors::SuccessGreen, ICON_FA_CHECK " %s",
+                    ImGui::TextColored(EditorColors::SuccessGreen, ICON_CHECK " %s",
                         fs::path(userPath).filename().string().c_str());
                 }
 

@@ -1,6 +1,7 @@
 #include "lepch.h"
 #include "luthien/panels/MaterialGraphPanel.h"
 #include "luthien/EditorSelection.h"
+#include "luthien/widgets/Icons.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/material/MaterialGraphCodegen.h"
 #include "luth/resources/AssetManager.h"
@@ -318,7 +319,7 @@ namespace Luth
         // ImGui::Begin must always pair with End() — even on early-out or a throw. The guard keeps the
         // window stack balanced so a mid-draw exception is logged by the panel error boundary instead of
         // tripping ImGui's "Missing End()" assert on the next frame.
-        const bool open = BeginWindow("Material Graph");
+        const bool open = BeginWindow(ICON_NODE_GRAPH "  Material Graph");
         struct EndGuard { ~EndGuard() { ImGui::End(); } } endGuard;
         if (!open) return;
 

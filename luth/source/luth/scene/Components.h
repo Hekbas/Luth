@@ -9,6 +9,7 @@
 #include "luth/scene/components/Rendering.h"
 #include "luth/scene/components/Lights.h"
 #include "luth/scene/components/Animation.h"
+#include "luth/scene/components/AnimationController.h"
 #include "luth/scene/components/Physics.h"
 #include "luth/scene/components/FogVolume.h"
 #include "luth/scene/components/Wind.h"

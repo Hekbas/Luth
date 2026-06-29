@@ -196,6 +196,7 @@ namespace Luth
             std::vector<Entity> boneEntities(boneCount);
             for (u32 i = 0; i < boneCount; i++) {
                 Entity boneEntity = CreateEntity(skeleton.Bones[i].Name);
+                Registry().emplace<Bone>((entt::entity)boneEntity);   // empty marker → emplace, not AddComponent
                 boneEntities[i] = boneEntity;
                 i32 parentIdx = skeleton.Bones[i].ParentIndex;
                 boneEntity.SetParent((parentIdx >= 0 && parentIdx < (i32)boneCount)

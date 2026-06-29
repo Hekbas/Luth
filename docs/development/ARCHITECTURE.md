@@ -99,7 +99,7 @@ Engine → editor calls route through the nullptr-safe `Luth::EditorHooks` inter
  ├── ProjectLauncher ............. Startup project selector, recent projects
  ├── panels/ ..................... Scene, Hierarchy, Inspector, Project, Render, FrameDebugger, Profiler, History, TextureRemapDialog
  ├── inspectors/ ................. MaterialEditor, ModelViewer, TextureEditor, ShaderEditor, SceneViewer, FontViewer
- └── widgets/ .................... Icons (FontAwesome defs), ImGuiUtils
+ └── widgets/ .................... Icons (semantic map → Phosphor), ImGuiUtils
 ```
 
 > For pipelined frame execution details, see [`arch/frame-pipeline.md`](arch/frame-pipeline.md).

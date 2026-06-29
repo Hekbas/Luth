@@ -72,17 +72,17 @@ namespace Luth
         for (auto e : registry.view<WorldTransform, DirectionalLight>()) {
             auto& wt = registry.get<WorldTransform>(e);
             auto& dl = registry.get<DirectionalLight>(e);
-            icon(e, Vec3(wt.Matrix[3]), ICON_FA_SUN, LightColorToImU32(dl.Color));
+            icon(e, Vec3(wt.Matrix[3]), ICON_LIGHT_DIRECTIONAL_FILL, LightColorToImU32(dl.Color));
         }
         for (auto e : registry.view<WorldTransform, PointLight>()) {
             auto& wt = registry.get<WorldTransform>(e);
             auto& pl = registry.get<PointLight>(e);
-            icon(e, Vec3(wt.Matrix[3]), ICON_FA_LIGHTBULB, LightColorToImU32(pl.Color));
+            icon(e, Vec3(wt.Matrix[3]), ICON_LIGHT_POINT_FILL, LightColorToImU32(pl.Color));
         }
         for (auto e : registry.view<WorldTransform, SpotLight>()) {
             auto& wt = registry.get<WorldTransform>(e);
             auto& sl = registry.get<SpotLight>(e);
-            icon(e, Vec3(wt.Matrix[3]), ICON_FA_SATELLITE_DISH, LightColorToImU32(sl.Color));
+            icon(e, Vec3(wt.Matrix[3]), ICON_LIGHT_SPOT_FILL, LightColorToImU32(sl.Color));
         }
 
         drawList->PopClipRect();
@@ -108,7 +108,7 @@ namespace Luth
             auto& wt = registry.get<WorldTransform>(e);
             ImVec2 screenPos = ProjectToScreen(camera, Vec3(wt.Matrix[3]));
             if (screenPos.x >= 0.0f)
-                m_Gizmo.DrawGizmoIcon(drawList, screenPos, ICON_FA_VIDEO,
+                m_Gizmo.DrawGizmoIcon(drawList, screenPos, ICON_VIDEO_CAMERA_FILL,
                                       EditorColors::GizmoCamera, e, isHovered, hasValidSelection);
         }
 

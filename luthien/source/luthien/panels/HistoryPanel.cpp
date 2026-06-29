@@ -14,24 +14,24 @@ namespace Luth
 {
     static const char* GetCommandIcon(ICommand* cmd)
     {
-        if (dynamic_cast<EntityCreateCommand*>(cmd))    return ICON_FA_PLUS;
-        if (dynamic_cast<EntityDestroyCommand*>(cmd))   return ICON_FA_TRASH;
-        if (dynamic_cast<EntityRenameCommand*>(cmd))    return ICON_FA_I;
-        if (dynamic_cast<EntityReparentCommand*>(cmd))  return ICON_FA_ARROW_RIGHT_TO_BRACKET;
-        if (dynamic_cast<EntityReorderCommand*>(cmd))   return ICON_FA_ARROWS_UP_DOWN;
-        if (dynamic_cast<EntityDuplicateCommand*>(cmd)) return ICON_FA_CLONE;
+        if (dynamic_cast<EntityCreateCommand*>(cmd))    return ICON_PLUS;
+        if (dynamic_cast<EntityDestroyCommand*>(cmd))   return ICON_TRASH;
+        if (dynamic_cast<EntityRenameCommand*>(cmd))    return ICON_RENAME;
+        if (dynamic_cast<EntityReparentCommand*>(cmd))  return ICON_IMPORT;
+        if (dynamic_cast<EntityReorderCommand*>(cmd))   return ICON_ARROWS_VERTICAL;
+        if (dynamic_cast<EntityDuplicateCommand*>(cmd)) return ICON_DUPLICATE;
         
-        if (dynamic_cast<GizmoTransformCommand*>(cmd))   return ICON_FA_ARROWS_UP_DOWN_LEFT_RIGHT;
-        if (dynamic_cast<MaterialSnapshotCommand*>(cmd)) return ICON_FA_IMAGE;
-        if (dynamic_cast<ModelInstantiateCommand*>(cmd)) return ICON_FA_CUBES;
+        if (dynamic_cast<GizmoTransformCommand*>(cmd))   return ICON_MOVE;
+        if (dynamic_cast<MaterialSnapshotCommand*>(cmd)) return ICON_IMAGE;
+        if (dynamic_cast<ModelInstantiateCommand*>(cmd)) return ICON_MODEL;
         
-        if (dynamic_cast<CompoundCommand*>(cmd)) return ICON_FA_LAYER_GROUP;
+        if (dynamic_cast<CompoundCommand*>(cmd)) return ICON_LAYERS;
 
         std::string name = cmd->GetName();
-        if (name.find("Add ") != std::string::npos)     return ICON_FA_PLUS;
-        if (name.find("Remove ") != std::string::npos)  return ICON_FA_MINUS;
+        if (name.find("Add ") != std::string::npos)     return ICON_PLUS;
+        if (name.find("Remove ") != std::string::npos)  return ICON_MINUS;
 
-        return ICON_FA_GEAR;
+        return ICON_SETTINGS;
     }
 
     struct TimelineNodeInfo
@@ -110,7 +110,7 @@ namespace Luth
     void HistoryPanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
         LH_PROFILE_FUNCTION();
-        if (BeginWindow(ICON_FA_CLOCK_ROTATE_LEFT "  History"))
+        if (BeginWindow(ICON_HISTORY "  History"))
         {
             auto& undoStack = CommandHistory::GetUndoStack();
             auto& redoStack = CommandHistory::GetRedoStack();
@@ -125,10 +125,10 @@ namespace Luth
                     bool canUndo = CommandHistory::CanUndo();
                     bool canRedo = CommandHistory::CanRedo();
 
-                    ImGui::PushFont(Editor::GetFASolid());
+                    ImGui::PushFont(Editor::GetIconRegular());
                     
                     if (!canUndo) ImGui::BeginDisabled();
-                    if (ImGui::Button(ICON_FA_ARROW_ROTATE_LEFT, ImVec2(32, 24)))
+                    if (ImGui::Button(ICON_UNDO, ImVec2(32, 24)))
                         CommandHistory::Undo();
                     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) 
                         ImGui::SetTooltip("Undo (Ctrl+Z)");
@@ -137,7 +137,7 @@ namespace Luth
                     ImGui::SameLine();
 
                     if (!canRedo) ImGui::BeginDisabled();
-                    if (ImGui::Button(ICON_FA_ARROW_ROTATE_RIGHT, ImVec2(32, 24)))
+                    if (ImGui::Button(ICON_REDO, ImVec2(32, 24)))
                         CommandHistory::Redo();
                     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) 
                         ImGui::SetTooltip("Redo (Ctrl+Y)");
@@ -148,7 +148,7 @@ namespace Luth
                     float clearWidth = 32.0f;
                     ImGui::SameLine(ImGui::GetWindowWidth() - clearWidth - 8.0f);
                     if (empty) ImGui::BeginDisabled();
-                    if (ImGui::Button(ICON_FA_TRASH, ImVec2(clearWidth, 24)))
+                    if (ImGui::Button(ICON_TRASH, ImVec2(clearWidth, 24)))
                         CommandHistory::Clear();
                     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) 
                         ImGui::SetTooltip("Clear History");
@@ -211,8 +211,8 @@ namespace Luth
                             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
                         }
 
-                        ImGui::PushFont(Editor::GetFASolid());
-                        ImGui::TextUnformatted(ICON_FA_CLOCK_ROTATE_LEFT);
+                        ImGui::PushFont(Editor::GetIconRegular());
+                        ImGui::TextUnformatted(ICON_HISTORY);
                         ImGui::PopFont();
                         
                         ImGui::SameLine();
@@ -260,7 +260,7 @@ namespace Luth
 
                             const char* icon = GetCommandIcon(cmd.get());
                             
-                            ImGui::PushFont(Editor::GetFASolid());
+                            ImGui::PushFont(Editor::GetIconRegular());
                             ImGui::TextUnformatted(icon);
                             ImGui::PopFont();
                             ImGui::SameLine();

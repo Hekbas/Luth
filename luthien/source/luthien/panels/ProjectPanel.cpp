@@ -76,8 +76,8 @@ namespace Luth
     void ProjectPanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
         LH_PROFILE_FUNCTION();
-        ImGui::PushFont(Editor::GetFASolid());
-        std::string project = ICON_FA_FOLDER + std::string("  Project");
+        ImGui::PushFont(Editor::GetIconRegular());
+        std::string project = ICON_FOLDER + std::string("  Project");
 
         // Outer project window: 0 padding so child borders sit flush against
         // the panel chrome. Child windows below set their own internal padding.
@@ -122,7 +122,7 @@ namespace Luth
             ImGui::BeginChild("##ProjectTree", ImVec2(ImGui::GetWindowWidth() * 0.2f, 0), ImGuiChildFlags_Border | ImGuiChildFlags_ResizeX);
             
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-            if (ImGui::InputTextWithHint("##Search", ICON_FA_MAGNIFYING_GLASS " Search...", m_SearchBuffer, sizeof(m_SearchBuffer))) {
+            if (ImGui::InputTextWithHint("##Search", ICON_SEARCH " Search...", m_SearchBuffer, sizeof(m_SearchBuffer))) {
                 m_IsSearching = strlen(m_SearchBuffer) > 0;
                 UpdateSearchResults();
             }
@@ -250,16 +250,16 @@ namespace Luth
         if (node->IsOpen) ImGui::SetNextItemOpen(true);
 
         // Set Icon
-        const char* icon = ICON_FA_FOLDER;
+        const char* icon = ICON_FOLDER;
         if (node->SubDirectories.empty() && node->Files.empty()) {
-            ImGui::PushFont(Editor::GetFARegular());
+            ImGui::PushFont(Editor::GetIconRegular());
         }
         else if (node->IsOpen && !node->SubDirectories.empty()) {
-            icon = ICON_FA_FOLDER_OPEN;
-            ImGui::PushFont(Editor::GetFARegular());
+            icon = ICON_FOLDER_OPEN;
+            ImGui::PushFont(Editor::GetIconRegular());
 		}
 		else {
-			ImGui::PushFont(Editor::GetFASolid());
+			icon = ICON_FOLDER_FILL; ImGui::PushFont(Editor::GetIconFill());
         }
             
         // Draw the node
@@ -528,21 +528,23 @@ namespace Luth
                 ImGui::SetCursorScreenPos(imgPos);
                 ImGui::Image(thumb, disp, { 0, 0 }, { 1, 1 });
             } else {
-                // invariant: use 64-px FA bakes in grid mode so glyphs stay
-                // crisp at large thumbnails; bilinear minify handles downscale.
+                // invariant: 64-px bakes in grid mode so glyphs stay crisp at
+                // large thumbnails; bilinear minify handles the downscale.
                 const bool emptyDir = isDirectory && node->SubDirectories.empty() && node->Files.empty();
-                ImFont* large = emptyDir ? Editor::GetFARegularLarge() : Editor::GetFASolidLarge();
+                const bool fillDir  = isDirectory && !emptyDir;   // non-empty folder → Fill weight
+                const char* glyph   = isDirectory ? (fillDir ? ICON_FOLDER_FILL : ICON_FOLDER) : icon;
+                ImFont* large = fillDir ? Editor::GetIconFillLarge() : Editor::GetIconRegularLarge();
                 if (large) {
                     ImGui::PushFont(large);
                     ImGui::SetWindowFontScale((m_ThumbnailSize * 0.5f) / 64.0f);
                 } else {
-                    ImGui::PushFont(emptyDir ? Editor::GetFARegular() : Editor::GetFASolid());
+                    ImGui::PushFont(fillDir ? Editor::GetIconFill() : Editor::GetIconRegular());
                 }
                 if (!isDirectory) {
                     const Vec4 c = FileSystem::GetTypeInfo().at(node->Type).color;
                     ImGui::PushStyleColor(ImGuiCol_Text, { c.r, c.g, c.b, c.a });
                 }
-                DrawIconCentered(icon, startScreen, m_ThumbnailSize);
+                DrawIconCentered(glyph, startScreen, m_ThumbnailSize);
                 if (!isDirectory) ImGui::PopStyleColor();
                 if (large) ImGui::SetWindowFontScale(1.0f);
                 ImGui::PopFont();
@@ -572,15 +574,14 @@ namespace Luth
                 ImGui::SetCursorScreenPos(centered);
                 ImGui::Image(thumb, disp, { 0, 0 }, { 1, 1 });
             } else {
-                if (isDirectory && node->SubDirectories.empty() && node->Files.empty())
-                    ImGui::PushFont(Editor::GetFARegular());
-                else
-                    ImGui::PushFont(Editor::GetFASolid());
+                const bool fillDir = isDirectory && !(node->SubDirectories.empty() && node->Files.empty());
+                const char* glyph  = isDirectory ? (fillDir ? ICON_FOLDER_FILL : ICON_FOLDER) : icon;
+                ImGui::PushFont(fillDir ? Editor::GetIconFill() : Editor::GetIconRegular());
                 if (!isDirectory) {
                     const Vec4 c = FileSystem::GetTypeInfo().at(node->Type).color;
                     ImGui::PushStyleColor(ImGuiCol_Text, { c.r, c.g, c.b, c.a });
                 }
-                DrawIconCentered(icon, imgPos, listThumbH);
+                DrawIconCentered(glyph, imgPos, listThumbH);
                 if (!isDirectory) ImGui::PopStyleColor();
                 ImGui::PopFont();
             }
@@ -605,17 +606,17 @@ namespace Luth
 
     const char* ProjectPanel::GetIcon(AssetType type, bool isDirectory) const
     {
-        if (isDirectory) return ICON_FA_FOLDER;
+        if (isDirectory) return ICON_FOLDER;
 
         static const std::unordered_map<AssetType, const char*> icons = {
-            { AssetType::Model,           ICON_FA_CUBE                  },
-            { AssetType::Texture,         ICON_FA_IMAGE                 },
-            { AssetType::Material,        ICON_FA_CIRCLE_HALF_STROKE    },
-            { AssetType::PhysicsMaterial, ICON_FA_BOWLING_BALL          },
-            { AssetType::Shader,          ICON_FA_FILE_CODE             },
-            { AssetType::Font,            ICON_FA_FONT                  },
-            { AssetType::Scene,           ICON_FA_FILM                  },
-            { AssetType::None,            ICON_FA_FILE_CIRCLE_QUESTION  }
+            { AssetType::Model,           ICON_CUBE                  },
+            { AssetType::Texture,         ICON_IMAGE                 },
+            { AssetType::Material,        ICON_MATERIAL    },
+            { AssetType::PhysicsMaterial, ICON_PHYSICS_MATERIAL          },
+            { AssetType::Shader,          ICON_SHADER             },
+            { AssetType::Font,            ICON_FONT                  },
+            { AssetType::Scene,           ICON_FILM                  },
+            { AssetType::None,            ICON_FILE_UNKNOWN  }
         };
         return icons.count(type) ? icons.at(type) : ICON_FILE;
     }

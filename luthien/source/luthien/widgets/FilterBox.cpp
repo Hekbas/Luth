@@ -21,7 +21,7 @@ namespace Luth::UI
         const float clearW  = hasText ? frameH + ImGui::GetStyle().ItemSpacing.x : 0.0f;
 
         char hintBuf[160];
-        std::snprintf(hintBuf, sizeof(hintBuf), ICON_FA_MAGNIFYING_GLASS "  %s", hint ? hint : "Search...");
+        std::snprintf(hintBuf, sizeof(hintBuf), ICON_SEARCH "  %s", hint ? hint : "Search...");
 
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - clearW);
         bool changed = ImGui::InputTextWithHint("##in", hintBuf, buf, bufSize);
@@ -29,7 +29,7 @@ namespace Luth::UI
         if (hasText)
         {
             ImGui::SameLine();
-            if (ImGui::Button(ICON_FA_XMARK "##clear", ImVec2(frameH, frameH)))
+            if (ImGui::Button(ICON_CLOSE "##clear", ImVec2(frameH, frameH)))
             {
                 buf[0] = '\0';
                 changed = true;

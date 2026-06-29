@@ -39,7 +39,7 @@ namespace Luth
 
         // Header: thumbnail-on-left, name + dimensions on right.
         ImTextureID headerThumb = UI::ThumbnailCache::Get(texture.Handle, AssetType::Texture);
-        UI::InspectorHeader(headerThumb, ICON_FA_IMAGE, 48.0f, [&]() {
+        UI::InspectorHeader(headerThumb, ICON_IMAGE, 48.0f, [&]() {
             const ImVec4 nameCol = { 1.0f, 0.7f, 0.2f, 1.0f };
             ImGui::TextColored(nameCol, "%s (Texture)", texture.GetName().c_str());
             ImGui::TextDisabled("%dx%d  ·  %s  ·  %d mip%s",

@@ -110,8 +110,8 @@ namespace Luth
         // (see luth/core/App.cpp). Visibility-only toggles still go through the direct setter.
         m_RenderingSystem->SetGridVisible(Editor::GetSettings().showGrid);
 
-        ImGui::PushFont(Editor::GetFASolid());
-        std::string scene = ICON_FA_GAMEPAD + std::string("  Scene");
+        ImGui::PushFont(Editor::GetIconRegular());
+        std::string scene = ICON_VIEWPORT + std::string("  Scene");
 
         if (BeginWindow(scene.c_str(), ImGuiWindowFlags_NoScrollbar)) {
             // Toolbar - Left (gizmos + grid) | Transport | Right (render + dropdowns)
@@ -144,18 +144,19 @@ namespace Luth
 
                 // LEFT: gizmo tools + grid split
                 ImGui::AlignTextToFramePadding();
-                static const char* kGizmoIcons[]    = { ICON_FA_ARROW_POINTER, ICON_FA_ARROWS_UP_DOWN_LEFT_RIGHT, ICON_FA_ROTATE, ICON_FA_EXPAND };
+                static const char* kGizmoIcons[]    = { ICON_SELECT_FILL, ICON_MOVE, ICON_ROTATE, ICON_RESIZE };
                 static const char* kGizmoTooltips[] = { "Select (Q)", "Translate (W)", "Rotate (E)", "Scale (R)" };
+                static const bool  kGizmoFilled[]   = { true, false, false, false };   // cursor reads as filled
                 static constexpr int kGizmoOps[]    = { -1, ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::OPERATION::ROTATE, ImGuizmo::OPERATION::SCALE };
                 int gizmoIdx = 0;
                 const int currentOp = m_Gizmo->GetOperation();
                 for (int i = 0; i < IM_ARRAYSIZE(kGizmoOps); ++i) if (kGizmoOps[i] == currentOp) { gizmoIdx = i; break; }
-                if (UI::IconToggleGroup("GizmoTools", kGizmoIcons, kGizmoTooltips, IM_ARRAYSIZE(kGizmoOps), &gizmoIdx))
+                if (UI::IconToggleGroup("GizmoTools", kGizmoIcons, kGizmoTooltips, IM_ARRAYSIZE(kGizmoOps), &gizmoIdx, kGizmoFilled))
                     m_Gizmo->SetOperation(kGizmoOps[gizmoIdx]);
 
                 ImGui::SameLine(0, wideGap);
 
-                UI::SplitToggleButton("Grid", ICON_FA_TABLE_CELLS, "Grid",
+                UI::SplitToggleButton("Grid", ICON_GRID, "Grid",
                     &settings.showGrid,
                     [&]() {
                         ImGui::PushFont(Editor::GetMainFont());
@@ -179,7 +180,9 @@ namespace Luth
                 auto TransportBtn = [&](const char* icon, const char* id, const char* tooltip, bool enabled) -> bool {
                     if (!enabled) ImGui::BeginDisabled();
                     std::string label = std::string(icon) + id;
+                    ImGui::PushFont(Editor::GetIconFill());
                     bool clicked = ImGui::Button(label.c_str(), { btnSize, btnSize });
+                    ImGui::PopFont();
                     if (ImGui::IsItemHovered() && enabled)
                         ImGui::SetTooltip("%s", tooltip);
                     if (!enabled) ImGui::EndDisabled();
@@ -188,32 +191,32 @@ namespace Luth
 
                 const bool canPlay   = (playState == PlayState::Editing);
                 const bool canResume = (playState == PlayState::Paused);
-                if (TransportBtn(ICON_FA_PLAY, "##Play",
+                if (TransportBtn(ICON_PLAY_FILL, "##Play",
                                  canResume ? "Resume" : "Play",
                                  canPlay || canResume)) {
                     if (canResume) PlayModeController::Resume();
                     else           PlayModeController::EnterPlay();
                 }
                 ImGui::SameLine(0, gap);
-                if (TransportBtn(ICON_FA_PAUSE, "##Pause", "Pause", playState == PlayState::Playing))
+                if (TransportBtn(ICON_PAUSE_FILL, "##Pause", "Pause", playState == PlayState::Playing))
                     PlayModeController::Pause();
                 ImGui::SameLine(0, gap);
-                if (TransportBtn(ICON_FA_STOP, "##Stop", "Stop", playState != PlayState::Editing))
+                if (TransportBtn(ICON_STOP_FILL, "##Stop", "Stop", playState != PlayState::Editing))
                     PlayModeController::Stop();
                 ImGui::SameLine(0, gap);
-                if (TransportBtn(ICON_FA_FORWARD_STEP, "##Step", "Step one frame",
+                if (TransportBtn(ICON_STEP_FORWARD_FILL, "##Step", "Step one frame",
                                  playState == PlayState::Paused))
                     PlayModeController::RequestStep();
 
                 // RIGHT: render modes + debug split + camera split + gizmo-vis split + overlay toggle
                 ImGui::SameLine(rightStart);
 
-                struct RenderModeBtn { const char* icon; const char* tip; int mode; };
+                struct RenderModeBtn { const char* icon; const char* tip; int mode; bool filled; };
                 static const RenderModeBtn kRenderModes[] = {
-                    { ICON_FA_GLOBE,              "Wireframe",                                 (int)ShadeMode::Wireframe },
-                    { ICON_FA_GLOBE,              "Shaded Wireframe (engine support pending)", -1 },
-                    { ICON_FA_CIRCLE,             "Unlit",                                     (int)ShadeMode::Unlit },
-                    { ICON_FA_CIRCLE_HALF_STROKE, "Lit",                                       (int)ShadeMode::Lit },
+                    { ICON_WIREFRAME,        "Wireframe",                                 (int)ShadeMode::Wireframe, false },
+                    { ICON_WIREFRAME_SHADED, "Shaded Wireframe (engine support pending)", -1,                        true  },
+                    { ICON_CIRCLE,           "Unlit",                                     (int)ShadeMode::Unlit,     false },
+                    { ICON_MATERIAL_FILL,    "Lit",                                       (int)ShadeMode::Lit,       true  },
                 };
                 const int  curMode    = (int)m_RenderingSystem->GetShadeMode();
                 const bool ptActive   = m_RenderingSystem->GetRenderMode() == RenderMode::PathTrace;
@@ -229,7 +232,10 @@ namespace Luth
                     }
                     if (!enabled) ImGui::BeginDisabled();
                     ImGui::PushID(i);
-                    if (ImGui::Button(kRenderModes[i].icon, { btnSize, btnSize }) && enabled) {
+                    if (kRenderModes[i].filled) ImGui::PushFont(Editor::GetIconFill());
+                    const bool modeClicked = ImGui::Button(kRenderModes[i].icon, { btnSize, btnSize });
+                    if (kRenderModes[i].filled) ImGui::PopFont();
+                    if (modeClicked && enabled) {
                         m_RenderingSystem->SetRenderMode(RenderMode::Raster);
                         m_RenderingSystem->SetShadeMode((ShadeMode)kRenderModes[i].mode);
                     }
@@ -245,7 +251,7 @@ namespace Luth
                     ImGui::PushStyleColor(ImGuiCol_Button, activeCol);
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, activeCol);
                 }
-                if (ImGui::Button(ICON_FA_ATOM, { btnSize, btnSize }))
+                if (ImGui::Button(ICON_ATOM, { btnSize, btnSize }))
                     m_RenderingSystem->SetRenderMode(ptActive ? RenderMode::Raster : RenderMode::PathTrace);
                 if (ptActive) ImGui::PopStyleColor(2);
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("Path Trace (ground-truth reference)");
@@ -262,12 +268,12 @@ namespace Luth
                                           || curMode == (int)ShadeMode::Unlit
                                           || curMode == (int)ShadeMode::Wireframe);
                     bool dbgState = dbgActive;
-                    if (UI::SplitToggleButton("Debug", ICON_FA_BUG, "Debug Render Modes", &dbgState,
+                    if (UI::SplitToggleButton("Debug", ICON_BUG_BEETLE_FILL, "Debug Render Modes", &dbgState,
                         [this]() {
                             ImGui::PushFont(Editor::GetMainFont());
                             DrawDebugModePicker();
                             ImGui::PopFont();
-                        }))
+                        }, true))
                     {
                         m_RenderingSystem->SetShadeMode(dbgState
                             ? (ShadeMode)settings.lastDebugMode
@@ -279,7 +285,7 @@ namespace Luth
                 ImGui::SameLine(0, wideGap);
 
                 // Camera split (chevron-only).
-                UI::SplitToggleButton("Camera", ICON_FA_CAMERA, "Camera Settings", nullptr,
+                UI::SplitToggleButton("Camera", ICON_CAMERA_FILL, "Camera Settings", nullptr,
                     [this]() {
                         ImGui::PushFont(Editor::GetMainFont());
                         if (UI::BeginProperties("CamSpeedProps")) {
@@ -307,7 +313,7 @@ namespace Luth
                             UI::EndProperties();
                         }
                         ImGui::PopFont();
-                    });
+                    }, true);
 
                 ImGui::SameLine(0, gap);
 
@@ -330,7 +336,7 @@ namespace Luth
                                   || settings.physicsShapesSelected || settings.physicsShapesAll
                                   || settings.physicsAABBsSelected  || settings.physicsAABBsAll
                                   || settings.physicsCoMSelected    || settings.physicsCoMAll;
-                    if (UI::SplitToggleButton("GizmoVis", ICON_FA_EYE, "Gizmos", &gizState,
+                    if (UI::SplitToggleButton("GizmoVis", ICON_EYE, "Gizmos", &gizState,
                         [this, &settings, xformVisRef]() {
                             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 2));
                             ImGui::PushFont(Editor::GetMainFont());
@@ -419,7 +425,7 @@ namespace Luth
                 ImGui::SameLine(0, gap);
 
                 const char* overlayTip = m_ShowControlsOverlay ? "Hide controls overlay" : "Show controls overlay";
-                UI::IconToggleButton("Overlay", ICON_FA_KEYBOARD, overlayTip, &m_ShowControlsOverlay);
+                UI::IconToggleButton("Overlay", ICON_KEYBOARD, overlayTip, &m_ShowControlsOverlay);
             }
 
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -659,11 +665,11 @@ namespace Luth
                 u32 triCount = m_RenderingSystem->GetTriangleCount();
                 char triText[64];
                 if (triCount >= 1000000)
-                    snprintf(triText, sizeof(triText), ICON_FA_SHAPES "  %.2fM tris", triCount / 1000000.0f);
+                    snprintf(triText, sizeof(triText), ICON_SHAPES "  %.2fM tris", triCount / 1000000.0f);
                 else if (triCount >= 1000)
-                    snprintf(triText, sizeof(triText), ICON_FA_SHAPES "  %.1fk tris", triCount / 1000.0f);
+                    snprintf(triText, sizeof(triText), ICON_SHAPES "  %.1fk tris", triCount / 1000.0f);
                 else
-                    snprintf(triText, sizeof(triText), ICON_FA_SHAPES "  %u tris", triCount);
+                    snprintf(triText, sizeof(triText), ICON_SHAPES "  %u tris", triCount);
 
                 const float triPad = 12.0f;
                 ImVec2 triSize = ImGui::CalcTextSize(triText);

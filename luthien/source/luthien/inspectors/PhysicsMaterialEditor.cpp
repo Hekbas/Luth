@@ -29,7 +29,7 @@ namespace Luth
             m_SaveTimer   = 0.0f;
         }
 
-        UI::InspectorHeader(static_cast<ImTextureID>(0), ICON_FA_BOWLING_BALL, 48.0f, [&]() {
+        UI::InspectorHeader(static_cast<ImTextureID>(0), ICON_PHYSICS_MATERIAL, 48.0f, [&]() {
             const ImVec4 nameCol = { 0.95f, 0.55f, 0.2f, 1.0f };
             ImGui::TextColored(nameCol, "%s%s (Physics Material)",
                 material.GetName().c_str(), m_PendingSave ? "*" : "");

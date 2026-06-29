@@ -122,6 +122,7 @@ namespace Luth
         j["uuid"]   = entity.GetComponent<ID>().Value.ToString();
         j["tag"]    = entity.GetComponent<Tag>().Value;
         j["active"] = entity.IsActive();
+        if (entity.HasComponent<Bone>()) j["bone"] = true;   // skeleton-joint marker
 
         // Parent UUID (empty string if root)
         if (entity.HasParent()) {
@@ -477,6 +478,7 @@ namespace Luth
 
             // Active state
             entity.SetActive(ej.value("active", true));
+            if (ej.value("bone", false)) entity.GetScene()->Registry().emplace<Bone>((entt::entity)entity);
 
             // Transform (overwrite defaults)
             if (ej.contains("transform")) {
