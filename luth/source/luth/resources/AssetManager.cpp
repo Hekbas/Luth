@@ -59,7 +59,7 @@ namespace Luth
         const auto& info = AssetDatabase::GetMetadata(handle);
         if (info.Path.empty())
         {
-            LH_CORE_ERROR("AssetManager: UUID {0} not found in DB", handle.ToString());
+            LH_LOG(Assets, error, "AssetManager: UUID {0} not found in DB", handle.ToString());
             return;
         }
 
@@ -102,7 +102,7 @@ namespace Luth
         auto data = DeserializeArtifact(info.Type, artifactPath);
         if (!data && s_Importers.find(info.Type) != s_Importers.end())
         {
-            LH_CORE_WARN("AssetManager: artifact incompatible (schema bump?) — reimporting {0}", info.Path.string());
+            LH_LOG(Assets, warn, "AssetManager: artifact incompatible (schema bump?) -- reimporting {0}", info.Path.string());
             if (s_Importers[info.Type]->Import(info.Path, artifactPath))
                 data = DeserializeArtifact(info.Type, artifactPath);
         }
@@ -130,10 +130,10 @@ namespace Luth
         
         if (s_Importers.find(info.Type) != s_Importers.end())
         {
-            LH_CORE_INFO("Importing Asset: {0}", info.Path.string());
+            LH_LOG(Assets, debug, "Importing Asset: {0}", info.Path.string());
             if (!s_Importers[info.Type]->Import(info.Path, artifactPath))
             {
-                LH_CORE_ERROR("Failed to import asset: {0}", info.Path.string());
+                LH_LOG(Assets, error, "Failed to import asset: {0}", info.Path.string());
             }
         }
     }
@@ -194,7 +194,7 @@ namespace Luth
         if (dirtyAssets.empty()) return;
 
         std::vector<UUID> assetsToImport = dirtyAssets;
-        LH_CORE_INFO("Importing {} assets...", assetsToImport.size());
+        LH_LOG(Assets, info, "Importing {} assets...", assetsToImport.size());
 
         JobSystem::Counter importCounter(0);
         JobSystem::Dispatch((u32)assetsToImport.size(), 1, [](JobSystem::JobArgs args) {
@@ -299,7 +299,7 @@ namespace Luth
             {
                 // Font and Scene types are handled directly — not an error
                 if (req->Type != AssetType::Font && req->Type != AssetType::Scene)
-                    LH_CORE_ERROR("AssetManager: No importer for type {0}", (int)req->Type);
+                    LH_LOG(Assets, error, "AssetManager: No importer for type {0}", (int)req->Type);
             }
         }
 

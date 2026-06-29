@@ -9,6 +9,10 @@
 #include <algorithm>
 #include <vector>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 namespace Luth
 {
     namespace {
@@ -28,6 +32,17 @@ namespace Luth
             }
         }
 
+        // Reverse of LogCategoryName: each per-category logger is named after its category,
+        // so the forwarding sink recovers the channel from msg.logger_name. O(Count) compare —
+        // negligible at log frequency.
+        LogCategory CategoryFromName(std::string_view name)
+        {
+            for (size_t i = 0; i < static_cast<size_t>(LogCategory::Count); ++i)
+                if (name == LogCategoryName(static_cast<LogCategory>(i)))
+                    return static_cast<LogCategory>(i);
+            return LogCategory::Core;
+        }
+
         // spdlog sink that fans engine log emissions out to registered Luth::ILogSink
         // observers. Reads the raw payload (msg.payload is the user's formatted message
         // before any pattern is applied), so observers receive the message as written.
@@ -40,6 +55,7 @@ namespace Luth
                 entry.level     = SpdlogToLuth(msg.level);
                 entry.message.assign(msg.payload.data(), msg.payload.size());
                 entry.logger.assign(msg.logger_name.data(), msg.logger_name.size());
+                entry.category  = CategoryFromName(std::string_view(msg.logger_name.data(), msg.logger_name.size()));
                 entry.timestamp = msg.time;
 
                 // Snapshot the list under the spinlock so observer callbacks can safely
@@ -57,20 +73,39 @@ namespace Luth
         };
     }
 
-    std::shared_ptr<spdlog::logger> Log::s_Logger;
+    std::array<std::shared_ptr<spdlog::logger>, static_cast<size_t>(LogCategory::Count)> Log::s_Loggers;
 
     void Log::Init()
     {
-        std::vector<spdlog::sink_ptr> sinks;
-        sinks.emplace_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
-        sinks.emplace_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>("Luth.log", true));
-        sinks.emplace_back(std::make_shared<ForwardingSink>());
+#ifdef _WIN32
+        // Engine sources compile with /utf-8, so string literals are UTF-8 bytes. Without this
+        // the console reads them as the legacy OEM page and non-ASCII (em-dash etc.) becomes mojibake.
+        SetConsoleOutputCP(CP_UTF8);
+        SetConsoleCP(CP_UTF8);
+#endif
 
-        s_Logger = std::make_shared<spdlog::logger>("LUTH", begin(sinks), end(sinks));
-        spdlog::register_logger(s_Logger);
-        s_Logger->set_pattern("%^[%T] %n: %v%$");  // Timestamp, logger name, message
-        s_Logger->set_level(spdlog::level::trace);
-        s_Logger->flush_on(spdlog::level::trace);
+        // Three shared sinks, each with its own level. The logger stays at trace so nothing is
+        // pre-filtered before the file/forwarding sinks; the stdout sink alone curates to INFO,
+        // keeping a clean console while Luth.log + the editor console retain full detail.
+        auto stdoutSink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+        stdoutSink->set_level(spdlog::level::info);
+        auto fileSink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("Luth.log", true);
+        fileSink->set_level(spdlog::level::trace);
+        auto fwdSink = std::make_shared<ForwardingSink>();
+        fwdSink->set_level(spdlog::level::trace);
+
+        std::vector<spdlog::sink_ptr> sinks{ stdoutSink, fileSink, fwdSink };
+
+        // One logger per category, all sharing the three sinks. Logger name == category name,
+        // so stdout's %n shows the channel and the forwarding sink can recover the category.
+        for (size_t i = 0; i < static_cast<size_t>(LogCategory::Count); ++i) {
+            auto logger = std::make_shared<spdlog::logger>(
+                LogCategoryName(static_cast<LogCategory>(i)), begin(sinks), end(sinks));
+            logger->set_pattern("%^[%T] %n: %v%$");  // Timestamp, category, message
+            logger->set_level(spdlog::level::trace);
+            logger->flush_on(spdlog::level::trace);
+            s_Loggers[i] = logger;
+        }
     }
 
     void Log::AddSink(ILogSink* sink)

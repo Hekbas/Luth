@@ -69,7 +69,7 @@ namespace Luth
 
     CommandAllocator* CommandAllocatorPool::CreateAllocator()
     {
-        LH_CORE_TRACE("Creating new Command Allocator. Total: {0}", m_AllAllocators.size() + 1);
+        LH_LOG(Renderer, trace, "Creating new Command Allocator. Total: {0}", m_AllAllocators.size() + 1);
 
         VkCommandPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -79,7 +79,7 @@ namespace Luth
         VkCommandPool pool;
         if (vkCreateCommandPool(m_Device, &poolInfo, nullptr, &pool) != VK_SUCCESS)
         {
-            LH_CORE_CRITICAL("Failed to create Command Pool!");
+            LH_LOG(Renderer, critical, "Failed to create Command Pool!");
             return nullptr;
         }
 

@@ -52,7 +52,7 @@ namespace Luth
     {
         if (m_Stage == ShaderStage::Unknown || m_SpirV.empty())
         {
-            LH_CORE_ERROR("VulkanShader: invalid stage or empty SPIR-V for '{}'", m_Path.string());
+            LH_LOG(Shaders, error, "VulkanShader: invalid stage or empty SPIR-V for '{}'", m_Path.string());
             return;
         }
 
@@ -91,13 +91,13 @@ namespace Luth
         m_SpirV = ShaderCompiler::Compile(m_Path);
         if (m_SpirV.empty())
         {
-            LH_CORE_ERROR("VulkanShader: reload failed for '{}'", m_Path.string());
+            LH_LOG(Shaders, error, "VulkanShader: reload failed for '{}'", m_Path.string());
             return;
         }
 
         Reflect();
         CreateShaderModule();
-        LH_CORE_INFO("VulkanShader: reloaded '{}'", m_Path.string());
+        LH_LOG(Shaders, info, "VulkanShader: reloaded '{}'", m_Path.string());
     }
 
     VkShaderStageFlagBits VulkanShader::GetVkStage() const
@@ -111,7 +111,7 @@ namespace Luth
         spirv_cross::Compiler compiler(m_SpirV.data(), m_SpirV.size());
         spirv_cross::ShaderResources resources = compiler.get_shader_resources();
 
-        LH_CORE_TRACE("Reflecting Shader: {0} (Stage: {1})", m_Path.string(), (int)m_Stage);
+        LH_LOG(Shaders, trace, "Reflecting Shader: {0} (Stage: {1})", m_Path.string(), (int)m_Stage);
 
         // Uniform Buffers
         for (const auto& resource : resources.uniform_buffers)
@@ -128,7 +128,7 @@ namespace Luth
             buffer.Binding = binding;
             buffer.Size = bufferSize;
 
-            LH_CORE_TRACE("  Uniform Buffer: {0} (Set: {1}, Binding: {2}, Size: {3})", resource.name, set, binding, bufferSize);
+            LH_LOG(Shaders, trace, "  Uniform Buffer: {0} (Set: {1}, Binding: {2}, Size: {3})", resource.name, set, binding, bufferSize);
 
             for (int i = 0; i < memberCount; i++)
             {
@@ -144,7 +144,7 @@ namespace Luth
                 uniform.Offset = memberOffset;
 
                 buffer.Uniforms[memberName] = uniform;
-                LH_CORE_TRACE("    Member: {0} (Offset: {1}, Size: {2})", memberName, memberOffset, memberSize);
+                LH_LOG(Shaders, trace, "    Member: {0} (Offset: {1}, Size: {2})", memberName, memberOffset, memberSize);
             }
 
             m_Buffers[resource.name] = buffer;
@@ -161,7 +161,7 @@ namespace Luth
             buffer.Name = resource.name;
             buffer.Size = bufferSize;
 
-            LH_CORE_TRACE("  Push Constant: {0} (Size: {1})", resource.name, bufferSize);
+            LH_LOG(Shaders, trace, "  Push Constant: {0} (Size: {1})", resource.name, bufferSize);
 
             for (int i = 0; i < memberCount; i++)
             {
@@ -199,10 +199,15 @@ namespace Luth
             res.ArraySize = arraySize;
 
             m_Resources[resource.name] = res;
-            LH_CORE_TRACE("  Texture: {0} (Set: {1}, Binding: {2})", resource.name, set, binding);
+            LH_LOG(Shaders, trace, "  Texture: {0} (Set: {1}, Binding: {2})", resource.name, set, binding);
         }
+
+        // One-line per-shader summary at Debug; the per-member detail above stays at Trace.
+        LH_LOG(Shaders, debug, "reflected '{}' ({} UBOs, {} push, {} textures)",
+            m_Path.filename().string(), resources.uniform_buffers.size(),
+            resources.push_constant_buffers.size(), resources.sampled_images.size());
 #else
-        LH_CORE_WARN("VulkanShader::Reflect() disabled — spirv-cross not linked (ABI mismatch with Vulkan SDK pre-built libs)");
+        LH_LOG(Shaders, warn, "VulkanShader::Reflect() disabled -- spirv-cross not linked (ABI mismatch with Vulkan SDK pre-built libs)");
 #endif
     }
 
@@ -215,7 +220,7 @@ namespace Luth
 
         if (vkCreateShaderModule(VulkanContext::Get().GetDevice(), &createInfo, nullptr, &m_ShaderModule) != VK_SUCCESS)
         {
-            LH_CORE_ERROR("Failed to create shader module for '{}'", m_Path.string());
+            LH_LOG(Shaders, error, "Failed to create shader module for '{}'", m_Path.string());
             m_ShaderModule = VK_NULL_HANDLE;
             return;
         }
