@@ -22,9 +22,9 @@ namespace Luth
     // Per-view pool: cycled sets allocate MAX_FRAMES_IN_FLIGHT instances each. Capacity bumped on
     // every subsystem addition — silent vkAllocateDescriptorSets failure on overflow returns
     // VK_NULL_HANDLE handles and skips the draw with no log. Bump generously; pool memory is cheap.
-    static constexpr u32 k_ViewPoolMaxSets              = 195;  // + DiSpecular SVGF ×7 (#154) + GI upscale + DI upscale ×2 + refl upscale
+    static constexpr u32 k_ViewPoolMaxSets              = 205;  // + DiSpecular SVGF ×7 (#154) + GI upscale + DI upscale ×2 + refl upscale + bloom pyramid sets
     static constexpr u32 k_ViewPoolUniformBufferCount   = 48;
-    static constexpr u32 k_ViewPoolStorageImageCount    = 230;  // + DiSpecular SVGF + restir Set 2 b8 (#154) + GI upscale b3 + DI upscale ×2 + refl upscale b3
+    static constexpr u32 k_ViewPoolStorageImageCount    = 248;  // + DiSpecular SVGF + restir Set 2 b8 (#154) + GI upscale b3 + DI upscale ×2 + refl upscale b3 + bloom pyramid mips
     static constexpr u32 k_ViewPoolStorageBufferCount   = 126;  // + Transparency b2 OIT nodes ×3
     static constexpr u32 k_ViewPoolCombinedSamplerCount = 298;  // + DiSpecular SVGF + restir Set 2 b7 (#154) + GI upscale b0-b2 + DI upscale ×2 b0-b2 + refl upscale b0-b2
     static constexpr u32 k_ViewPoolAccelStructCount     = 8;   // Set 0 binding 6 (TLAS) cycled per frame
@@ -83,6 +83,7 @@ namespace Luth
             const u32 halfH = std::max(newH / 2, 1u);
             RecreateViewTextures(vr, newW, newH, halfW, halfH);
             m_PostProcess.WriteView(vr, targets);
+            m_PostProcess.WriteBloomView(vr);
             m_PostProcess.WriteTaaResolveView(vr, targets);
             m_GTAO.WriteView(vr, targets);
             m_EditorOverlays.WriteOutlineView(vr, targets);
@@ -213,12 +214,19 @@ namespace Luth
             }
         };
 
-        const VkDescriptorSetLayout ppLayout = m_PostProcess.GetDescSetLayout();
-        allocCycled(m_Global.GetSetLayout(),             vr.globalDescriptorSet,  "View.Global");
-        allocCycled(ppLayout,                            vr.bloomExtractDescSet,  "View.BloomExtract");
-        allocCycled(ppLayout,                            vr.bloomBlurHDescSet,    "View.BloomBlurH");
-        allocCycled(ppLayout,                            vr.bloomBlurVDescSet,    "View.BloomBlurV");
-        allocCycled(ppLayout,                            vr.compositeDescSet,     "View.Composite");
+        const VkDescriptorSetLayout ppLayout    = m_PostProcess.GetDescSetLayout();
+        const VkDescriptorSetLayout bloomLayout = m_PostProcess.GetBloomComputeLayout();
+        allocCycled(m_Global.GetSetLayout(),             vr.globalDescriptorSet,   "View.Global");
+        allocCycled(bloomLayout,                         vr.bloomPrefilterDescSet, "View.BloomPrefilter");
+        for (u32 i = 0; i < ViewResources::kBloomMipCount - 1; ++i)
+        {
+            char tag[32];
+            std::snprintf(tag, sizeof(tag), "View.BloomDown%u", i);
+            allocSingle(bloomLayout, vr.bloomDownDescSet[i], tag);
+            std::snprintf(tag, sizeof(tag), "View.BloomUp%u", i);
+            allocSingle(bloomLayout, vr.bloomUpDescSet[i], tag);
+        }
+        allocCycled(ppLayout,                            vr.compositeDescSet,      "View.Composite");
         allocSingle(m_GTAO.GetPrefilterLayout(),         vr.gtaoPrefilterDescSet, "View.GTAOPrefilter");
         allocCycled(m_GTAO.GetMainLayout(),              vr.gtaoMainDescSet,      "View.GTAOMain");
         allocSingle(m_GTAO.GetDenoiseLayout(),           vr.gtaoDenoiseDescSet,   "View.GTAODenoise");
@@ -254,6 +262,7 @@ namespace Luth
         m_DenoiseDiSpec->AllocateViewSets(vr);
 
         m_PostProcess.WriteView(vr, targets);
+        m_PostProcess.WriteBloomView(vr);
         m_PostProcess.WriteTaaResolveView(vr, targets);
         m_GTAO.WriteView(vr, targets);
         m_EditorOverlays.WriteOutlineView(vr, targets);
@@ -308,8 +317,20 @@ namespace Luth
         const u32  reflH    = reflHalf ? halfH : fullH;
         vr.reflHalfCached   = reflHalf ? 1u : 0u;
 
-        vr.bloomA = Texture::Create(halfW, halfH, TextureFormat::RGBA16F);
-        vr.bloomB = Texture::Create(halfW, halfH, TextureFormat::RGBA16F);
+        // Bloom pyramid mips — RGBA16F STORAGE+SAMPLED, mip[0] at half-res then halving each level.
+        // STORAGE for the compute prefilter/down/up imageStore + SAMPLED (ctor) for the next stage's
+        // filtered taps. The ctor leaves them SHADER_READ_ONLY, so the bloomStrength==0 skip (passes
+        // not registered) keeps the composite's stale bloom binding valid — no bootstrap clear needed
+        // (every mip is fully written before read each frame; no cross-frame dependency).
+        for (u32 i = 0; i < ViewResources::kBloomMipCount; ++i)
+        {
+            const u32 mipW = std::max(halfW >> i, 1u);
+            const u32 mipH = std::max(halfH >> i, 1u);
+            vr.bloomMip[i] = std::make_shared<VKTexture>(
+                mipW, mipH, TextureFormat::RGBA16F,
+                /*arrayLayers*/ 1, /*createFlags*/ 0u, /*mipLevels*/ 1,
+                VK_IMAGE_USAGE_STORAGE_BIT);
+        }
 
         // TAA history (Karis14 YCoCg-clip recipe) — viewport-sized RGBA16F HDR. Persistent across
         // frames; ping-pong via frameAbs parity. SAMPLED for the resolve's history read; COLOR
@@ -646,8 +667,7 @@ namespace Luth
     void RenderPipeline::DestroyViewResources(ViewResources& vr)
     {
         // Pool destruction frees every descriptor set allocated from it.
-        vr.bloomA.reset();
-        vr.bloomB.reset();
+        for (auto& mip : vr.bloomMip) mip.reset();
         vr.gtaoLinearDepth.reset();
         vr.gtaoRawAO.reset();
         vr.gtaoEdges.reset();

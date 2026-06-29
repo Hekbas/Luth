@@ -100,9 +100,11 @@ namespace Luth
         // sampler (4) are stable — replicated across all slots at WriteView time.
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> globalDescriptorSet{};
 
-        // Bloom half-res ping-pong textures (RGBA16F).
-        std::shared_ptr<Texture> bloomA;
-        std::shared_ptr<Texture> bloomB;
+        // Bloom pyramid mips (RGBA16F STORAGE+SAMPLED). mip[0] is half-res, each subsequent mip
+        // halves again. Prefilter writes mip[0]; downsample fills 1..N-1; upsample accumulates
+        // additively back down into mip[0], which the composite samples. see arch/rendering-pipeline.md.
+        static constexpr u32 kBloomMipCount = 6;
+        std::array<std::shared_ptr<Texture>, kBloomMipCount> bloomMip{};
 
         // GTAO half-res storage textures.
         std::shared_ptr<Texture> gtaoLinearDepth;
@@ -125,13 +127,14 @@ namespace Luth
         std::shared_ptr<Texture> volInScatterHistA;
         std::shared_ptr<Texture> volInScatterHistB;
 
-        // Bloom extract / blur / composite — bind view's SceneColor +
-        // bloomA/B + shared PP UBO. Cycled — UpdateUBO writes binding 2 of
-        // all 4 sets atomically against the per-frame slot.
-        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> bloomExtractDescSet{};
-        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> bloomBlurHDescSet{};
-        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> bloomBlurVDescSet{};
-        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> compositeDescSet{};
+        // Bloom pyramid descriptor sets. Prefilter is cycled — binding 0 (scene/TAA source) is
+        // rebound per frame by UpdateBloomCompositeInput (UAB). Down/up sets are single: they
+        // reference only stable per-view mip textures, written once per resize. Composite stays
+        // cycled (UpdateUBO writes its UBO binding 2 against the per-frame slot).
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT>   bloomPrefilterDescSet{};
+        std::array<VkDescriptorSet, kBloomMipCount - 1>     bloomDownDescSet{};
+        std::array<VkDescriptorSet, kBloomMipCount - 1>     bloomUpDescSet{};
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT>   compositeDescSet{};
 
         // GTAO compute passes.
         VkDescriptorSet gtaoPrefilterDescSet = VK_NULL_HANDLE;
