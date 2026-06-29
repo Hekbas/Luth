@@ -1,6 +1,7 @@
 #include "lepch.h"
 #include "luthien/widgets/ButtonGroup.h"
 #include "luthien/widgets/Icons.h"
+#include "luthien/Editor.h"
 
 #include <imgui.h>
 #include <cstdio>
@@ -64,7 +65,7 @@ namespace Luth::UI
         return changed;
     }
 
-    bool IconToggleGroup(const char* groupId, const char* const* icons, const char* const* tooltips, int count, int* selectedIdx)
+    bool IconToggleGroup(const char* groupId, const char* const* icons, const char* const* tooltips, int count, int* selectedIdx, const bool* filled)
     {
         if (!icons || !selectedIdx || count <= 0) return false;
 
@@ -77,7 +78,10 @@ namespace Luth::UI
             const bool active = (*selectedIdx == i);
             if (active) PushActiveStyle();
             ImGui::PushID(i);
-            if (ImGui::Button(icons[i], btn) && !active)
+            if (filled && filled[i]) ImGui::PushFont(Editor::GetIconFill());
+            const bool clicked = ImGui::Button(icons[i], btn);
+            if (filled && filled[i]) ImGui::PopFont();
+            if (clicked && !active)
             {
                 *selectedIdx = i;
                 changed = true;
@@ -115,7 +119,7 @@ namespace Luth::UI
     }
 
     bool SplitToggleButton(const char* groupId, const char* icon, const char* tooltip,
-                           bool* state, const std::function<void()>& dropdownBody)
+                           bool* state, const std::function<void()>& dropdownBody, bool filled)
     {
         ImGui::PushID(groupId);
 
@@ -129,7 +133,10 @@ namespace Luth::UI
         // null, treat the whole split as one big dropdown opener (icon-click
         // does the same thing as chevron-click).
         if (active) PushActiveStyle();
-        if (ImGui::Button(icon ? icon : "##icon", btn)) {
+        if (filled) ImGui::PushFont(Editor::GetIconFill());
+        const bool iconClicked = ImGui::Button(icon ? icon : "##icon", btn);
+        if (filled) ImGui::PopFont();
+        if (iconClicked) {
             if (state) { *state = !*state; toggled = true; }
             else       { ImGui::OpenPopup("##split_popup"); }
         }
@@ -140,7 +147,10 @@ namespace Luth::UI
 
         // Chevron half — sits flush against the icon (zero spacing).
         ImGui::SameLine(0.0f, 0.0f);
-        if (ImGui::Button(ICON_CARET_DOWN "##chev", ImVec2(chevW, btnH)))
+        ImGui::PushFont(Editor::GetIconFill());
+        const bool chevClicked = ImGui::Button(ICON_CARET_DOWN_FILL "##chev", ImVec2(chevW, btnH));
+        ImGui::PopFont();
+        if (chevClicked)
             ImGui::OpenPopup("##split_popup");
         const float popupY = ImGui::GetItemRectMax().y;
 

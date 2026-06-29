@@ -54,5 +54,14 @@ namespace Luth
         static inline ImU32 MemFrameLinear = IM_COL32( 60, 180, 160, 255); // Teal
         static inline ImU32 MemFrameTagged = IM_COL32(200, 120, 160, 255); // Pink
         static inline ImU32 MemGPU         = IM_COL32( 90,  90, 200, 255); // Deep Indigo
+
+        // Hierarchy entity-icon category tints (glyph only; entity names stay neutral)
+        static inline ImVec4 EntityMesh    = { 0.55f, 0.68f, 0.88f, 1.0f }; // calm blue
+        static inline ImVec4 EntityCamera  = { 0.78f, 0.80f, 0.84f, 1.0f }; // silver-grey
+        static inline ImVec4 EntityLight   = { 0.95f, 0.80f, 0.25f, 1.0f }; // yellow
+        static inline ImVec4 EntityBone    = { 0.30f, 0.85f, 0.45f, 1.0f }; // green (matches GizmoBoneLine)
+        static inline ImVec4 EntityAnim    = { 0.25f, 0.78f, 0.75f, 1.0f }; // teal
+        static inline ImVec4 EntityPhysics = { 0.95f, 0.55f, 0.20f, 1.0f }; // orange
+        static inline ImVec4 EntityFX      = { 0.72f, 0.55f, 0.95f, 1.0f }; // purple
     };
 }

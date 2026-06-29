@@ -111,7 +111,7 @@ namespace Luth
         m_RenderingSystem->SetGridVisible(Editor::GetSettings().showGrid);
 
         ImGui::PushFont(Editor::GetIconRegular());
-        std::string scene = ICON_GAMEPAD + std::string("  Scene");
+        std::string scene = ICON_VIEWPORT + std::string("  Scene");
 
         if (BeginWindow(scene.c_str(), ImGuiWindowFlags_NoScrollbar)) {
             // Toolbar - Left (gizmos + grid) | Transport | Right (render + dropdowns)
@@ -144,13 +144,14 @@ namespace Luth
 
                 // LEFT: gizmo tools + grid split
                 ImGui::AlignTextToFramePadding();
-                static const char* kGizmoIcons[]    = { ICON_SELECT, ICON_MOVE, ICON_ROTATE, ICON_EXPAND };
+                static const char* kGizmoIcons[]    = { ICON_SELECT_FILL, ICON_MOVE, ICON_ROTATE, ICON_RESIZE };
                 static const char* kGizmoTooltips[] = { "Select (Q)", "Translate (W)", "Rotate (E)", "Scale (R)" };
+                static const bool  kGizmoFilled[]   = { true, false, false, false };   // cursor reads as filled
                 static constexpr int kGizmoOps[]    = { -1, ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::OPERATION::ROTATE, ImGuizmo::OPERATION::SCALE };
                 int gizmoIdx = 0;
                 const int currentOp = m_Gizmo->GetOperation();
                 for (int i = 0; i < IM_ARRAYSIZE(kGizmoOps); ++i) if (kGizmoOps[i] == currentOp) { gizmoIdx = i; break; }
-                if (UI::IconToggleGroup("GizmoTools", kGizmoIcons, kGizmoTooltips, IM_ARRAYSIZE(kGizmoOps), &gizmoIdx))
+                if (UI::IconToggleGroup("GizmoTools", kGizmoIcons, kGizmoTooltips, IM_ARRAYSIZE(kGizmoOps), &gizmoIdx, kGizmoFilled))
                     m_Gizmo->SetOperation(kGizmoOps[gizmoIdx]);
 
                 ImGui::SameLine(0, wideGap);
@@ -179,7 +180,9 @@ namespace Luth
                 auto TransportBtn = [&](const char* icon, const char* id, const char* tooltip, bool enabled) -> bool {
                     if (!enabled) ImGui::BeginDisabled();
                     std::string label = std::string(icon) + id;
+                    ImGui::PushFont(Editor::GetIconFill());
                     bool clicked = ImGui::Button(label.c_str(), { btnSize, btnSize });
+                    ImGui::PopFont();
                     if (ImGui::IsItemHovered() && enabled)
                         ImGui::SetTooltip("%s", tooltip);
                     if (!enabled) ImGui::EndDisabled();
@@ -188,32 +191,32 @@ namespace Luth
 
                 const bool canPlay   = (playState == PlayState::Editing);
                 const bool canResume = (playState == PlayState::Paused);
-                if (TransportBtn(ICON_PLAY, "##Play",
+                if (TransportBtn(ICON_PLAY_FILL, "##Play",
                                  canResume ? "Resume" : "Play",
                                  canPlay || canResume)) {
                     if (canResume) PlayModeController::Resume();
                     else           PlayModeController::EnterPlay();
                 }
                 ImGui::SameLine(0, gap);
-                if (TransportBtn(ICON_PAUSE, "##Pause", "Pause", playState == PlayState::Playing))
+                if (TransportBtn(ICON_PAUSE_FILL, "##Pause", "Pause", playState == PlayState::Playing))
                     PlayModeController::Pause();
                 ImGui::SameLine(0, gap);
-                if (TransportBtn(ICON_STOP, "##Stop", "Stop", playState != PlayState::Editing))
+                if (TransportBtn(ICON_STOP_FILL, "##Stop", "Stop", playState != PlayState::Editing))
                     PlayModeController::Stop();
                 ImGui::SameLine(0, gap);
-                if (TransportBtn(ICON_STEP_FORWARD, "##Step", "Step one frame",
+                if (TransportBtn(ICON_STEP_FORWARD_FILL, "##Step", "Step one frame",
                                  playState == PlayState::Paused))
                     PlayModeController::RequestStep();
 
                 // RIGHT: render modes + debug split + camera split + gizmo-vis split + overlay toggle
                 ImGui::SameLine(rightStart);
 
-                struct RenderModeBtn { const char* icon; const char* tip; int mode; };
+                struct RenderModeBtn { const char* icon; const char* tip; int mode; bool filled; };
                 static const RenderModeBtn kRenderModes[] = {
-                    { ICON_WIREFRAME,              "Wireframe",                                 (int)ShadeMode::Wireframe },
-                    { ICON_WIREFRAME,              "Shaded Wireframe (engine support pending)", -1 },
-                    { ICON_CIRCLE,             "Unlit",                                     (int)ShadeMode::Unlit },
-                    { ICON_MATERIAL, "Lit",                                       (int)ShadeMode::Lit },
+                    { ICON_WIREFRAME,        "Wireframe",                                 (int)ShadeMode::Wireframe, false },
+                    { ICON_WIREFRAME_SHADED, "Shaded Wireframe (engine support pending)", -1,                        true  },
+                    { ICON_CIRCLE,           "Unlit",                                     (int)ShadeMode::Unlit,     false },
+                    { ICON_MATERIAL_FILL,    "Lit",                                       (int)ShadeMode::Lit,       true  },
                 };
                 const int  curMode    = (int)m_RenderingSystem->GetShadeMode();
                 const bool ptActive   = m_RenderingSystem->GetRenderMode() == RenderMode::PathTrace;
@@ -229,7 +232,10 @@ namespace Luth
                     }
                     if (!enabled) ImGui::BeginDisabled();
                     ImGui::PushID(i);
-                    if (ImGui::Button(kRenderModes[i].icon, { btnSize, btnSize }) && enabled) {
+                    if (kRenderModes[i].filled) ImGui::PushFont(Editor::GetIconFill());
+                    const bool modeClicked = ImGui::Button(kRenderModes[i].icon, { btnSize, btnSize });
+                    if (kRenderModes[i].filled) ImGui::PopFont();
+                    if (modeClicked && enabled) {
                         m_RenderingSystem->SetRenderMode(RenderMode::Raster);
                         m_RenderingSystem->SetShadeMode((ShadeMode)kRenderModes[i].mode);
                     }
@@ -262,12 +268,12 @@ namespace Luth
                                           || curMode == (int)ShadeMode::Unlit
                                           || curMode == (int)ShadeMode::Wireframe);
                     bool dbgState = dbgActive;
-                    if (UI::SplitToggleButton("Debug", ICON_BUG, "Debug Render Modes", &dbgState,
+                    if (UI::SplitToggleButton("Debug", ICON_BUG_BEETLE_FILL, "Debug Render Modes", &dbgState,
                         [this]() {
                             ImGui::PushFont(Editor::GetMainFont());
                             DrawDebugModePicker();
                             ImGui::PopFont();
-                        }))
+                        }, true))
                     {
                         m_RenderingSystem->SetShadeMode(dbgState
                             ? (ShadeMode)settings.lastDebugMode
@@ -279,7 +285,7 @@ namespace Luth
                 ImGui::SameLine(0, wideGap);
 
                 // Camera split (chevron-only).
-                UI::SplitToggleButton("Camera", ICON_CAMERA, "Camera Settings", nullptr,
+                UI::SplitToggleButton("Camera", ICON_CAMERA_FILL, "Camera Settings", nullptr,
                     [this]() {
                         ImGui::PushFont(Editor::GetMainFont());
                         if (UI::BeginProperties("CamSpeedProps")) {
@@ -307,7 +313,7 @@ namespace Luth
                             UI::EndProperties();
                         }
                         ImGui::PopFont();
-                    });
+                    }, true);
 
                 ImGui::SameLine(0, gap);
 

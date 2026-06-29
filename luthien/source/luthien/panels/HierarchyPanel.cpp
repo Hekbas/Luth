@@ -157,14 +157,25 @@ namespace Luth
 
         const std::string& name = entity.GetName();
 
-        // Determine icon based on entity components
-        const char* icon = ICON_ENTITY;
-        if (entity.HasComponent<Camera>())               icon = ICON_VIDEO_CAMERA;
-        else if (entity.HasComponent<DirectionalLight>()) icon = ICON_LIGHT_DIRECTIONAL;
-        else if (entity.HasComponent<PointLight>())       icon = ICON_LIGHT_POINT;
-        else if (entity.HasComponent<SpotLight>())        icon = ICON_LIGHT_SPOT;
-        else if (entity.HasComponent<Animation>())        icon = ICON_ANIMATION;
-        else if (entity.HasComponent<MeshRenderer>())     icon = ICON_CUBE;
+        // Icon + category tint from the entity's defining component. Order is priority:
+        // bone/camera/light identify the entity; animation outranks mesh (skinned
+        // characters read as animated); physics/FX are fallbacks. Default = neutral cube.
+        const char* icon       = ICON_CUBE;
+        ImVec4      iconTint    = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+        bool        iconFilled  = false;   // lights + camera read better in the Fill weight
+        if      (entity.HasComponent<Bone>())               { icon = ICON_BONE_FILL;              iconTint = EditorColors::EntityBone;    iconFilled = true; }
+        else if (entity.HasComponent<Camera>())             { icon = ICON_VIDEO_CAMERA_FILL;      iconTint = EditorColors::EntityCamera;  iconFilled = true; }
+        else if (entity.HasComponent<DirectionalLight>())   { icon = ICON_LIGHT_DIRECTIONAL_FILL; iconTint = EditorColors::EntityLight;   iconFilled = true; }
+        else if (entity.HasComponent<PointLight>())         { icon = ICON_LIGHT_POINT_FILL;       iconTint = EditorColors::EntityLight;   iconFilled = true; }
+        else if (entity.HasComponent<SpotLight>())          { icon = ICON_LIGHT_SPOT_FILL;        iconTint = EditorColors::EntityLight;   iconFilled = true; }
+        else if (entity.HasComponent<Animation>() ||
+                 entity.HasComponent<AnimationController>()) { icon = ICON_ANIMATION;              iconTint = EditorColors::EntityAnim; }
+        else if (entity.HasComponent<MeshRenderer>())       { icon = ICON_MESH;                   iconTint = EditorColors::EntityMesh; }
+        else if (entity.HasComponent<RigidBody>() ||
+                 entity.HasComponent<Collider>() ||
+                 entity.HasComponent<CharacterController>()) { icon = ICON_PHYSICS;                iconTint = EditorColors::EntityPhysics; }
+        else if (entity.HasComponent<FogVolume>())          { icon = ICON_FOG;                    iconTint = EditorColors::EntityFX; }
+        else if (entity.HasComponent<Wind>())               { icon = ICON_WIND;                   iconTint = EditorColors::EntityFX; }
         
         // Filter: skip subtrees with no matching descendants
         if (strlen(m_SearchFilter) > 0 && !SubtreeMatchesFilter(entity, m_SearchFilter))
@@ -244,8 +255,23 @@ namespace Luth
         }
         else
         {
-            // Standard Node
-            opened = ImGui::TreeNodeEx("##Node", flags, "%s  %s", icon, name.c_str());
+            // Arrow-only node spans the row and stays the "last item" for the hover /
+            // context-menu / drag-drop logic below. Glyph (category-tinted) and name are
+            // drawn via the window draw list so neither becomes an ImGui item.
+            opened = ImGui::TreeNodeEx("##Node", flags, "");
+
+            const ImVec2 rMin = ImGui::GetItemRectMin();
+            const float  gx   = rMin.x + ImGui::GetTreeNodeToLabelSpacing();
+            const float  gy   = rMin.y + (ImGui::GetItemRectSize().y - ImGui::GetFontSize()) * 0.5f;
+            const ImU32  iconCol = dimThisRow ? ImGui::GetColorU32(ImGuiCol_TextDisabled) : ImGui::GetColorU32(iconTint);
+            const ImU32  nameCol = dimThisRow ? ImGui::GetColorU32(ImGuiCol_TextDisabled) : ImGui::GetColorU32(ImGuiCol_Text);
+            ImFont*      gFont = iconFilled ? Editor::GetIconFill() : Editor::GetIconRegular();
+            ImDrawList*  dl   = ImGui::GetWindowDrawList();
+            dl->AddText(gFont, gFont->FontSize, ImVec2(gx, gy), iconCol, icon);
+            ImGui::PushFont(gFont);
+            const float iconW = ImGui::CalcTextSize(icon).x;
+            ImGui::PopFont();
+            dl->AddText(ImVec2(gx + iconW + ImGui::GetStyle().ItemInnerSpacing.x, gy), nameCol, name.c_str());
         }
 
         // invariant: hover-gated selection is required because TreeNodeEx fires

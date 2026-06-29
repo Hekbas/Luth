@@ -4,6 +4,7 @@
 #include "luthien/CommandHistory.h"
 #include "luthien/commands/Commands.h"
 #include "luthien/EditorSelection.h"
+#include "luthien/Editor.h"
 #include "luth/scene/Components.h"
 
 #include <ImGuizmo.h>
@@ -176,9 +177,14 @@ namespace Luth
     {
         constexpr float hitRadius = 16.0f;
 
+        // Viewport light/camera billboards render in the Fill weight (callers pass the
+        // *_FILL glyphs); the default editor font only carries the Regular weight.
+        ImFont* gf = Editor::GetIconFill();
+        ImGui::PushFont(gf);
         ImVec2 textSize = ImGui::CalcTextSize(icon);
+        ImGui::PopFont();
         ImVec2 textPos = { screenPos.x - textSize.x * 0.5f, screenPos.y - textSize.y * 0.5f };
-        drawList->AddText(textPos, color, icon);
+        drawList->AddText(gf, gf->FontSize, textPos, color, icon);
 
         // Only consider ImGuizmo::IsOver() when a transform gizmo is actually active —
         // otherwise it returns stale state from the previous frame
