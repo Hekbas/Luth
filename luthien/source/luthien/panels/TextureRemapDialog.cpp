@@ -239,7 +239,7 @@ namespace Luth
                 if (fs::exists(artifact)) fs::remove(artifact);
             }
 
-            LH_CORE_INFO("TextureRemapDialog: Assigned '{}' -> material '{}' ({})",
+            LH_LOG(Editor, info, "TextureRemapDialog: Assigned '{}' -> material '{}' ({})",
                 texPath.filename().string(), entry.MaterialName, Material::ToString(entry.Type));
         }
     }

@@ -35,7 +35,7 @@ namespace Luth
         VkCommandBuffer cmd;
         if (vkAllocateCommandBuffers(m_Device, &allocInfo, &cmd) != VK_SUCCESS)
         {
-            LH_CORE_CRITICAL("Failed to allocate command buffer!");
+            LH_LOG(Renderer, critical, "Failed to allocate command buffer!");
             return VK_NULL_HANDLE;
         }
 

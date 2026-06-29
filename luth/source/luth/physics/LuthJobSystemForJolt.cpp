@@ -282,13 +282,13 @@ namespace Luth::Physics
 
             for (const auto& s : stuck)
             {
-                LH_CORE_WARN("[JoltAdapter Watchdog] WaitForJobs stuck on barrier {} for {} ms; "
+                LH_LOG(Physics, warn, "[JoltAdapter Watchdog] WaitForJobs stuck on barrier {} for {} ms; "
                              "counter raw=0x{:x} (busy={}, count={}); {} job(s) outstanding:",
                              s.barrierPtr, s.elapsed.count(), s.counterRaw,
                              (s.counterRaw & 1u), (s.counterRaw >> 1), s.pending.size());
                 for (size_t i = 0; i < s.pending.size(); ++i)
                 {
-                    LH_CORE_WARN("  [{}] Job {} '{}'", i, static_cast<void*>(s.pending[i].job),
+                    LH_LOG(Physics, warn, "  [{}] Job {} '{}'", i, static_cast<void*>(s.pending[i].job),
                                  s.pending[i].name.empty() ? "<unnamed>" : s.pending[i].name.c_str());
                 }
             }

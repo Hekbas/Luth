@@ -24,7 +24,7 @@ namespace Luth::JobSystem
                                        MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
         if (!region)
         {
-            LH_CORE_CRITICAL("VirtualAlloc failed for fiber stack ({0} bytes); err {1}",
+            LH_LOG(Jobs, critical, "VirtualAlloc failed for fiber stack ({0} bytes); err {1}",
                              totalSize, ::GetLastError());
             return s;
         }
@@ -32,7 +32,7 @@ namespace Luth::JobSystem
         DWORD oldProtect = 0;
         if (!::VirtualProtect(region, kGuardSize, PAGE_NOACCESS, &oldProtect))
         {
-            LH_CORE_CRITICAL("VirtualProtect failed for fiber stack guard; err {0}",
+            LH_LOG(Jobs, critical, "VirtualProtect failed for fiber stack guard; err {0}",
                              ::GetLastError());
             ::VirtualFree(region, 0, MEM_RELEASE);
             return s;

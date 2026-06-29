@@ -325,7 +325,7 @@ namespace Luth
             }
         }
 
-        LH_CORE_INFO("ModelImporter: Extracted skeleton with {0} bones ({1} actual bones, rest structural)",
+        LH_LOG(Assets, info, "ModelImporter: Extracted skeleton with {0} bones ({1} actual bones, rest structural)",
             skeleton.BoneCount(), boneInvBindPoses.size());
     }
 
@@ -366,7 +366,7 @@ namespace Luth
             i32 boneIndex = skeleton.FindBone(boneName);
 
             if (boneIndex < 0) {
-                LH_CORE_WARN("ModelImporter: Bone '{0}' not found in skeleton", boneName);
+                LH_LOG(Assets, warn, "ModelImporter: Bone '{0}' not found in skeleton", boneName);
                 continue;
             }
 
@@ -425,7 +425,7 @@ namespace Luth
 
                 i32 boneIndex = skeleton.FindBone(nodeName);
                 if (boneIndex < 0) {
-                    LH_CORE_WARN("ModelImporter: Animation channel '{}' not found in skeleton — skipping", nodeName);
+                    LH_LOG(Assets, warn, "ModelImporter: Animation channel '{}' not found in skeleton — skipping", nodeName);
                     continue;
                 }
 
@@ -470,7 +470,7 @@ namespace Luth
             clips.push_back(std::move(clip));
         }
 
-        LH_CORE_INFO("ModelImporter: Extracted {0} animation clips", clips.size());
+        LH_LOG(Assets, info, "ModelImporter: Extracted {0} animation clips", clips.size());
     }
 
     // --- Mesh Processing ---
@@ -662,7 +662,7 @@ namespace Luth
                     ml.OuterConeAngleDeg = Math::Degrees(light->mAngleOuterCone);
                     break;
                 default:
-                    LH_CORE_WARN("ModelImporter: unsupported light type ('{}') skipped", light->mName.C_Str());
+                    LH_LOG(Assets, warn, "ModelImporter: unsupported light type ('{}') skipped", light->mName.C_Str());
                     continue;
             }
             // Assimp folds intensity into the color magnitude; split it back out for a sane editor range.
@@ -775,7 +775,7 @@ namespace Luth
                     file.write((const char*)texture->pcData, texture->mWidth);
                 } else {
                     // Raw ARGB8888, would need encoding (skip for now or use stbi_write)
-                    LH_CORE_WARN("Raw embedded textures not fully supported yet: {0}", fileName);
+                    LH_LOG(Assets, warn, "Raw embedded textures not fully supported yet: {0}", fileName);
                     continue;
                 }
             }
@@ -884,7 +884,7 @@ namespace Luth
                 }
                 t.path = r.ResolvedPath;
                 if (r.Strategy != "direct")
-                    LH_CORE_INFO("ModelImporter: Found texture via '{0}' strategy: {1} -> {2}",
+                    LH_LOG(Assets, info, "ModelImporter: Found texture via '{0}' strategy: {1} -> {2}",
                         r.Strategy, pathStr, r.ResolvedPath.filename().string());
             }
             // UV set from the DCC; the engine carries two (TexCoord0/1), so clamp >0 to 1.
@@ -972,7 +972,7 @@ namespace Luth
                 else {
                     StampRole(rough, TextureRole::LinearData);
                     AddNode(MapType::Metalness, rough);
-                    LH_CORE_WARN("ModelImporter: '{0}' metal+rough bake failed; routed roughness only", matName);
+                    LH_LOG(Assets, warn, "ModelImporter: '{0}' metal+rough bake failed; routed roughness only", matName);
                     s_LastImportReport.Degraded.push_back({ matName, matPath,
                         "separate metal+rough bake failed: roughness routed, metallic from factor" });
                 }
@@ -1023,14 +1023,14 @@ namespace Luth
                         AddNode(MapType::Diffuse, bc);
                         matJson["color"] = { 1.0f, 1.0f, 1.0f, 1.0f };
                     }
-                    LH_CORE_INFO("ModelImporter: '{0}' converted spec-gloss to metal-rough", matName);
+                    LH_LOG(Assets, info, "ModelImporter: '{0}' converted spec-gloss to metal-rough", matName);
                 }
                 else
                 {
                     float gloss = 1.0f;
                     aiMat->Get(AI_MATKEY_GLOSSINESS_FACTOR, gloss);
                     matJson["roughness"] = 1.0f - gloss;
-                    LH_CORE_WARN("ModelImporter: '{0}' spec-gloss bake failed; roughness from gloss factor", matName);
+                    LH_LOG(Assets, warn, "ModelImporter: '{0}' spec-gloss bake failed; roughness from gloss factor", matName);
                     s_LastImportReport.Degraded.push_back({ matName, matPath,
                         "spec-gloss bake failed: roughness from factor, metallic from factor" });
                 }
@@ -1108,7 +1108,7 @@ namespace Luth
         }
 
         if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
-            LH_CORE_ERROR("ModelImporter: Failed to load model {0} : {1}", source.string(), importer.GetErrorString());
+            LH_LOG(Assets, error, "ModelImporter: Failed to load model {0} : {1}", source.string(), importer.GetErrorString());
             return false;
         }
 
@@ -1127,7 +1127,7 @@ namespace Luth
         }
 
         if (s_LastImportReport.HasUnresolved()) {
-            LH_CORE_WARN("ModelImporter: {} texture(s) could not be resolved for '{}'."
+            LH_LOG(Assets, warn, "ModelImporter: {} texture(s) could not be resolved for '{}'."
                 " Use the Texture Remap dialog to assign them.",
                 s_LastImportReport.Unresolved.size(), source.filename().string());
         }
@@ -1200,7 +1200,7 @@ namespace Luth
                     AnimationAssetData animData;
                     animData.Clip = clip;
                     if (!AssetSerializer::SerializeAnimation(clipPath, animData)) {
-                        LH_CORE_WARN("ModelImporter: Failed to write clip '{}'", clipPath.string());
+                        LH_LOG(Assets, warn, "ModelImporter: Failed to write clip '{}'", clipPath.string());
                         continue;
                     }
 

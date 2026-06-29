@@ -83,7 +83,7 @@ namespace Luth
         auto ib = std::dynamic_pointer_cast<VKIndexBuffer>(mesh.GetIndexBuffer());
         if (!vb || !ib)
         {
-            LH_CORE_ERROR("CreateStaticBLAS: non-Vulkan VB/IB on mesh — skipping BLAS");
+            LH_LOG(Renderer, error, "CreateStaticBLAS: non-Vulkan VB/IB on mesh — skipping BLAS");
             return nullptr;
         }
         const u32 vertCount  = mesh.GetVertexCount();
@@ -191,7 +191,7 @@ namespace Luth
         addrInfo.accelerationStructure = result->m_Handle;
         result->m_DeviceAddress = rt.vkGetAccelerationStructureDeviceAddressKHR(device, &addrInfo);
 
-        LH_CORE_TRACE("BLAS built ({} verts, {} tris, AS size={} B)",
+        LH_LOG(Renderer, trace, "BLAS built ({} verts, {} tris, AS size={} B)",
                       vertCount, primitiveCount, sizes.accelerationStructureSize);
         return result;
     }
@@ -206,7 +206,7 @@ namespace Luth
         auto ib = std::dynamic_pointer_cast<VKIndexBuffer>(mesh.GetIndexBuffer());
         if (!vb || !ib)
         {
-            LH_CORE_ERROR("CreateDeformableBLAS: non-Vulkan VB/IB on mesh — skipping BLAS");
+            LH_LOG(Renderer, error, "CreateDeformableBLAS: non-Vulkan VB/IB on mesh — skipping BLAS");
             return nullptr;
         }
         const u32 vertCount  = mesh.GetVertexCount();
@@ -349,7 +349,7 @@ namespace Luth
         addrInfo.accelerationStructure = result->m_Handle;
         result->m_DeviceAddress = rt.vkGetAccelerationStructureDeviceAddressKHR(device, &addrInfo);
 
-        LH_CORE_TRACE("Deformable BLAS built ({} verts, {} tris, AS size={} B, update scratch={} B)",
+        LH_LOG(Renderer, trace, "Deformable BLAS built ({} verts, {} tris, AS size={} B, update scratch={} B)",
                       vertCount, result->m_PrimitiveCount, sizes.accelerationStructureSize,
                       sizes.updateScratchSize);
         return result;

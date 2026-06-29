@@ -9,7 +9,7 @@ namespace Luth
     {
         if (!fs::exists(source))
         {
-            LH_CORE_ERROR("ShaderImporter: source not found: {0}", source.string());
+            LH_LOG(Shaders, error, "ShaderImporter: source not found: {0}", source.string());
             return false;
         }
 
@@ -19,7 +19,7 @@ namespace Luth
         {
             // A real compile error is already logged by the compiler; a .slang module with no single 'main'
             // entry (e.g. a multi-stage probe) simply isn't a single-stage asset. Nothing to serialize.
-            LH_CORE_TRACE("ShaderImporter: no single-stage SPIR-V for '{0}' — skipped", source.string());
+            LH_LOG(Shaders, trace, "ShaderImporter: no single-stage SPIR-V for '{0}' — skipped", source.string());
             return false;
         }
 

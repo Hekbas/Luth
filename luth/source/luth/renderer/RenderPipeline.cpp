@@ -124,7 +124,7 @@ namespace Luth
             auto vk = std::static_pointer_cast<VulkanShader>(ShaderLibrary::Get(name));
             if (!vk || !vk->IsValid())
             {
-                LH_CORE_ERROR("Shader reload: '{}' invalid — keeping existing pipelines", name);
+                LH_LOG(Renderer, error, "Shader reload: '{}' invalid — keeping existing pipelines", name);
                 return;
             }
             const auto& spv = vk->GetSpirV();
@@ -169,7 +169,7 @@ namespace Luth
             {
                 if      (name == "debugBlit.frag")  m_System.GetFrameDebugger().blitFragSpv  = spv;
                 else if (name == "debugDepth.frag") m_System.GetFrameDebugger().depthFragSpv = spv;
-                LH_CORE_INFO("Pipelines rebuilt after shader reload: {}", name);
+                LH_LOG(Renderer, info, "Pipelines rebuilt after shader reload: {}", name);
                 return;
             }
 

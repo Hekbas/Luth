@@ -38,7 +38,7 @@ namespace Luth
 
         if (m_ShadowVertSpv.empty() || m_ShadowFragSpv.empty() || m_ShadowSkinnedVertSpv.empty())
         {
-            LH_CORE_ERROR("LightingSubsystem: shadow shader SPIR-V empty after asset load!");
+            LH_LOG(Renderer, error, "LightingSubsystem: shadow shader SPIR-V empty after asset load!");
             return;
         }
 
@@ -81,7 +81,7 @@ namespace Luth
             m_ClusterBuildSpv = loadSpv("shaders/cluster_build.comp");
             if (m_ClusterBuildSpv.empty())
             {
-                LH_CORE_ERROR("LightingSubsystem: failed to load cluster_build.comp!");
+                LH_LOG(Renderer, error, "LightingSubsystem: failed to load cluster_build.comp!");
                 return;
             }
             m_ClusterBuildPipeline = std::make_unique<VKComputePipeline>(
@@ -127,7 +127,7 @@ namespace Luth
             m_LightAssignSpv = loadSpv("shaders/light_assign.comp");
             if (m_LightAssignSpv.empty())
             {
-                LH_CORE_ERROR("LightingSubsystem: failed to load light_assign.comp!");
+                LH_LOG(Renderer, error, "LightingSubsystem: failed to load light_assign.comp!");
                 return;
             }
             m_LightAssignPipeline = std::make_unique<VKComputePipeline>(
@@ -252,7 +252,7 @@ namespace Luth
         m_SkyboxPipeline.reset();
         BuildSkyboxPipeline(geoLayouts);
 
-        LH_CORE_INFO("Skybox reloaded from '{}'", hdrPath.string());
+        LH_LOG(Renderer, info, "Skybox reloaded from '{}'", hdrPath.string());
     }
 
     bool LightingSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv,
@@ -833,7 +833,7 @@ namespace Luth
                 sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, passName, resName, true,
                     { "shadowDepth", 0, VK_CULL_MODE_FRONT_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });
 
-                if (!m_ShadowPipeline) { LH_CORE_ERROR("Shadow pipeline is null!"); sys.GetFrameDebugger().EndCapturePass(); return; }
+                if (!m_ShadowPipeline) { LH_LOG(Renderer, error, "Shadow pipeline is null!"); sys.GetFrameDebugger().EndCapturePass(); return; }
 
                 // Bind all 6 descriptor sets (Set 5 = GPUObjectData SSBO, owned by Geometry).
                 const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;

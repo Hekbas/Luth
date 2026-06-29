@@ -39,7 +39,7 @@ namespace Luth
             m_Viewport->SetSize(w, h);
         });
 
-        LH_CORE_INFO("Created Game panel");
+        LH_LOG(Editor, info, "Created Game panel");
     }
 
     GamePanel::~GamePanel() = default;

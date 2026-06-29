@@ -331,21 +331,21 @@ namespace Luth
 
         if (!anim.BufferAllocated)
         {
-            LH_CORE_WARN("AnimationSystem: Entity has Animation but BufferAllocated=false");
+            LH_LOG(Scene, warn, "AnimationSystem: Entity has Animation but BufferAllocated=false");
             return;
         }
 
         auto model = AssetManager::GetAsset<Model>(anim.ModelUUID);
         if (!model)
         {
-            LH_CORE_WARN("AnimationSystem: Model asset not loaded for UUID {}", anim.ModelUUID.ToString());
+            LH_LOG(Scene, warn, "AnimationSystem: Model asset not loaded for UUID {}", anim.ModelUUID.ToString());
             return;
         }
 
         const Skeleton& skeleton = model->GetSkeleton();
         if (skeleton.IsEmpty())
         {
-            LH_CORE_WARN("AnimationSystem: Skeleton is empty for model '{}'", model->GetName());
+            LH_LOG(Scene, warn, "AnimationSystem: Skeleton is empty for model '{}'", model->GetName());
             Mat4 identity(1.0f);
             BoneMatrixBuffer::UploadBones(anim.BoneBufferOffset, &identity, 1);
             return;

@@ -14,7 +14,7 @@ namespace Luth
 
         if (m_TimestampPeriod == 0.0f)
         {
-            LH_CORE_WARN("GPU does not support timestamps (timestampPeriod == 0)");
+            LH_LOG(Renderer, warn, "GPU does not support timestamps (timestampPeriod == 0)");
             return;
         }
 
@@ -46,7 +46,7 @@ namespace Luth
 
         m_FrameCounter = 0;
         m_Initialized = true;
-        LH_CORE_INFO("GPUTimerPool initialized: {} max passes, {:.2f} ns/tick", maxPasses, m_TimestampPeriod);
+        LH_LOG(Renderer, info, "GPUTimerPool initialized: {} max passes, {:.2f} ns/tick", maxPasses, m_TimestampPeriod);
     }
 
     void GPUTimerPool::Shutdown()
@@ -118,7 +118,7 @@ namespace Luth
                 static bool warned = false;
                 if (!warned)
                 {
-                    LH_CORE_WARN("GPUTimerPool: pass count {} exceeds maxPasses {} — raise GPUTimerPool::Init(). "
+                    LH_LOG(Renderer, warn, "GPUTimerPool: pass count {} exceeds maxPasses {} — raise GPUTimerPool::Init(). "
                                  "GPU per-pass timing + pipeline stats are off until then.", passCount, m_MaxPasses);
                     warned = true;
                 }

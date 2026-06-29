@@ -96,7 +96,7 @@ namespace Luth
             std::error_code ec;
             fs::create_directories(outPath.parent_path(), ec);
             if (ec) {
-                LH_CORE_WARN("Autosave: failed to create '{}': {}",
+                LH_LOG(Editor, warn, "Autosave: failed to create '{}': {}",
                              outPath.parent_path().string(), ec.message());
                 return;
             }
@@ -192,7 +192,7 @@ namespace Luth
         const fs::path scenePath = Editor::GetScenePath();
         if (scenePath.empty()) {
             if (!s_WarnedUntitled) {
-                LH_CORE_WARN("Autosave skipped: scene has no path (Untitled).");
+                LH_LOG(Editor, warn, "Autosave skipped: scene has no path (Untitled).");
                 s_WarnedUntitled = true;
             }
             return;
@@ -201,7 +201,7 @@ namespace Luth
 
         if (!IsPathInsideProject(scenePath)) {
             if (!s_WarnedForeignPath) {
-                LH_CORE_WARN("Autosave skipped: scene '{}' is outside project root.",
+                LH_LOG(Editor, warn, "Autosave skipped: scene '{}' is outside project root.",
                              scenePath.string());
                 s_WarnedForeignPath = true;
             }
@@ -219,21 +219,21 @@ namespace Luth
     {
         // Same guards as Tick except interval — explicit user trigger.
         if (s_PlayActive) {
-            LH_CORE_WARN("Autosave Now skipped: in Play mode.");
+            LH_LOG(Editor, warn, "Autosave Now skipped: in Play mode.");
             return;
         }
         auto scene = Editor::GetActiveScene();
         if (!scene) {
-            LH_CORE_WARN("Autosave Now skipped: no active scene.");
+            LH_LOG(Editor, warn, "Autosave Now skipped: no active scene.");
             return;
         }
         const fs::path scenePath = Editor::GetScenePath();
         if (scenePath.empty()) {
-            LH_CORE_WARN("Autosave Now skipped: scene has no path.");
+            LH_LOG(Editor, warn, "Autosave Now skipped: scene has no path.");
             return;
         }
         if (!IsPathInsideProject(scenePath)) {
-            LH_CORE_WARN("Autosave Now skipped: scene outside project root.");
+            LH_LOG(Editor, warn, "Autosave Now skipped: scene outside project root.");
             return;
         }
 
@@ -333,7 +333,7 @@ namespace Luth
                 // The recovered content differs from the canonical file on disk;
                 // mark dirty so the title-bar * is honest until the user Saves.
                 Editor::MarkDirty();
-                LH_CORE_INFO("Recovered scene from '{}'", s_RecoveryFile.string());
+                LH_LOG(Editor, info, "Recovered scene from '{}'", s_RecoveryFile.string());
             }
             s_RecoveryPending = false;
             ImGui::CloseCurrentPopup();

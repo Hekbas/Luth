@@ -117,9 +117,9 @@ namespace Luth
     {
         m_WindowID = "Console";
 
+        // All channels visible by default — the level filter (Trace/Debug off) is what hides the
+        // verbose bursts, so muting a whole channel is left to the user rather than imposed up front.
         for (bool& v : m_ShowCategory) v = true;
-        m_ShowCategory[static_cast<size_t>(LogCategory::Shaders)]  = false;
-        m_ShowCategory[static_cast<size_t>(LogCategory::Renderer)] = false;
     }
 
     ConsolePanel::~ConsolePanel()

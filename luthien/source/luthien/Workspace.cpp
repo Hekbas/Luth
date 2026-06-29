@@ -29,7 +29,7 @@ namespace Luth::Workspace
             return true;
         }
         catch (const std::exception& e) {
-            LH_CORE_ERROR("Workspace::LoadJson failed for '{}': {}", jsonPath.string(), e.what());
+            LH_LOG(Editor, error, "Workspace::LoadJson failed for '{}': {}", jsonPath.string(), e.what());
             return false;
         }
     }
@@ -53,7 +53,7 @@ namespace Luth::Workspace
             return true;
         }
         catch (const std::exception& e) {
-            LH_CORE_ERROR("Workspace::SaveJson failed for '{}': {}", jsonPath.string(), e.what());
+            LH_LOG(Editor, error, "Workspace::SaveJson failed for '{}': {}", jsonPath.string(), e.what());
             return false;
         }
     }

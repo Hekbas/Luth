@@ -143,7 +143,7 @@ namespace Luth
                         && (formatProps.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT);
             if (!canBlit)
             {
-                LH_CORE_WARN("VKTexture: Format does not support blit, falling back to mipLevels=1");
+                LH_LOG(Renderer, warn, "VKTexture: Format does not support blit, falling back to mipLevels=1");
                 m_MipLevels = 1;
             }
         }

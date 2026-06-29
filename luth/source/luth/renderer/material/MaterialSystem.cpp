@@ -48,7 +48,7 @@ namespace Luth
         MaterialLayoutGuard::Validate(FileSystem::EngineAssetsPath("shaders/common/material.slang"),
                                       "GPUMaterialData", kFields, sizeof(GPUMaterialData));
 
-        LH_CORE_INFO("Material System Initialized (Max Materials: {0})", MAX_MATERIALS);
+        LH_LOG(Renderer, info, "Material System Initialized (Max Materials: {0})", MAX_MATERIALS);
     }
 
     void MaterialSystem::Shutdown()
@@ -73,7 +73,7 @@ namespace Luth
 
         if (m_FreeIndices.empty())
         {
-            LH_CORE_ERROR("Material System: Out of slots!");
+            LH_LOG(Renderer, error, "Material System: Out of slots!");
             return 0;
         }
 

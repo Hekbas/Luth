@@ -98,7 +98,7 @@ namespace Luth
             if (!hdrData)
             {
                 if (!hdrPath.empty())
-                    LH_CORE_WARN("IBL: No HDR environment found at '{}'. IBL disabled.", hdrPath.string());
+                    LH_LOG(Renderer, warn, "IBL: No HDR environment found at '{}'. IBL disabled.", hdrPath.string());
                 result.irradianceMap  = std::make_shared<VKTexture>(1, 1, TextureFormat::RGBA16F, 6,
                     VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT, 1);
                 result.prefilteredMap = std::make_shared<VKTexture>(1, 1, TextureFormat::RGBA16F, 6,
@@ -107,7 +107,7 @@ namespace Luth
             }
             else
             {
-                LH_CORE_INFO("IBL: Loaded HDR environment {}x{} from '{}'", hdrW, hdrH, hdrPath.string());
+                LH_LOG(Renderer, info, "IBL: Loaded HDR environment {}x{} from '{}'", hdrW, hdrH, hdrPath.string());
 
                 // Local pool sized for the 8 sets used below: equirect (1), irradiance (1),
                 // prefilter mips (5), BRDF LUT (1). Destroyed at the end of this branch — all
@@ -596,10 +596,10 @@ namespace Luth
                 if (auto sh = ShaderLibrary::LoadEngine("shaders/skybox.frag"))
                     result.skyboxFragSpv = sh->GetSpirV();
                 if (result.skyboxVertSpv.empty() || result.skyboxFragSpv.empty())
-                    LH_CORE_ERROR("Failed to compile skybox shaders!");
+                    LH_LOG(Renderer, error, "Failed to compile skybox shaders!");
             }
 
-            LH_CORE_INFO("IBL: Precomputation complete (irradiance 32x32, prefiltered 128x128, BRDF LUT 512x512)");
+            LH_LOG(Renderer, info, "IBL: Precomputation complete (irradiance 32x32, prefiltered 128x128, BRDF LUT 512x512)");
             return result;
         }
     }

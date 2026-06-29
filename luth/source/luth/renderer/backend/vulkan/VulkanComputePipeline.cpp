@@ -24,7 +24,7 @@ namespace Luth
         VkShaderModule shaderModule = VK_NULL_HANDLE;
         if (vkCreateShaderModule(m_Device, &moduleInfo, nullptr, &shaderModule) != VK_SUCCESS)
         {
-            LH_CORE_ERROR("VKComputePipeline: Failed to create shader module!");
+            LH_LOG(Renderer, error, "VKComputePipeline: Failed to create shader module!");
             return;
         }
 
@@ -38,7 +38,7 @@ namespace Luth
 
         if (vkCreatePipelineLayout(m_Device, &layoutInfo, nullptr, &m_PipelineLayout) != VK_SUCCESS)
         {
-            LH_CORE_CRITICAL("VKComputePipeline: Failed to create pipeline layout!");
+            LH_LOG(Renderer, critical, "VKComputePipeline: Failed to create pipeline layout!");
             vkDestroyShaderModule(m_Device, shaderModule, nullptr);
             return;
         }
@@ -57,7 +57,7 @@ namespace Luth
         PipelineCache::RecordCompile(std::chrono::duration<f64, std::milli>(std::chrono::high_resolution_clock::now() - pcStart).count());
         if (pipeRes != VK_SUCCESS)
         {
-            LH_CORE_CRITICAL("VKComputePipeline: Failed to create compute pipeline!");
+            LH_LOG(Renderer, critical, "VKComputePipeline: Failed to create compute pipeline!");
         }
 
         vkDestroyShaderModule(m_Device, shaderModule, nullptr);

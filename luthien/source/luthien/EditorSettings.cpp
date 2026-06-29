@@ -29,7 +29,7 @@ namespace Luth
 
         if (!std::filesystem::exists(path))
         {
-            LH_CORE_WARN("EditorSettings file not found at '{}', using defaults", path.string());
+            LH_LOG(Editor, warn, "EditorSettings file not found at '{}', using defaults", path.string());
             return settings;
         }
 
@@ -108,11 +108,11 @@ namespace Luth
                         settings.panelOpen[it.key()] = it.value().get<bool>();
             }
 
-            LH_CORE_INFO("Loaded editor settings from '{}'", path.string());
+            LH_LOG(Editor, info, "Loaded editor settings from '{}'", path.string());
         }
         catch (const std::exception& e)
         {
-            LH_CORE_ERROR("Failed to load editor settings: {}", e.what());
+            LH_LOG(Editor, error, "Failed to load editor settings: {}", e.what());
         }
 
         return settings;
@@ -193,11 +193,11 @@ namespace Luth
             std::ofstream file(path);
             file << j.dump(4);
 
-            LH_CORE_INFO("Saved editor settings to '{}'", path.string());
+            LH_LOG(Editor, info, "Saved editor settings to '{}'", path.string());
         }
         catch (const std::exception& e)
         {
-            LH_CORE_ERROR("Failed to save editor settings: {}", e.what());
+            LH_LOG(Editor, error, "Failed to save editor settings: {}", e.what());
         }
     }
 }

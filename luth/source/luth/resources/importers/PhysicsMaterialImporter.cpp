@@ -13,7 +13,7 @@ namespace Luth
         std::ifstream file(source);
         if (!file.is_open())
         {
-            LH_CORE_ERROR("PhysicsMaterialImporter: Failed to open file {0}", source.string());
+            LH_LOG(Assets, error, "PhysicsMaterialImporter: Failed to open file {0}", source.string());
             return false;
         }
 
@@ -21,7 +21,7 @@ namespace Luth
         try {
             file >> data.JsonData;
         } catch (const std::exception& e) {
-            LH_CORE_ERROR("PhysicsMaterialImporter: Failed to parse JSON {0}: {1}", source.string(), e.what());
+            LH_LOG(Assets, error, "PhysicsMaterialImporter: Failed to parse JSON {0}: {1}", source.string(), e.what());
             return false;
         }
 

@@ -45,7 +45,7 @@ namespace Luth
     {
         // Prevent invalid parenting
         if (parent == *this || IsAncestorOf(parent)) {
-            LH_CORE_WARN("Invalid parenting operation: Cannot parent to self or descendant");
+            LH_LOG(Scene, warn, "Invalid parenting operation: Cannot parent to self or descendant");
             return;
         }
 

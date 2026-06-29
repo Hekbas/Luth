@@ -119,7 +119,7 @@ namespace Luth
         std::ofstream file(metaPath);
         if (!file.is_open())
         {
-            LH_CORE_ERROR("MetaFile::Save: Cannot open file for writing: {0}", metaPath.string());
+            LH_LOG(Assets, error, "MetaFile::Save: Cannot open file for writing: {0}", metaPath.string());
             return false;
         }
 

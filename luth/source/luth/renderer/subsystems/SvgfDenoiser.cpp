@@ -235,7 +235,7 @@ namespace Luth
             m_AtrousSpv = sh->GetSpirV();
         if (m_PassthroughSpv.empty() || m_ReprojectSpv.empty() || m_MomentsSpv.empty() || m_AtrousSpv.empty())
         {
-            LH_CORE_ERROR("SvgfDenoiser: failed to load svgf_passthrough/reproject/moments/atrous.comp SPIR-V");
+            LH_LOG(Renderer, error, "SvgfDenoiser: failed to load svgf_passthrough/reproject/moments/atrous.comp SPIR-V");
             return;
         }
 
@@ -359,7 +359,7 @@ namespace Luth
             ai.descriptorPool = vr.descPool; ai.descriptorSetCount = 1; ai.pSetLayouts = &m_PassLayout;
             if (vkAllocateDescriptorSets(device, &ai, c.passthroughSet) != VK_SUCCESS)
             {
-                LH_CORE_ERROR("SvgfDenoiser: passthrough set alloc failed; bump view pool sizes");
+                LH_LOG(Renderer, error, "SvgfDenoiser: passthrough set alloc failed; bump view pool sizes");
                 *c.passthroughSet = VK_NULL_HANDLE;
             }
             else VulkanContext::SetDebugName(*c.passthroughSet, (pfx + "Passthrough").c_str());
@@ -372,7 +372,7 @@ namespace Luth
             ai.descriptorPool = vr.descPool; ai.descriptorSetCount = 2; ai.pSetLayouts = layouts;
             if (vkAllocateDescriptorSets(device, &ai, c.reprojectSet) != VK_SUCCESS)
             {
-                LH_CORE_ERROR("SvgfDenoiser: reproject sets alloc failed; bump view pool sizes");
+                LH_LOG(Renderer, error, "SvgfDenoiser: reproject sets alloc failed; bump view pool sizes");
                 c.reprojectSet[0] = c.reprojectSet[1] = VK_NULL_HANDLE;
             }
             else
@@ -389,7 +389,7 @@ namespace Luth
             ai.descriptorPool = vr.descPool; ai.descriptorSetCount = 2; ai.pSetLayouts = layouts;
             if (vkAllocateDescriptorSets(device, &ai, c.momentsSet) != VK_SUCCESS)
             {
-                LH_CORE_ERROR("SvgfDenoiser: moments sets alloc failed; bump view pool sizes");
+                LH_LOG(Renderer, error, "SvgfDenoiser: moments sets alloc failed; bump view pool sizes");
                 c.momentsSet[0] = c.momentsSet[1] = VK_NULL_HANDLE;
             }
             else
@@ -406,7 +406,7 @@ namespace Luth
             ai.descriptorPool = vr.descPool; ai.descriptorSetCount = 2; ai.pSetLayouts = layouts;
             if (vkAllocateDescriptorSets(device, &ai, c.atrousSet) != VK_SUCCESS)
             {
-                LH_CORE_ERROR("SvgfDenoiser: atrous sets alloc failed; bump view pool sizes");
+                LH_LOG(Renderer, error, "SvgfDenoiser: atrous sets alloc failed; bump view pool sizes");
                 c.atrousSet[0] = c.atrousSet[1] = VK_NULL_HANDLE;
             }
             else

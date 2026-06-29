@@ -28,7 +28,7 @@ namespace Luth
 
         if (m_VertSpv.empty() || m_FragSpv.empty())
         {
-            LH_CORE_ERROR("DebugDrawSubsystem: shader SPIR-V empty after asset load!");
+            LH_LOG(Renderer, error, "DebugDrawSubsystem: shader SPIR-V empty after asset load!");
         }
     }
 

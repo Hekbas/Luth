@@ -92,7 +92,7 @@ namespace Luth
             m_Spv = sh->GetSpirV();
         if (m_Spv.empty())
         {
-            LH_CORE_ERROR("ReflectionsSubsystem: failed to load rt_reflections.slang SPIR-V");
+            LH_LOG(Renderer, error, "ReflectionsSubsystem: failed to load rt_reflections.slang SPIR-V");
             return;
         }
 

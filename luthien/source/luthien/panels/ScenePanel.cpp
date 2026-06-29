@@ -45,7 +45,7 @@ namespace Luth
             m_Viewport->SetSize(w, h);
         });
 
-        LH_CORE_INFO("Created Scene panel");
+        LH_LOG(Editor, info, "Created Scene panel");
     }
 
     ScenePanel::~ScenePanel() = default;

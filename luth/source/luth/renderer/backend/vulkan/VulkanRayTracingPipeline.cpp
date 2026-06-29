@@ -17,7 +17,7 @@ namespace Luth
 
         if (stages.stages.empty() || stages.groups.empty())
         {
-            LH_CORE_CRITICAL("VKRayTracingPipeline: empty stages/groups (need ≥1 raygen + ≥1 group)");
+            LH_LOG(Renderer, critical, "VKRayTracingPipeline: empty stages/groups (need ≥1 raygen + ≥1 group)");
             return;
         }
 
@@ -34,7 +34,7 @@ namespace Luth
             mi.pCode    = s.spirv.data();
             if (vkCreateShaderModule(m_Device, &mi, nullptr, &modules[i]) != VK_SUCCESS)
             {
-                LH_CORE_CRITICAL("VKRayTracingPipeline: vkCreateShaderModule failed at stage {}", i);
+                LH_LOG(Renderer, critical, "VKRayTracingPipeline: vkCreateShaderModule failed at stage {}", i);
                 for (auto m : modules) if (m) vkDestroyShaderModule(m_Device, m, nullptr);
                 return;
             }
@@ -53,7 +53,7 @@ namespace Luth
         lci.pPushConstantRanges    = pushConstantRanges.data();
         if (vkCreatePipelineLayout(m_Device, &lci, nullptr, &m_PipelineLayout) != VK_SUCCESS)
         {
-            LH_CORE_CRITICAL("VKRayTracingPipeline: vkCreatePipelineLayout failed");
+            LH_LOG(Renderer, critical, "VKRayTracingPipeline: vkCreatePipelineLayout failed");
             for (auto m : modules) if (m) vkDestroyShaderModule(m_Device, m, nullptr);
             return;
         }
@@ -86,7 +86,7 @@ namespace Luth
         PipelineCache::RecordCompile(std::chrono::duration<f64, std::milli>(std::chrono::high_resolution_clock::now() - pcStart).count());
         if (res != VK_SUCCESS)
         {
-            LH_CORE_CRITICAL("VKRayTracingPipeline: vkCreateRayTracingPipelinesKHR failed ({})", (int)res);
+            LH_LOG(Renderer, critical, "VKRayTracingPipeline: vkCreateRayTracingPipelinesKHR failed ({})", (int)res);
             for (auto m : modules) if (m) vkDestroyShaderModule(m_Device, m, nullptr);
             return;
         }
@@ -101,7 +101,7 @@ namespace Luth
             m_Device, m_Pipeline, 0, m_GroupCount,
             m_GroupHandles.size(), m_GroupHandles.data());
         if (res != VK_SUCCESS)
-            LH_CORE_CRITICAL("VKRayTracingPipeline: vkGetRayTracingShaderGroupHandlesKHR failed ({})", (int)res);
+            LH_LOG(Renderer, critical, "VKRayTracingPipeline: vkGetRayTracingShaderGroupHandlesKHR failed ({})", (int)res);
 
         for (auto m : modules) if (m) vkDestroyShaderModule(m_Device, m, nullptr);
     }

@@ -49,7 +49,7 @@ namespace Luth
 
         Image::LoadResult8 img = Image::Load(source);
         if (!img.valid) {
-            LH_CORE_ERROR("TextureImporter: Failed to load image {0}", source.string());
+            LH_LOG(Assets, error, "TextureImporter: Failed to load image {0}", source.string());
             return false;
         }
 

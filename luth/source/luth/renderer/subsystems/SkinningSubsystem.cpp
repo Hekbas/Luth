@@ -69,7 +69,7 @@ namespace Luth
             m_Spv = sh->GetSpirV();
         if (m_Spv.empty())
         {
-            LH_CORE_ERROR("SkinningSubsystem: failed to load shaders/skinning.comp");
+            LH_LOG(Renderer, error, "SkinningSubsystem: failed to load shaders/skinning.comp");
             return;
         }
 
@@ -90,7 +90,7 @@ namespace Luth
                 m_DeformSpv, std::vector<VkDescriptorSetLayout>{}, std::vector<VkPushConstantRange>{ dpc });
         }
         else
-            LH_CORE_ERROR("SkinningSubsystem: failed to load shaders/deform.comp");
+            LH_LOG(Renderer, error, "SkinningSubsystem: failed to load shaders/deform.comp");
     }
 
     void SkinningSubsystem::Shutdown()
@@ -114,7 +114,7 @@ namespace Luth
                 m_Spv,
                 std::vector<VkDescriptorSetLayout>{ BoneMatrixBuffer::GetDescriptorSetLayout() },
                 std::vector<VkPushConstantRange>{ pcRange });
-            LH_CORE_INFO("SkinningSubsystem: skinning.comp rebuilt after shader reload");
+            LH_LOG(Renderer, info, "SkinningSubsystem: skinning.comp rebuilt after shader reload");
             return true;
         }
         if (name == "deform.comp")
@@ -123,7 +123,7 @@ namespace Luth
             VkPushConstantRange dpc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DeformPC) };
             m_DeformPipeline = std::make_unique<VKComputePipeline>(
                 m_DeformSpv, std::vector<VkDescriptorSetLayout>{}, std::vector<VkPushConstantRange>{ dpc });
-            LH_CORE_INFO("SkinningSubsystem: deform.comp rebuilt after shader reload");
+            LH_LOG(Renderer, info, "SkinningSubsystem: deform.comp rebuilt after shader reload");
             return true;
         }
         return false;

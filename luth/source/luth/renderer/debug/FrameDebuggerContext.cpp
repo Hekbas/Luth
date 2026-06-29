@@ -56,7 +56,7 @@ namespace Luth
          || fd.slimDecodeFragSpv.empty() || fd.slimMatIDFragSpv.empty()
          || m_Pipeline.GetPostProcess().GetFullscreenVertSpv().empty())
         {
-            LH_CORE_ERROR("Failed to compile debug blit shaders");
+            LH_LOG(Renderer, error, "Failed to compile debug blit shaders");
             return;
         }
 

@@ -23,12 +23,12 @@ namespace Luth
 
         if (vkCreatePipelineCache(device, &createInfo, nullptr, &s_Cache) != VK_SUCCESS)
         {
-            LH_CORE_ERROR("Failed to create pipeline cache");
+            LH_LOG(Renderer, error, "Failed to create pipeline cache");
             s_Cache = VK_NULL_HANDLE;
             return;
         }
 
-        LH_CORE_INFO("Pipeline cache created (empty)");
+        LH_LOG(Renderer, info, "Pipeline cache created (empty)");
     }
 
     void PipelineCache::LoadFromProject()
@@ -44,7 +44,7 @@ namespace Luth
         std::ifstream file(cachePath, std::ios::binary | std::ios::ate);
         if (!file.is_open())
         {
-            LH_CORE_WARN("Failed to open pipeline cache: {}", cachePath.string());
+            LH_LOG(Renderer, warn, "Failed to open pipeline cache: {}", cachePath.string());
             return;
         }
 
@@ -67,14 +67,14 @@ namespace Luth
         VkPipelineCache temp = VK_NULL_HANDLE;
         if (vkCreatePipelineCache(device, &createInfo, nullptr, &temp) != VK_SUCCESS)
         {
-            LH_CORE_WARN("Failed to deserialize pipeline cache from {}", cachePath.string());
+            LH_LOG(Renderer, warn, "Failed to deserialize pipeline cache from {}", cachePath.string());
             return;
         }
 
         if (vkMergePipelineCaches(device, s_Cache, 1, &temp) != VK_SUCCESS)
-            LH_CORE_WARN("Failed to merge pipeline cache from {}", cachePath.string());
+            LH_LOG(Renderer, warn, "Failed to merge pipeline cache from {}", cachePath.string());
         else
-            LH_CORE_INFO("Pipeline cache loaded ({} bytes) from {}", fileSize, cachePath.string());
+            LH_LOG(Renderer, info, "Pipeline cache loaded ({} bytes) from {}", fileSize, cachePath.string());
 
         vkDestroyPipelineCache(device, temp, nullptr);
     }
@@ -101,12 +101,12 @@ namespace Luth
         std::ofstream file(cachePath, std::ios::binary);
         if (!file.is_open())
         {
-            LH_CORE_ERROR("Failed to write pipeline cache to {}", cachePath.string());
+            LH_LOG(Renderer, error, "Failed to write pipeline cache to {}", cachePath.string());
             return;
         }
 
         file.write(cacheData.data(), dataSize);
-        LH_CORE_INFO("Pipeline cache saved ({} bytes) to {}", dataSize, cachePath.string());
+        LH_LOG(Renderer, info, "Pipeline cache saved ({} bytes) to {}", dataSize, cachePath.string());
     }
 
     void PipelineCache::Shutdown()

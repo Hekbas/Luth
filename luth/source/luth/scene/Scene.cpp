@@ -14,7 +14,7 @@ namespace Luth
 
     Scene::Scene()
     {
-        LH_CORE_INFO("Created new scene");
+        LH_LOG(Scene, info, "Created new scene");
     }
 
     Scene::~Scene()
@@ -24,7 +24,7 @@ namespace Luth
         // the registry tears down. The trailing m_Registry.clear() then resets sparse-set buckets.
         ClearPreservingAssets();
         m_Registry.clear();
-        LH_CORE_INFO("Destroyed scene");
+        LH_LOG(Scene, info, "Destroyed scene");
     }
 
     void Scene::Clear()
@@ -49,7 +49,7 @@ namespace Luth
             m_Registry.destroy(e);
 
         IncrementHierarchyVersion();
-        LH_CORE_TRACE("Scene cleared");
+        LH_LOG(Scene, trace, "Scene cleared");
     }
 
     Entity Scene::CreateEntity(const std::string& name)
@@ -60,7 +60,7 @@ namespace Luth
         entity.AddComponent<Transform>();
         entity.AddComponent<WorldTransform>();
         m_RootEntities.push_back(entity);
-        LH_CORE_TRACE("Created entity: {0}", name);
+        LH_LOG(Scene, trace, "Created entity: {0}", name);
         IncrementHierarchyVersion();
         return entity;
     }
@@ -232,7 +232,7 @@ namespace Luth
         // Finally destroy the entity itself
         std::string name = entity.GetName();
         m_Registry.destroy(entity);
-        LH_CORE_TRACE("Destroyed entity: {0}", name);
+        LH_LOG(Scene, trace, "Destroyed entity: {0}", name);
         IncrementHierarchyVersion();
     }
 
@@ -294,7 +294,7 @@ namespace Luth
             }
         }
 
-        LH_CORE_TRACE("Duplicated {0} '{1}'",
+        LH_LOG(Scene, trace, "Duplicated {0} '{1}'",
             original.HasComponent<Children>() ? "hierarchy" : "entity",
             original.GetName());
         return duplicate;

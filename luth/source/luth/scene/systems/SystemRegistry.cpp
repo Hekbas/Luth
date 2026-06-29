@@ -16,7 +16,7 @@ namespace Luth
     Scene* SystemRegistry::s_Scene = nullptr;
 
     void SystemRegistry::Init() {
-        LH_CORE_INFO("Initializing Systems...");
+        LH_LOG(Scene, info, "Initializing Systems...");
         AddSystem<TransformSystem>();
         AddSystem<PlayerControllerSystem>();
         AddSystem<PhysicsSystem>();

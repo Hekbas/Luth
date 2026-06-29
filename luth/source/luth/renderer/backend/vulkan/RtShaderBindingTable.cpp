@@ -24,13 +24,13 @@ namespace Luth
         const u32 totalGroups = counts.raygenCount + counts.missCount + counts.hitCount + counts.callableCount;
         if (totalGroups != pipeline.GetGroupCount())
         {
-            LH_CORE_CRITICAL("RtShaderBindingTable: group-count mismatch (counts sum={}, pipeline={})",
+            LH_LOG(Renderer, critical, "RtShaderBindingTable: group-count mismatch (counts sum={}, pipeline={})",
                              totalGroups, pipeline.GetGroupCount());
             return;
         }
         if (counts.raygenCount < 1)
         {
-            LH_CORE_CRITICAL("RtShaderBindingTable: raygenCount must be >= 1");
+            LH_LOG(Renderer, critical, "RtShaderBindingTable: raygenCount must be >= 1");
             return;
         }
 
@@ -61,7 +61,7 @@ namespace Luth
         m_Allocation = VulkanAllocator::AllocateMappedSequentialBuffer(bi, m_Buffer, &mapped);
         if (!m_Allocation || !mapped)
         {
-            LH_CORE_CRITICAL("RtShaderBindingTable: AllocateMappedSequentialBuffer failed (size={})", totalSize);
+            LH_LOG(Renderer, critical, "RtShaderBindingTable: AllocateMappedSequentialBuffer failed (size={})", totalSize);
             return;
         }
 

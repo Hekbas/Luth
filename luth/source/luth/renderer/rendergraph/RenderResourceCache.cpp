@@ -125,7 +125,7 @@ namespace Luth::RG
         }
 
         // Create new if not found
-        LH_CORE_WARN("Allocating new transient texture: {0} ({1}x{2})", desc.name, desc.width, desc.height);
+        LH_LOG(Renderer, warn, "Allocating new transient texture: {0} ({1}x{2})", desc.name, desc.width, desc.height);
 
         PooledResource res;
         res.desc = resolved;
@@ -209,7 +209,7 @@ namespace Luth::RG
         }
 
         // Create new buffer
-        LH_CORE_WARN("Allocating new transient buffer: {0} ({1} bytes)", desc.name, desc.size);
+        LH_LOG(Renderer, warn, "Allocating new transient buffer: {0} ({1} bytes)", desc.name, desc.size);
 
         PooledBuffer buf;
         buf.desc = desc;

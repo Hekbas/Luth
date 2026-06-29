@@ -121,14 +121,14 @@ namespace Luth
         ShaderStage stage = InferStage(sourcePath);
         if (stage == ShaderStage::Unknown)
         {
-            LH_CORE_ERROR("ShaderCompiler: unsupported shader extension for '{}'", sourcePath.string());
+            LH_LOG(Shaders, error, "ShaderCompiler: unsupported shader extension for '{}'", sourcePath.string());
             return {};
         }
 
         // Read source
         std::ifstream file(sourcePath, std::ios::ate | std::ios::binary);
         if (!file.is_open()) {
-            LH_CORE_ERROR("Failed to open shader source: {0}", sourcePath.string());
+            LH_LOG(Shaders, error, "Failed to open shader source: {0}", sourcePath.string());
             return {};
         }
 
@@ -155,7 +155,7 @@ namespace Luth
         );
 
         if (module.GetCompilationStatus() != shaderc_compilation_status_success) {
-            LH_CORE_ERROR("Shader Compilation Error ({0}):\n{1}", sourcePath.string(), module.GetErrorMessage());
+            LH_LOG(Shaders, error, "Shader Compilation Error ({0}):\n{1}", sourcePath.string(), module.GetErrorMessage());
             return {};
         }
 

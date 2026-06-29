@@ -120,7 +120,7 @@ namespace
         // floating toast widget without touching the engine call site.
         void OnFrameDebuggerNotice(const std::string& message) override
         {
-            LH_CORE_INFO("[FrameDebugger] {}", message);
+            LH_LOG(Editor, info, "[FrameDebugger] {}", message);
         }
 
         // Project launcher

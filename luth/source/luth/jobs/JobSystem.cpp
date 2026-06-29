@@ -179,7 +179,7 @@ namespace Luth::JobSystem
 
         if (s_Data.FreeFiberCount == 0)
         {
-            LH_CORE_ERROR("Fiber Pool Exhausted! ({0} fibers)", MAX_FIBERS);
+            LH_LOG(Jobs, error, "Fiber Pool Exhausted! ({0} fibers)", MAX_FIBERS);
             return nullptr;
         }
 
@@ -568,7 +568,7 @@ namespace Luth::JobSystem
             s_Data.Workers[i].Thread = std::thread(WorkerThreadLoop, i);
         }
 
-        LH_CORE_INFO("JobSystem initialized: {0} workers + main thread (isolated)", numThreads);
+        LH_LOG(Jobs, info, "JobSystem initialized: {0} workers + main thread (isolated)", numThreads);
     }
 
     void Shutdown()
@@ -593,7 +593,7 @@ namespace Luth::JobSystem
             Fiber::Destroy(s_Data.FiberPool[i]);
 
         s_Data.Workers.clear();
-        LH_CORE_INFO("JobSystem shut down.");
+        LH_LOG(Jobs, info, "JobSystem shut down.");
     }
 
     void ResetFrameStats()
