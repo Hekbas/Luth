@@ -61,7 +61,7 @@ Per-frame snapshot of editor toggles the engine needs to read. Populated by `Get
 
 - Creates ImGui context with GLFW + Vulkan backends
 - Enables docking and viewports
-- Loads fonts (main + FontAwesome icons)
+- Loads fonts (main + Phosphor icons; Regular merged into main, standalone Regular/Fill weights)
 - Creates and registers all panels
 
 **Two-phase startup:**

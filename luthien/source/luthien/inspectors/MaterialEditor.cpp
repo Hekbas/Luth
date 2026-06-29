@@ -35,7 +35,7 @@ namespace Luth
         // Header: thumbnail-on-left, name + Shader combo on right.
         // Live 3D preview pinned in the footer (sub-task O).
         ImTextureID headerThumb = UI::ThumbnailCache::Get(material.Handle, AssetType::Material);
-        UI::InspectorHeader(headerThumb, ICON_FA_CIRCLE_HALF_STROKE, 48.0f, [&]() {
+        UI::InspectorHeader(headerThumb, ICON_MATERIAL, 48.0f, [&]() {
             const ImVec4 nameCol = { 0.2f, 0.9f, 0.4f, 1.0f };
             ImGui::TextColored(nameCol, "%s%s (Material)",
                 material.GetName().c_str(), material.NeedsSave() ? "*" : "");

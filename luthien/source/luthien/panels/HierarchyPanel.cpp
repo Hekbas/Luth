@@ -43,8 +43,8 @@ namespace Luth
     void HierarchyPanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
         LH_PROFILE_FUNCTION();
-        ImGui::PushFont(Editor::GetFASolid());
-        if (BeginWindow(ICON_FA_LIST "  Hierarchy") && m_Context)
+        ImGui::PushFont(Editor::GetIconRegular());
+        if (BeginWindow(ICON_LIST "  Hierarchy") && m_Context)
         {
             // Sync primary selection from EditorSelection (may have changed via viewport)
             m_Selection = EditorSelection::GetSelectedEntity();
@@ -134,7 +134,7 @@ namespace Luth
     void HierarchyPanel::DrawTopBar()
     {
         ImGui::AlignTextToFramePadding();
-        if (ImGui::Button(ICON_FA_PLUS))
+        if (ImGui::Button(ICON_PLUS))
             ImGui::OpenPopup("HierarchyCreateMenu");
 
         if (ImGui::BeginPopup("HierarchyCreateMenu"))
@@ -145,7 +145,7 @@ namespace Luth
 
         ImGui::SameLine();
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-        ImGui::InputTextWithHint("##Search", ICON_FA_MAGNIFYING_GLASS " Search...", m_SearchFilter, IM_ARRAYSIZE(m_SearchFilter));
+        ImGui::InputTextWithHint("##Search", ICON_SEARCH " Search...", m_SearchFilter, IM_ARRAYSIZE(m_SearchFilter));
     }
 
     void HierarchyPanel::DrawEntityNode(Entity entity)
@@ -158,13 +158,13 @@ namespace Luth
         const std::string& name = entity.GetName();
 
         // Determine icon based on entity components
-        const char* icon = ICON_FA_CIRCLE_DOT;
-        if (entity.HasComponent<Camera>())               icon = ICON_FA_VIDEO;
-        else if (entity.HasComponent<DirectionalLight>()) icon = ICON_FA_SUN;
-        else if (entity.HasComponent<PointLight>())       icon = ICON_FA_LIGHTBULB;
-        else if (entity.HasComponent<SpotLight>())        icon = ICON_FA_SATELLITE_DISH;
-        else if (entity.HasComponent<Animation>())        icon = ICON_FA_PERSON_RUNNING;
-        else if (entity.HasComponent<MeshRenderer>())     icon = ICON_FA_CUBE;
+        const char* icon = ICON_ENTITY;
+        if (entity.HasComponent<Camera>())               icon = ICON_VIDEO_CAMERA;
+        else if (entity.HasComponent<DirectionalLight>()) icon = ICON_LIGHT_DIRECTIONAL;
+        else if (entity.HasComponent<PointLight>())       icon = ICON_LIGHT_POINT;
+        else if (entity.HasComponent<SpotLight>())        icon = ICON_LIGHT_SPOT;
+        else if (entity.HasComponent<Animation>())        icon = ICON_ANIMATION;
+        else if (entity.HasComponent<MeshRenderer>())     icon = ICON_CUBE;
         
         // Filter: skip subtrees with no matching descendants
         if (strlen(m_SearchFilter) > 0 && !SubtreeMatchesFilter(entity, m_SearchFilter))
@@ -273,9 +273,9 @@ namespace Luth
         HandleDragDropTarget(entity);
 
         // Right-aligned visibility eye — overlaps the tree node via AllowItemOverlap.
-        const float eyeBtnW = ImGui::CalcTextSize(ICON_FA_EYE).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        const float eyeBtnW = ImGui::CalcTextSize(ICON_EYE).x + ImGui::GetStyle().FramePadding.x * 2.0f;
         ImGui::SameLine(ImGui::GetContentRegionMax().x - eyeBtnW);
-        const char* eyeIcon = isActive ? ICON_FA_EYE : ICON_FA_EYE_SLASH;
+        const char* eyeIcon = isActive ? ICON_EYE : ICON_EYE_SLASH;
         if (!isActive) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         const bool eyeClicked = ImGui::SmallButton(eyeIcon);
         if (!isActive) ImGui::PopStyleColor();
@@ -356,7 +356,7 @@ namespace Luth
             ImGui::SetDragDropPayload("HIERARCHY_ENTITY", &entity, sizeof(Entity));
             
             // Preview
-            ImGui::Text(ICON_FA_CUBE " %s", entity.GetName().c_str());
+            ImGui::Text(ICON_CUBE " %s", entity.GetName().c_str());
             
             ImGui::EndDragDropSource();
         }

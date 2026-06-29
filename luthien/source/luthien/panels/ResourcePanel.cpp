@@ -32,8 +32,8 @@ namespace Luth
     void ResourcePanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
         LH_PROFILE_FUNCTION();
-        ImGui::PushFont(Editor::GetFASolid());
-        std::string resources = ICON_FA_DATABASE + std::string("  Resources");
+        ImGui::PushFont(Editor::GetIconRegular());
+        std::string resources = ICON_DATABASE + std::string("  Resources");
 
         if (BeginWindow(resources.c_str()))
         {
@@ -61,12 +61,12 @@ namespace Luth
     void ResourcePanel::DrawFilterControls()
     {
         ImGui::SetNextItemWidth(200);
-        if (ImGui::InputTextWithHint("##Search", ICON_FA_MAGNIFYING_GLASS, m_SearchBuffer, IM_ARRAYSIZE(m_SearchBuffer)))
+        if (ImGui::InputTextWithHint("##Search", ICON_SEARCH, m_SearchBuffer, IM_ARRAYSIZE(m_SearchBuffer)))
             m_NeedsRebuild = true;
 
         ImGui::SameLine();
 
-        ButtonDropdown(ICON_FA_FILTER, "type_filter", [this]() {
+        ButtonDropdown(ICON_FILTER, "type_filter", [this]() {
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 2));
             bool changed = false;
             changed |= ImGui::Checkbox("Models",            &m_ShowModels);
@@ -302,13 +302,13 @@ namespace Luth
 
     const char* ResourcePanel::GetTypeIcon(const std::string& type) const
     {
-        if (type == "Model")           return ICON_FA_CUBE;
-        if (type == "Texture")         return ICON_FA_IMAGE;
-        if (type == "Material")        return ICON_FA_CIRCLE_HALF_STROKE;
-        if (type == "PhysicsMaterial") return ICON_FA_BOWLING_BALL;
-        if (type == "Shader")          return ICON_FA_FILE_CODE;
-        if (type == "Font")            return ICON_FA_FONT;
-        if (type == "Scene")           return ICON_FA_FILM;
-        return ICON_FA_FILE;
+        if (type == "Model")           return ICON_CUBE;
+        if (type == "Texture")         return ICON_IMAGE;
+        if (type == "Material")        return ICON_MATERIAL;
+        if (type == "PhysicsMaterial") return ICON_PHYSICS_MATERIAL;
+        if (type == "Shader")          return ICON_SHADER;
+        if (type == "Font")            return ICON_FONT;
+        if (type == "Scene")           return ICON_FILM;
+        return ICON_FILE;
     }
 }

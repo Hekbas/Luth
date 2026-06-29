@@ -140,15 +140,15 @@ namespace Luth
         static void SetRandomStyle();
 
         static ImFont*  GetMainFont()        { return m_MainFont; }
-        static ImFont*  GetFARegular()       { return m_FARegular; }
-        static ImFont*  GetFASolid()         { return m_FASolid; }
-        static ImFont*  GetFARegularLarge()  { return m_FARegularLarge; }
-        static ImFont*  GetFASolidLarge()    { return m_FASolidLarge; }
-        static ImFont*& MainFontRef()        { return m_MainFont; }
-        static ImFont*& FARegularRef()       { return m_FARegular; }
-        static ImFont*& FASolidRef()         { return m_FASolid; }
-        static ImFont*& FARegularLargeRef()  { return m_FARegularLarge; }
-        static ImFont*& FASolidLargeRef()    { return m_FASolidLarge; }
+        static ImFont*  GetIconRegular()      { return m_IconRegular; }
+        static ImFont*  GetIconFill()         { return m_IconFill; }
+        static ImFont*  GetIconRegularLarge() { return m_IconRegularLarge; }
+        static ImFont*  GetIconFillLarge()    { return m_IconFillLarge; }
+        static ImFont*& MainFontRef()         { return m_MainFont; }
+        static ImFont*& IconRegularRef()      { return m_IconRegular; }
+        static ImFont*& IconFillRef()         { return m_IconFill; }
+        static ImFont*& IconRegularLargeRef() { return m_IconRegularLarge; }
+        static ImFont*& IconFillLargeRef()    { return m_IconFillLarge; }
 
         // Scene management
         static void SetActiveScene(std::shared_ptr<Scene> scene);
@@ -222,10 +222,10 @@ namespace Luth
         static inline std::unordered_map<std::type_index, Panel*> s_PanelRegistry;
 
         static inline ImFont* m_MainFont        = nullptr;
-        static inline ImFont* m_FARegular       = nullptr;
-        static inline ImFont* m_FASolid         = nullptr;
-        static inline ImFont* m_FARegularLarge  = nullptr;   // 64 px FA-Regular for large icons (ProjectPanel grid empty-folder)
-        static inline ImFont* m_FASolidLarge    = nullptr;   // 64 px FA-Solid for large icons (ProjectPanel grid)
+        static inline ImFont* m_IconRegular      = nullptr;
+        static inline ImFont* m_IconFill         = nullptr;
+        static inline ImFont* m_IconRegularLarge = nullptr;   // 64 px outline for ProjectPanel grid (empty folders, files)
+        static inline ImFont* m_IconFillLarge    = nullptr;   // 64 px filled for ProjectPanel grid (non-empty folders)
 
         // Scene state
         static inline std::shared_ptr<Scene> s_ActiveScene;

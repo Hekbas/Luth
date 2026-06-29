@@ -140,7 +140,7 @@ namespace Luth::UI
 
         // Chevron half — sits flush against the icon (zero spacing).
         ImGui::SameLine(0.0f, 0.0f);
-        if (ImGui::Button(ICON_FA_CARET_DOWN "##chev", ImVec2(chevW, btnH)))
+        if (ImGui::Button(ICON_CARET_DOWN "##chev", ImVec2(chevW, btnH)))
             ImGui::OpenPopup("##split_popup");
         const float popupY = ImGui::GetItemRectMax().y;
 

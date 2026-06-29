@@ -424,8 +424,8 @@ namespace Luth
         if (panel->BeginWindow(panel->GetWindowID()))
         {
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
-            ImGui::PushFont(GetFASolid());
-            ImGui::TextUnformatted(ICON_FA_TRIANGLE_EXCLAMATION);
+            ImGui::PushFont(GetIconRegular());
+            ImGui::TextUnformatted(ICON_WARNING);
             ImGui::PopFont();
             ImGui::SameLine();
             ImGui::TextUnformatted("Panel crashed.");
@@ -1076,7 +1076,7 @@ namespace Luth
     {
         if (ImGui::BeginMenuBar()) {
             if (ImGui::BeginMenu("File")) {
-                if (ImGui::MenuItem(ICON_FA_FOLDER_OPEN "  Open Project..."))
+                if (ImGui::MenuItem(ICON_FOLDER_OPEN "  Open Project..."))
                 {
                     auto path = FileDialog::OpenFile("Luth Project (*.luthproj)\0*.luthproj\0All Files (*.*)\0*.*\0");
                     if (path.has_value())
@@ -1085,7 +1085,7 @@ namespace Luth
                         ProjectLauncher::SetPendingProject(path.value());
                     }
                 }
-                if (ImGui::MenuItem(ICON_FA_CUBE "  Project Launcher..."))
+                if (ImGui::MenuItem(ICON_CUBE "  Project Launcher..."))
                     ShowProjectLauncher();
 
                 ImGui::Separator();

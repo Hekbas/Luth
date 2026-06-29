@@ -24,7 +24,7 @@ namespace Luth
         void ReallocHint(const char* tip)
         {
             ImGui::SameLine();
-            ImGui::TextDisabled(ICON_FA_TRIANGLE_EXCLAMATION);
+            ImGui::TextDisabled(ICON_WARNING);
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Reallocates GPU resources on change.\n%s", tip);
         }
@@ -90,8 +90,8 @@ namespace Luth
         LH_PROFILE_FUNCTION();
         if (!m_RS) return;
 
-        ImGui::PushFont(Editor::GetFASolid());
-        std::string title = ICON_FA_FILM + std::string("  Render");
+        ImGui::PushFont(Editor::GetIconRegular());
+        std::string title = ICON_FILM + std::string("  Render");
         const bool open = BeginWindow(title.c_str());
         ImGui::PopFont();
 

@@ -239,7 +239,7 @@ namespace Luth
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.25f, 0.25f, 1.0f));
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
 
-            if (ImGui::Button(ICON_FA_FOLDER "  Add", { 72, buttonHeight }))
+            if (ImGui::Button(ICON_FOLDER "  Add", { 72, buttonHeight }))
             {
                 auto path = FileDialog::OpenFile("Luth Project (*.luthproj)\0*.luthproj\0All Files (*.*)\0*.*\0");
                 if (path.has_value())
@@ -336,7 +336,7 @@ namespace Luth
                 // Context menu for removal
                 if (ImGui::BeginPopupContextItem())
                 {
-                    if (ImGui::MenuItem(ICON_FA_XMARK "  Remove from list"))
+                    if (ImGui::MenuItem(ICON_CLOSE "  Remove from list"))
                     {
                         s_RecentProjects.erase(s_RecentProjects.begin() + i);
                         SaveRecentProjects();

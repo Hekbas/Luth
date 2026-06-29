@@ -40,7 +40,7 @@ namespace Luth
         ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
         ImGui::SetNextWindowSize(ImVec2(820, 560), ImGuiCond_FirstUseEver);
 
-        if (!ImGui::Begin(ICON_FA_GEAR "  Preferences", &s_Open, ImGuiWindowFlags_NoDocking))
+        if (!ImGui::Begin(ICON_SETTINGS "  Preferences", &s_Open, ImGuiWindowFlags_NoDocking))
         {
             ImGui::End();
             return;
@@ -56,7 +56,7 @@ namespace Luth
         if (topAvail > searchW + 8.0f)
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + topAvail - searchW);
         ImGui::SetNextItemWidth(searchW);
-        ImGui::InputTextWithHint("##PrefsSearch", ICON_FA_MAGNIFYING_GLASS "  Search...", searchBuf, sizeof(searchBuf));
+        ImGui::InputTextWithHint("##PrefsSearch", ICON_SEARCH "  Search...", searchBuf, sizeof(searchBuf));
         ImGui::Separator();
 
         const bool isSearching = (searchBuf[0] != '\0');

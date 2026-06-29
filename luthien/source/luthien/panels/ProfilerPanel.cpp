@@ -104,8 +104,8 @@ namespace Luth
     void ProfilerPanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
         LH_PROFILE_FUNCTION();
-        ImGui::PushFont(Editor::GetFASolid());
-        std::string title = ICON_FA_CHART_LINE + std::string("  Profiler");
+        ImGui::PushFont(Editor::GetIconRegular());
+        std::string title = ICON_CHART + std::string("  Profiler");
 
         if (BeginWindow(title.c_str()))
         {
@@ -257,7 +257,7 @@ namespace Luth
         ImGui::SameLine(); ImGui::TextDisabled(" (p95 %.1f  p99 %.1f)", m_FrameTimeP95, m_FrameTimeP99);
 
         ImGui::Text("%s tris  %s  %u draws", FormatCount(m_TriangleCount).c_str(),
-                    ICON_FA_SHAPES, m_DrawCalls);
+                    ICON_SHAPES, m_DrawCalls);
         ImGui::SameLine();
 #ifdef TRACY_ENABLE
         const char* tracy = "Tracy: on";

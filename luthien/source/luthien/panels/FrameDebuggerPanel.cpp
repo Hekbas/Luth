@@ -260,8 +260,8 @@ namespace Luth
         LH_PROFILE_FUNCTION();
         if (!m_RS) return;
 
-        ImGui::PushFont(Editor::GetFASolid());
-        std::string title = ICON_FA_DIAGRAM_PROJECT + std::string("  Frame Debugger");
+        ImGui::PushFont(Editor::GetIconRegular());
+        std::string title = ICON_FRAME_GRAPH + std::string("  Frame Debugger");
         BeginWindow(title.c_str());
         ImGui::PopFont();
 

@@ -16,7 +16,6 @@ namespace Luth
     struct FontConfig {
         std::string MainFontName;       // e.g. "Roboto-Regular.ttf"
         float       MainFontSize;       // e.g. 15.0f
-        bool        MergeMainWithSolid; // true for Custom style (merge FA-Solid into main font)
         float       IconFontSize;       // e.g. 14.0f or 48.0f
     };
 
