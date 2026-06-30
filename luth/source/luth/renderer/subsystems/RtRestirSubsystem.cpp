@@ -50,7 +50,7 @@ namespace Luth
             i32  dispatchW;
             i32  dispatchH;
         };
-        static_assert(sizeof(RestirTemporalPC) == 92, "RestirTemporalPC must match restir_temporal.comp push_constant");
+        static_assert(sizeof(RestirTemporalPC) == 92, "RestirTemporalPC must match restir_temporal.slang push_constant");
 
         // Spatial-pass push constants. Same 80 B footprint + COMPUTE range as RestirPC, so all four
         // pipelines share the existing pcRange; only the field meanings differ (neighbour disk + reject).
@@ -64,7 +64,7 @@ namespace Luth
             i32  dispatchW;
             i32  dispatchH;
         };
-        static_assert(sizeof(RestirSpatialPC) == 92, "RestirSpatialPC must match restir_spatial.comp push_constant");
+        static_assert(sizeof(RestirSpatialPC) == 92, "RestirSpatialPC must match restir_spatial.slang push_constant");
 
         struct UpscalePC {
             i32 fullW;
@@ -174,11 +174,11 @@ namespace Luth
 
         if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_initial.slang"))
             m_InitialSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_temporal.comp"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_temporal.slang"))
             m_TemporalSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_spatial.comp"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_spatial.slang"))
             m_SpatialSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_shade.comp"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_shade.slang"))
             m_ShadeSpv = sh->GetSpirV();
         if (m_InitialSpv.empty() || m_TemporalSpv.empty() || m_SpatialSpv.empty() || m_ShadeSpv.empty())
         {
@@ -276,9 +276,9 @@ namespace Luth
         }
 
         const bool isInitial  = (name == "restir_initial.slang");
-        const bool isTemporal = (name == "restir_temporal.comp");
-        const bool isSpatial  = (name == "restir_spatial.comp");
-        const bool isShade    = (name == "restir_shade.comp");
+        const bool isTemporal = (name == "restir_temporal.slang");
+        const bool isSpatial  = (name == "restir_spatial.slang");
+        const bool isShade    = (name == "restir_shade.slang");
         if (!isInitial && !isTemporal && !isSpatial && !isShade) return false;
 
         const std::vector<VkDescriptorSetLayout> layouts = {
