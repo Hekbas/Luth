@@ -65,7 +65,7 @@ namespace Luth
         m_DepthPrepassSkinnedVertSpv = loadSpv("shaders/depthPrepass_skinned.slang");
         m_SlimGBufferVertSpv         = loadSpv("shaders/slim_gbuffer_vert.slang");
         m_SlimGBufferSkinnedVertSpv  = loadSpv("shaders/slim_gbuffer_skinned.slang");
-        m_SlimGBufferFragSpv         = loadSpv("shaders/slim_gbuffer.frag");
+        m_SlimGBufferFragSpv         = loadSpv("shaders/slim_gbuffer.slang");
 
         if (m_PBRVertSpv.empty() || m_PBRFragSpv.empty() || m_PBRSkinnedVertSpv.empty()
          || m_DepthPrepassVertSpv.empty() || m_DepthPrepassSkinnedVertSpv.empty()
@@ -357,13 +357,13 @@ namespace Luth
 
         // Cutout variant: same shaders, but writes its own depth (LESS_OR_EQUAL) because the opaque-only
         // prepass omits cutout — the EQUAL opaque config would reject every cutout fragment (prepass cleared
-        // those pixels to 1.0 or holds the surface behind). slim_gbuffer.frag alpha-tests the holes away.
+        // those pixels to 1.0 or holds the surface behind). slim_gbuffer.slang alpha-tests the holes away.
         auto makeCutoutConfig = [&](auto bindings, auto attribs) {
             auto cfg = makeConfig(bindings, attribs);
             cfg.depthWrite     = true;
             cfg.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
             cfg.cullMode       = VK_CULL_MODE_NONE;   // cutout foliage is two-sided — back faces must reach
-            return cfg;                               // the slim G-buffer (slim_gbuffer.frag flips the normal),
+            return cfg;                               // the slim G-buffer (slim_gbuffer.slang flips the normal),
         };                                            // else RT shadows/reflections read the geometry behind it
 
         if (!m_SlimGBufferVertSpv.empty() && !m_SlimGBufferFragSpv.empty())
@@ -434,7 +434,7 @@ namespace Luth
         else if (name == "depthPrepass.slang")          m_DepthPrepassVertSpv        = spv;
         else if (name == "depthPrepass_skinned.slang")  m_DepthPrepassSkinnedVertSpv = spv;
         else if (name == "slim_gbuffer_vert.slang")          m_SlimGBufferVertSpv         = spv;
-        else if (name == "slim_gbuffer.frag")          m_SlimGBufferFragSpv         = spv;
+        else if (name == "slim_gbuffer.slang")          m_SlimGBufferFragSpv         = spv;
         else if (name == "slim_gbuffer_skinned.slang")  m_SlimGBufferSkinnedVertSpv  = spv;
         else if (name != "gpu_cull.slang") return false;
 
@@ -452,7 +452,7 @@ namespace Luth
             deferGfx(m_DepthPrepassSkinnedPipeline);
             BuildDepthPrepassPipelines(geoLayouts);
         }
-        else if (name == "slim_gbuffer_vert.slang" || name == "slim_gbuffer.frag" || name == "slim_gbuffer_skinned.slang")
+        else if (name == "slim_gbuffer_vert.slang" || name == "slim_gbuffer.slang" || name == "slim_gbuffer_skinned.slang")
         {
             deferGfx(m_SlimGBufferPipeline);
             deferGfx(m_SlimGBufferSkinnedPipeline);

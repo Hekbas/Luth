@@ -158,7 +158,7 @@ namespace Luth
             ubo.prevViewParams = Vec4(pNearZ, pFarZ, 0.0f, 0.0f);
             vr->prevNearZ      = camera.nearZ;
             vr->prevFarZ       = camera.farZ;
-            // Cache prev/curr jitter. ubo.prevJitter feeds slim_gbuffer.frag's source-side de-jitter
+            // Cache prev/curr jitter. ubo.prevJitter feeds slim_gbuffer.slang's source-side de-jitter
             // (consumed in the next commit); resolve's push-constant jitterDelta still rides
             // ViewResources::prevJitter directly until that move lands.
             vr->prevJitter    = vr->currentJitter;

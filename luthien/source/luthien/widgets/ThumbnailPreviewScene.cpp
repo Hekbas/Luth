@@ -228,7 +228,7 @@ namespace Luth::UI::ThumbnailPreviewScene
         {
             std::vector<u32> vert, frag;
             if (!LoadShader("shaders/thumbnail_mesh_vert.slang", vert)) return false;
-            if (!LoadShader("shaders/thumbnail_mesh.frag", frag)) return false;
+            if (!LoadShader("shaders/thumbnail_mesh.slang", frag)) return false;
 
             s_PipelineStatic  = BuildPipeline(vert, frag, kStaticVertexStride);
             s_PipelineSkinned = BuildPipeline(vert, frag, kSkinnedVertexStride);

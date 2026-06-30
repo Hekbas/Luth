@@ -19,7 +19,7 @@
 namespace Luth
 {
     // Mirrors the GLSL push_constant block in taa_resolve.slang. Source-side de-jitter now lives
-    // in slim_gbuffer.frag (ubo.taaParams.zw + ubo.prevJitter), so the resolve no longer carries
+    // in slim_gbuffer.slang (ubo.taaParams.zw + ubo.prevJitter), so the resolve no longer carries
     // a jitter delta — just the temporal feedback weight.
     struct TaaResolvePushConstants
     {
@@ -260,7 +260,7 @@ namespace Luth
         }
 
         // TAA Resolve pipeline. Output to RGBA16F (HDR history texture); push constant carries
-        // temporalAlpha (jitter delta moved to slim_gbuffer.frag as source-side de-jitter).
+        // temporalAlpha (jitter delta moved to slim_gbuffer.slang as source-side de-jitter).
         // No depth, no blend — opaque write.
         if (!m_TaaResolveFragSpv.empty())
         {
@@ -969,7 +969,7 @@ namespace Luth
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_TaaResolvePipeline->GetLayout(), 0, 1, &vr->taaResolveDescSet[slot], 0, nullptr);
 
-                // Source-side de-jitter lives in slim_gbuffer.frag — the motion attachment carries
+                // Source-side de-jitter lives in slim_gbuffer.slang — the motion attachment carries
                 // pure scene displacement, so the resolve push constant is just the feedback weight.
                 TaaResolvePushConstants pc{};
                 pc.temporalAlpha = sys.GetPostProcessSettings().taaTemporalAlpha;

@@ -140,7 +140,7 @@ namespace Luth
 
         // Slim G-buffer pipelines + SPV. Opaque: depth-EQUAL against prepass depth, no depth write.
         // Cutout: shares the shaders but tests LESS_OR_EQUAL + writes its own depth (the opaque-only
-        // prepass omits cutout) + alpha-tests in slim_gbuffer.frag — so RT shadows/reflections + GTAO
+        // prepass omits cutout) + alpha-tests in slim_gbuffer.slang — so RT shadows/reflections + GTAO
         // reconstruct from the holed cutout surface, not the geometry behind it. Full PBR vtx stride.
         std::unique_ptr<VKPipeline> m_SlimGBufferPipeline;
         std::unique_ptr<VKPipeline> m_SlimGBufferSkinnedPipeline;

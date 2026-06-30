@@ -82,7 +82,7 @@ namespace Luth
         // x = taaEnabled (1/0), y = temporalAlpha (history feedback, 0.05..0.2), zw = currentJitter (pixels).
         Vec4 taaParams;
         // xy = prevJitter (pixels, last frame's currentJitter); zw pad. Paired with taaParams.zw so
-        // slim_gbuffer.frag can dejitter motion source-side (Tardif form): the producer writes pure
+        // slim_gbuffer.slang can dejitter motion source-side (Tardif form): the producer writes pure
         // scene motion, supersedes the resolve-side push-constant jitterDelta. See source-side-taa-dejitter.
         Vec4 prevJitter;
         // x = shadowingMode (0=RasterCSM, 1=RtShadows), y = rtOriginEpsilon, z = rtNormalEpsilon, w pad.
