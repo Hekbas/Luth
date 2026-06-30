@@ -69,6 +69,7 @@ namespace Luth
             settings.windSelected    = j.value("gizmoWindSelected",    settings.windSelected);
             settings.windAll         = j.value("gizmoWindAll",         settings.windAll);
             settings.gizmoAlphaUnselected = j.value("gizmoAlphaUnselected", settings.gizmoAlphaUnselected);
+            settings.gizmoIconScale       = j.value("gizmoIconScale", settings.gizmoIconScale);
             settings.showGrid            = j.value("showGrid", settings.showGrid);
             settings.showTriIndicatorOverlay = j.value("showTriIndicatorOverlay", settings.showTriIndicatorOverlay);
             settings.lastDebugMode       = (u8)j.value("lastDebugMode", (int)settings.lastDebugMode);
@@ -163,6 +164,7 @@ namespace Luth
             j["gizmoWindSelected"]    = settings.windSelected;
             j["gizmoWindAll"]         = settings.windAll;
             j["gizmoAlphaUnselected"] = settings.gizmoAlphaUnselected;
+            j["gizmoIconScale"]       = settings.gizmoIconScale;
             j["showGrid"]            = settings.showGrid;
             j["showTriIndicatorOverlay"] = settings.showTriIndicatorOverlay;
             j["lastDebugMode"]       = (int)settings.lastDebugMode;

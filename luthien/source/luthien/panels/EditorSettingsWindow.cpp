@@ -190,6 +190,8 @@ namespace Luth
                 }
 
                 if (UI::BeginProperties("PrefsGizmos")) {
+                    if (Match("Icon Size"))
+                        { committedAny |= UI::Property("Icon Size", s.gizmoIconScale, 0.05f, 0.5f, 4.0f).committed; ++rowsRendered; }
                     if (Match("Unselected Alpha"))
                         { committedAny |= UI::Property("Unselected Alpha", s.gizmoAlphaUnselected, 0.01f, 0.0f, 1.0f).committed; ++rowsRendered; }
                     UI::EndProperties();

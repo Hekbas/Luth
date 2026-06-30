@@ -35,11 +35,12 @@ namespace Luth
                              Entity& selected, Scene* scene,
                              bool acceptsShortcuts, bool cameraFlying);
 
-        // Renders a world-placed icon + hit-tests click-to-select for that entity.
-        // hasValidSelection gates the ImGuizmo::IsOver() guard (stale otherwise).
+        // Renders a world-placed icon + hit-tests click-to-select for that entity. Billboard size
+        // scales with the camera→icon world distance (clamped), times the Gizmos > Icon Size setting;
+        // pass that distance. hasValidSelection gates the ImGuizmo::IsOver() guard (stale otherwise).
         void DrawGizmoIcon(ImDrawList* drawList, ImVec2 screenPos, const char* icon,
                            ImU32 color, entt::entity entity,
-                           bool isHovered, bool hasValidSelection);
+                           bool isHovered, bool hasValidSelection, float distance);
 
         bool         WasIconClicked() const { return m_IconClicked; }
         entt::entity IconEntity()     const { return m_IconEntity; }

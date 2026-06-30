@@ -71,7 +71,8 @@ namespace Luth
         auto icon = [&](entt::entity e, const Vec3& worldPos, const char* glyph, ImU32 color) {
             ImVec2 screenPos = ProjectToScreen(camera, worldPos);
             if (screenPos.x >= 0.0f)
-                m_Gizmo.DrawGizmoIcon(drawList, screenPos, glyph, color, e, isHovered, hasValidSelection);
+                m_Gizmo.DrawGizmoIcon(drawList, screenPos, glyph, color, e, isHovered, hasValidSelection,
+                                      Math::Length(camera.GetPosition() - worldPos));
         };
 
         for (auto e : registry.view<WorldTransform, DirectionalLight>()) {
@@ -112,10 +113,12 @@ namespace Luth
 
         for (auto e : registry.view<WorldTransform, Camera>()) {
             auto& wt = registry.get<WorldTransform>(e);
-            ImVec2 screenPos = ProjectToScreen(camera, Vec3(wt.Matrix[3]));
+            const Vec3 worldPos = Vec3(wt.Matrix[3]);
+            ImVec2 screenPos = ProjectToScreen(camera, worldPos);
             if (screenPos.x >= 0.0f)
                 m_Gizmo.DrawGizmoIcon(drawList, screenPos, ICON_VIDEO_CAMERA_FILL,
-                                      EditorColors::GizmoCamera, e, isHovered, hasValidSelection);
+                                      EditorColors::GizmoCamera, e, isHovered, hasValidSelection,
+                                      Math::Length(camera.GetPosition() - worldPos));
         }
 
         drawList->PopClipRect();
@@ -142,9 +145,11 @@ namespace Luth
         const ImU32 color = (EditorColors::GizmoFog & 0x00FFFFFFu) | (230u << IM_COL32_A_SHIFT);
         for (auto e : registry.view<WorldTransform, FogVolume>()) {
             auto& wt = registry.get<WorldTransform>(e);
-            ImVec2 screenPos = ProjectToScreen(camera, Vec3(wt.Matrix[3]));
+            const Vec3 worldPos = Vec3(wt.Matrix[3]);
+            ImVec2 screenPos = ProjectToScreen(camera, worldPos);
             if (screenPos.x >= 0.0f)
-                m_Gizmo.DrawGizmoIcon(drawList, screenPos, ICON_FOG_FILL, color, e, isHovered, hasValidSelection);
+                m_Gizmo.DrawGizmoIcon(drawList, screenPos, ICON_FOG_FILL, color, e, isHovered, hasValidSelection,
+                                      Math::Length(camera.GetPosition() - worldPos));
         }
 
         drawList->PopClipRect();
@@ -170,9 +175,11 @@ namespace Luth
         const ImU32 color = (EditorColors::GizmoWind & 0x00FFFFFFu) | (230u << IM_COL32_A_SHIFT);
         for (auto e : registry.view<WorldTransform, Wind>()) {
             auto& wt = registry.get<WorldTransform>(e);
-            ImVec2 screenPos = ProjectToScreen(camera, Vec3(wt.Matrix[3]));
+            const Vec3 worldPos = Vec3(wt.Matrix[3]);
+            ImVec2 screenPos = ProjectToScreen(camera, worldPos);
             if (screenPos.x >= 0.0f)
-                m_Gizmo.DrawGizmoIcon(drawList, screenPos, ICON_WIND_FILL, color, e, isHovered, hasValidSelection);
+                m_Gizmo.DrawGizmoIcon(drawList, screenPos, ICON_WIND_FILL, color, e, isHovered, hasValidSelection,
+                                      Math::Length(camera.GetPosition() - worldPos));
         }
 
         drawList->PopClipRect();

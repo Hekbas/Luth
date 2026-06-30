@@ -51,6 +51,7 @@ namespace Luth
         bool  fogSelected     = false;  bool  fogAll     = true;
         bool  windSelected    = true;   bool  windAll    = false;
         float gizmoAlphaUnselected      = 0.5f;
+        float gizmoIconScale            = 1.5f;   // scene billboard icon size multiplier
         bool  showGrid                  = true;
         bool  showTriIndicatorOverlay   = true;
         // Last-selected debug render mode (Normals=3 / EntityID=4 in ShadeMode).
