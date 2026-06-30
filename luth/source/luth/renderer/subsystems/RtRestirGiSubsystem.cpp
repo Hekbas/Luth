@@ -50,7 +50,7 @@ namespace Luth
             i32  dispatchW;
             i32  dispatchH;
         };
-        static_assert(sizeof(GiTemporalPC) == 92, "GiTemporalPC must match restir_gi_temporal.comp push_constant");
+        static_assert(sizeof(GiTemporalPC) == 92, "GiTemporalPC must match restir_gi_temporal.slang push_constant");
 
         // Spatial-pass push constants — 80 B (shared pcRange). neighbours+radius bit-packed.
         struct GiSpatialPC {
@@ -63,7 +63,7 @@ namespace Luth
             i32  dispatchW;
             i32  dispatchH;
         };
-        static_assert(sizeof(GiSpatialPC) == 92, "GiSpatialPC must match restir_gi_spatial.comp push_constant");
+        static_assert(sizeof(GiSpatialPC) == 92, "GiSpatialPC must match restir_gi_spatial.slang push_constant");
 
         struct GiUpscalePC {
             i32 fullW;
@@ -162,11 +162,11 @@ namespace Luth
 
         if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_gi_initial.slang"))
             m_InitialSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_gi_temporal.comp"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_gi_temporal.slang"))
             m_TemporalSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_gi_spatial.comp"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_gi_spatial.slang"))
             m_SpatialSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_gi_shade.comp"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_gi_shade.slang"))
             m_ShadeSpv = sh->GetSpirV();
         if (m_InitialSpv.empty() || m_TemporalSpv.empty() || m_SpatialSpv.empty() || m_ShadeSpv.empty())
         {
@@ -211,8 +211,8 @@ namespace Luth
             vci.bindingCount = 2; vci.pBindings = vb;
             vkCreateDescriptorSetLayout(device, &vci, nullptr, &m_ReservoirVizSetLayout);
 
-            if (auto sh = ShaderLibrary::LoadEngine("shaders/fullscreen.vert"))              m_FullscreenVertSpv   = sh->GetSpirV();
-            if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_gi_reservoir_viz.frag")) m_ReservoirVizFragSpv = sh->GetSpirV();
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/fullscreen.slang"))              m_FullscreenVertSpv   = sh->GetSpirV();
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_gi_reservoir_viz.slang")) m_ReservoirVizFragSpv = sh->GetSpirV();
             if (!m_FullscreenVertSpv.empty() && !m_ReservoirVizFragSpv.empty())
             {
                 std::vector<VkDescriptorSetLayout> vlayouts = { m_ReservoirVizSetLayout };
@@ -242,7 +242,7 @@ namespace Luth
             uci.bindingCount = 4; uci.pBindings = ub;
             vkCreateDescriptorSetLayout(device, &uci, nullptr, &m_UpscaleSetLayout);
 
-            if (auto sh = ShaderLibrary::LoadEngine("shaders/bilateral_upscale.comp")) m_UpscaleSpv = sh->GetSpirV();
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/bilateral_upscale.slang")) m_UpscaleSpv = sh->GetSpirV();
             if (!m_UpscaleSpv.empty())
             {
                 const std::vector<VkDescriptorSetLayout> ulayouts = {
@@ -291,9 +291,9 @@ namespace Luth
 
         // Reservoir debug-viz graphics pipeline (its own frag + the shared fullscreen vert). Rebuilt
         // with the same config as Init; the old pipeline defers a frame (an in-flight frame may bind it).
-        if ((name == "restir_gi_reservoir_viz.frag" || name == "fullscreen.vert") && m_ReservoirVizSetLayout != VK_NULL_HANDLE)
+        if ((name == "restir_gi_reservoir_viz.slang" || name == "fullscreen.slang") && m_ReservoirVizSetLayout != VK_NULL_HANDLE)
         {
-            if (name == "restir_gi_reservoir_viz.frag") m_ReservoirVizFragSpv = spv;
+            if (name == "restir_gi_reservoir_viz.slang") m_ReservoirVizFragSpv = spv;
             else                                        m_FullscreenVertSpv   = spv;
             if (m_ReservoirVizPipeline)
                 VulkanContext::Get().PushDeletion([p = m_ReservoirVizPipeline.release()]() { delete p; });
@@ -312,7 +312,7 @@ namespace Luth
             return true;
         }
 
-        if (name == "bilateral_upscale.comp" && m_UpscaleSetLayout != VK_NULL_HANDLE)
+        if (name == "bilateral_upscale.slang" && m_UpscaleSetLayout != VK_NULL_HANDLE)
         {
             m_UpscaleSpv = spv;
             if (auto* raw = m_UpscalePipeline.release(); raw)
@@ -326,9 +326,9 @@ namespace Luth
         }
 
         const bool isInitial  = (name == "restir_gi_initial.slang");
-        const bool isTemporal = (name == "restir_gi_temporal.comp");
-        const bool isSpatial  = (name == "restir_gi_spatial.comp");
-        const bool isShade    = (name == "restir_gi_shade.comp");
+        const bool isTemporal = (name == "restir_gi_temporal.slang");
+        const bool isSpatial  = (name == "restir_gi_spatial.slang");
+        const bool isShade    = (name == "restir_gi_shade.slang");
         if (!isInitial && !isTemporal && !isSpatial && !isShade) return false;
 
         const std::vector<VkDescriptorSetLayout> layouts = {

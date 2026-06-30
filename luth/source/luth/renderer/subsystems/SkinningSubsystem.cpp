@@ -31,9 +31,9 @@ namespace Luth
             u32             vertexCount;  // 16
             u32             boneOffset;   // 20
         };
-        static_assert(sizeof(SkinPC) == 24, "SkinPC must match skinning.comp push_constant layout");
+        static_assert(sizeof(SkinPC) == 24, "SkinPC must match skinning.slang push_constant layout");
 
-        // deform.comp push constants — 72 B; the uint64 BDAs force 8-align (14 trailing 4-byte fields
+        // deform.slang push constants — 72 B; the uint64 BDAs force 8-align (14 trailing 4-byte fields
         // → 72 is exactly 8-aligned, no pad). windXYZ is the per-instance OBJECT-space wind direction
         // (the global world-space dir transformed by inverse(mat3(world)) on the CPU).
         struct DeformPC
@@ -55,7 +55,7 @@ namespace Luth
             f32             turbAmplitude; // 64
             f32             turbFrequency; // 68
         };
-        static_assert(sizeof(DeformPC) == 72, "DeformPC must cover deform.comp's push range");
+        static_assert(sizeof(DeformPC) == 72, "DeformPC must cover deform.slang's push range");
 
         constexpr u32 LOCAL_SIZE_X = 64;
     }
@@ -65,11 +65,11 @@ namespace Luth
         LH_PROFILE_FUNCTION();
         m_Pipeline = &pipeline;
 
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/skinning.comp"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/skinning.slang"))
             m_Spv = sh->GetSpirV();
         if (m_Spv.empty())
         {
-            LH_LOG(Renderer, error, "SkinningSubsystem: failed to load shaders/skinning.comp");
+            LH_LOG(Renderer, error, "SkinningSubsystem: failed to load shaders/skinning.slang");
             return;
         }
 
@@ -80,8 +80,8 @@ namespace Luth
             std::vector<VkDescriptorSetLayout>{ BoneMatrixBuffer::GetDescriptorSetLayout() },
             std::vector<VkPushConstantRange>{ pcRange });
 
-        // deform.comp — static wind-deformable. No bones / no descriptor set; all inputs ride DeformPC.
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/deform.comp"))
+        // deform.slang — static wind-deformable. No bones / no descriptor set; all inputs ride DeformPC.
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/deform.slang"))
             m_DeformSpv = sh->GetSpirV();
         if (!m_DeformSpv.empty())
         {
@@ -90,7 +90,7 @@ namespace Luth
                 m_DeformSpv, std::vector<VkDescriptorSetLayout>{}, std::vector<VkPushConstantRange>{ dpc });
         }
         else
-            LH_LOG(Renderer, error, "SkinningSubsystem: failed to load shaders/deform.comp");
+            LH_LOG(Renderer, error, "SkinningSubsystem: failed to load shaders/deform.slang");
     }
 
     void SkinningSubsystem::Shutdown()
@@ -106,7 +106,7 @@ namespace Luth
     bool SkinningSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
         LH_PROFILE_FUNCTION();
-        if (name == "skinning.comp")
+        if (name == "skinning.slang")
         {
             m_Spv = spv;
             VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SkinPC) };
@@ -114,16 +114,16 @@ namespace Luth
                 m_Spv,
                 std::vector<VkDescriptorSetLayout>{ BoneMatrixBuffer::GetDescriptorSetLayout() },
                 std::vector<VkPushConstantRange>{ pcRange });
-            LH_LOG(Renderer, info, "SkinningSubsystem: skinning.comp rebuilt after shader reload");
+            LH_LOG(Renderer, info, "SkinningSubsystem: skinning.slang rebuilt after shader reload");
             return true;
         }
-        if (name == "deform.comp")
+        if (name == "deform.slang")
         {
             m_DeformSpv = spv;
             VkPushConstantRange dpc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DeformPC) };
             m_DeformPipeline = std::make_unique<VKComputePipeline>(
                 m_DeformSpv, std::vector<VkDescriptorSetLayout>{}, std::vector<VkPushConstantRange>{ dpc });
-            LH_LOG(Renderer, info, "SkinningSubsystem: deform.comp rebuilt after shader reload");
+            LH_LOG(Renderer, info, "SkinningSubsystem: deform.slang rebuilt after shader reload");
             return true;
         }
         return false;
@@ -204,7 +204,7 @@ namespace Luth
         bool boundPipeline = false;
         for (const auto& inst : snapshot.meshes)
         {
-            if (!inst.isDeformable || inst.isSkinned) continue;   // skinned deforms via skinning.comp
+            if (!inst.isDeformable || inst.isSkinned) continue;   // skinned deforms via skinning.slang
             auto model = Luth::AssetManager::GetAsset<Model>(inst.modelUUID);
             if (!model) continue;
             auto mesh = model->GetMesh(inst.meshIndex);
@@ -214,7 +214,7 @@ namespace Luth
             auto vb = std::dynamic_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
             if (!vb) continue;
 
-            // Lazy bind — no descriptor set (deform.comp has no Set 0). A snapshot with zero deformable
+            // Lazy bind — no descriptor set (deform.slang has no Set 0). A snapshot with zero deformable
             // meshes records zero commands.
             if (!boundPipeline) { m_DeformPipeline->Bind(cmd); boundPipeline = true; }
 

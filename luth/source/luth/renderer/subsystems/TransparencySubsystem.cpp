@@ -94,9 +94,9 @@ namespace Luth
             m_TransparentFragSpv = sh->GetSpirV();
         if (auto sh = ShaderLibrary::LoadEngine("shaders/pbr_oit_store.slang"))
             m_OitStoreFragSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/fullscreen.vert"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/fullscreen.slang"))
             m_FullscreenVertSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/oit_resolve.frag"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/oit_resolve.slang"))
             m_ResolveFragSpv = sh->GetSpirV();
         if (m_TransparentFragSpv.empty() || m_OitStoreFragSpv.empty() ||
             m_FullscreenVertSpv.empty() || m_ResolveFragSpv.empty())
@@ -222,7 +222,7 @@ namespace Luth
             invalidateOit();
             return true;
         }
-        if (name == "oit_resolve.frag")
+        if (name == "oit_resolve.slang")
         {
             m_ResolveFragSpv = spv;
             // Defer-destroy the live pipeline (in-flight frames may still bind it), then rebuild.
@@ -233,7 +233,7 @@ namespace Luth
         }
         // Vert reloads are owned by GeometrySubsystem (cached spv there); our variants compiled
         // against the old spv must still drop. Return false so the geometry handler runs too.
-        if (name == "pbr.vert" || name == "pbr_skinned.vert")
+        if (name == "pbr_vert.slang" || name == "pbr_skinned.slang")
         {
             invalidateSorted();
             invalidateOit();

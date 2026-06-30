@@ -34,7 +34,7 @@ namespace Luth
         static_assert(sizeof(ReflPC) == 104, "ReflPC must match rt_reflections.comp push_constant");
         constexpr u32 k_ReflPCSize = 128;   // fixed range — tail headroom
 
-        // Mirrors bilateral_upscale.comp's push_constant (shared with the GI/DI upscale).
+        // Mirrors bilateral_upscale.slang's push_constant (shared with the GI/DI upscale).
         struct ReflUpscalePC {
             i32 fullW;
             i32 fullH;
@@ -43,7 +43,7 @@ namespace Luth
             f32 phiDepth;
             f32 phiNormal;
         };
-        static_assert(sizeof(ReflUpscalePC) == 24, "ReflUpscalePC must match bilateral_upscale.comp push_constant");
+        static_assert(sizeof(ReflUpscalePC) == 24, "ReflUpscalePC must match bilateral_upscale.slang push_constant");
     }
 
     bool ReflectionsSubsystem::IsEnabled() const
@@ -110,7 +110,7 @@ namespace Luth
         m_ReflPipeline = std::make_unique<VKComputePipeline>(
             m_Spv, layouts, std::vector<VkPushConstantRange>{ pcRange });
 
-        // Half-res reflections bilateral-upscale pipeline (shared bilateral_upscale.comp). Set 0 = global
+        // Half-res reflections bilateral-upscale pipeline (shared bilateral_upscale.slang). Set 0 = global
         // UBO; Set 1 = b0 half-res signal sampler, b1 depth sampler, b2 normal sampler, b3 full-res storage.
         {
             VkDescriptorSetLayoutBinding ub[4]{};
@@ -122,7 +122,7 @@ namespace Luth
             uci.bindingCount = 4; uci.pBindings = ub;
             vkCreateDescriptorSetLayout(device, &uci, nullptr, &m_UpscaleSetLayout);
 
-            if (auto sh = ShaderLibrary::LoadEngine("shaders/bilateral_upscale.comp")) m_UpscaleSpv = sh->GetSpirV();
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/bilateral_upscale.slang")) m_UpscaleSpv = sh->GetSpirV();
             if (!m_UpscaleSpv.empty())
             {
                 const std::vector<VkDescriptorSetLayout> ulayouts = {
@@ -178,7 +178,7 @@ namespace Luth
 
         // Shared with the GI/DI upscale loaders — the reload dispatch's || short-circuit rebuilds only the
         // first matching subsystem; a restart picks up all three (known watch-item).
-        if (name == "bilateral_upscale.comp" && m_UpscaleSetLayout != VK_NULL_HANDLE)
+        if (name == "bilateral_upscale.slang" && m_UpscaleSetLayout != VK_NULL_HANDLE)
         {
             m_UpscaleSpv = spv;
             if (auto* raw = m_UpscalePipeline.release(); raw)

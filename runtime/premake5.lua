@@ -52,8 +52,7 @@ project "Runtime"
 
    postbuildcommands
    {
-      "{COPY} " .. LibraryDir["vulkan"] .. "/shaderc_shared.dll %{cfg.targetdir}",
-      -- Slang in-process compiler (slang-spike, coexists with shaderc). slang-compiler.dll is the
+      -- Slang in-process compiler — the engine's only shader backend. slang-compiler.dll is the
       -- post-rename real compiler; it LoadLibrary's its siblings on demand, so stage all four.
       "{COPY} " .. LibraryDir["vulkan"] .. "/slang-compiler.dll %{cfg.targetdir}",
       "{COPY} " .. LibraryDir["vulkan"] .. "/slang-glslang.dll %{cfg.targetdir}",
@@ -62,7 +61,7 @@ project "Runtime"
    }
 
    -- Stage the optional Aftermath DLL next to Luthien.exe so the runtime loads it by name (mirrors the
-   -- shaderc copy above). Only when AFTERMATH_SDK is set; the build is otherwise Aftermath-free.
+   -- Slang copies above). Only when AFTERMATH_SDK is set; the build is otherwise Aftermath-free.
    local aftermathSDK = os.getenv("AFTERMATH_SDK")
    if aftermathSDK then
       postbuildcommands { "{COPY} " .. aftermathSDK:gsub("\\", "/") .. "/lib/x64/GFSDK_Aftermath_Lib.x64.dll %{cfg.targetdir}" }
@@ -72,8 +71,7 @@ project "Runtime"
    {
       "Luth",
       "Luthien",
-      "vulkan-1",
-      "shaderc_shared"
+      "vulkan-1"
    }
 
    filter "configurations:Debug"

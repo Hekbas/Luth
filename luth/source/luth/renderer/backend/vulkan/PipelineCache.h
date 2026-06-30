@@ -26,7 +26,7 @@ namespace Luth
         static VkPipelineCache Get() { return s_Cache; }
 
         // Compile-time instrumentation (perf observability). Every VKPipeline /
-        // VKComputePipeline / VKRayTracingPipeline ctor records its vkCreate*Pipelines duration here;
+        // VKComputePipeline ctor records its vkCreate*Pipelines duration here;
         // a non-zero per-frame count in steady state is a PSO-compile hitch (cold cache miss).
         struct CompileStats { u32 count = 0; f64 totalMs = 0.0; f64 maxMs = 0.0; };
         static void RecordCompile(f64 ms);

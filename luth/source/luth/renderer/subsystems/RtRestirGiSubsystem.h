@@ -91,7 +91,7 @@ namespace Luth
         std::vector<u32> m_ShadeSpv;
         std::vector<u32> m_UpscaleSpv;
 
-        // Reservoir debug-viz graphics pipeline (fullscreen.vert + restir_gi_reservoir_viz.frag).
+        // Reservoir debug-viz graphics pipeline (fullscreen.vert + restir_gi_reservoir_viz.slang).
         std::unique_ptr<VKPipeline> m_ReservoirVizPipeline;
         VkDescriptorSetLayout       m_ReservoirVizSetLayout = VK_NULL_HANDLE;
         std::vector<u32>            m_FullscreenVertSpv;

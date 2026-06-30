@@ -18,15 +18,15 @@
 
 namespace Luth
 {
-    // Mirrors the GLSL push_constant block in taa_resolve.frag. Source-side de-jitter now lives
-    // in slim_gbuffer.frag (ubo.taaParams.zw + ubo.prevJitter), so the resolve no longer carries
+    // Mirrors the GLSL push_constant block in taa_resolve.slang. Source-side de-jitter now lives
+    // in slim_gbuffer.slang (ubo.taaParams.zw + ubo.prevJitter), so the resolve no longer carries
     // a jitter delta — just the temporal feedback weight.
     struct TaaResolvePushConstants
     {
         f32 temporalAlpha;
     };
     static_assert(sizeof(TaaResolvePushConstants) == 4,
-                  "TaaResolvePushConstants must match taa_resolve.frag's push_constant block");
+                  "TaaResolvePushConstants must match taa_resolve.slang's push_constant block");
 
     // Mirrors bloom_downsample.slang's push_constant. prefilter=1 gates the threshold + Karis
     // bright-pass on the scene->mip0 step; later mips run the plain 13-tap.
@@ -193,12 +193,12 @@ namespace Luth
             auto sh = ShaderLibrary::LoadEngine(relPath);
             return sh ? sh->GetSpirV() : std::vector<u32>{};
         };
-        m_FullscreenVertSpv   = loadSpv("shaders/fullscreen.vert");
+        m_FullscreenVertSpv   = loadSpv("shaders/fullscreen.slang");
         m_BloomDownSpv        = loadSpv("shaders/bloom_downsample.slang");
         m_BloomUpSpv          = loadSpv("shaders/bloom_upsample.slang");
-        m_PostProcessFragSpv  = loadSpv("shaders/postprocess.frag");
-        m_SlimVizFragSpv      = loadSpv("shaders/slim_viz.frag");
-        m_TaaResolveFragSpv   = loadSpv("shaders/taa_resolve.frag");
+        m_PostProcessFragSpv  = loadSpv("shaders/postprocess.slang");
+        m_SlimVizFragSpv      = loadSpv("shaders/slim_viz.slang");
+        m_TaaResolveFragSpv   = loadSpv("shaders/taa_resolve.slang");
 
         if (m_FullscreenVertSpv.empty() || m_BloomDownSpv.empty() ||
             m_BloomUpSpv.empty() || m_PostProcessFragSpv.empty() ||
@@ -260,7 +260,7 @@ namespace Luth
         }
 
         // TAA Resolve pipeline. Output to RGBA16F (HDR history texture); push constant carries
-        // temporalAlpha (jitter delta moved to slim_gbuffer.frag as source-side de-jitter).
+        // temporalAlpha (jitter delta moved to slim_gbuffer.slang as source-side de-jitter).
         // No depth, no blend — opaque write.
         if (!m_TaaResolveFragSpv.empty())
         {
@@ -307,12 +307,12 @@ namespace Luth
                 VulkanContext::Get().PushDeletion([raw]() { delete raw; });
         };
 
-        if      (name == "fullscreen.vert")        m_FullscreenVertSpv  = spv;
+        if      (name == "fullscreen.slang")        m_FullscreenVertSpv  = spv;
         else if (name == "bloom_downsample.slang") m_BloomDownSpv       = spv;
         else if (name == "bloom_upsample.slang")   m_BloomUpSpv         = spv;
-        else if (name == "postprocess.frag")       m_PostProcessFragSpv = spv;
-        else if (name == "slim_viz.frag")          m_SlimVizFragSpv     = spv;
-        else if (name == "taa_resolve.frag")       m_TaaResolveFragSpv  = spv;
+        else if (name == "postprocess.slang")       m_PostProcessFragSpv = spv;
+        else if (name == "slim_viz.slang")          m_SlimVizFragSpv     = spv;
+        else if (name == "taa_resolve.slang")       m_TaaResolveFragSpv  = spv;
         else return false;
 
         deferComp(m_BloomDownPipeline);
@@ -321,9 +321,9 @@ namespace Luth
         deferGfx(m_SlimVizPipeline);
         deferGfx(m_TaaResolvePipeline);
         BuildPipelines();
-        // For fullscreen.vert, return false so the orchestrator also rebuilds Outline + Grid
+        // For fullscreen.slang, return false so the orchestrator also rebuilds Outline + Grid
         // (they share the same vertex shader). PostProcess pipelines are already rebuilt above.
-        return name != "fullscreen.vert";
+        return name != "fullscreen.slang";
     }
 
     void PostProcessSubsystem::UpdateUBO()
@@ -969,7 +969,7 @@ namespace Luth
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_TaaResolvePipeline->GetLayout(), 0, 1, &vr->taaResolveDescSet[slot], 0, nullptr);
 
-                // Source-side de-jitter lives in slim_gbuffer.frag — the motion attachment carries
+                // Source-side de-jitter lives in slim_gbuffer.slang — the motion attachment carries
                 // pure scene displacement, so the resolve push constant is just the feedback weight.
                 TaaResolvePushConstants pc{};
                 pc.temporalAlpha = sys.GetPostProcessSettings().taaTemporalAlpha;

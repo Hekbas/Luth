@@ -379,17 +379,6 @@ namespace Luth
             mix(static_cast<u64>(fs::last_write_time(meta).time_since_epoch().count()));
         }
 
-        // For .vert shaders, include the companion .frag in the hash so that
-        // cold-start reimport detects when only the .frag changed.
-        if (source.extension() == ".vert") {
-            fs::path fragPath = source;
-            fragPath.replace_extension(".frag");
-            if (fs::exists(fragPath)) {
-                mix(static_cast<u64>(fs::last_write_time(fragPath).time_since_epoch().count()));
-                mix(fs::file_size(fragPath));
-            }
-        }
-
         return hash;
     }
 
@@ -663,21 +652,6 @@ namespace Luth
                     s_DirtyAssets.push_back(uuid);
                     LH_LOG(Assets, info, "AssetDatabase: Hot-modified '{}', queued for reimport", path.filename().string());
                     anyChange = true;
-
-                    // If a .frag changed, also mark the paired .vert dirty so its artifact is refreshed
-                    if (path.extension() == ".frag")
-                    {
-                        fs::path vertPath = path;
-                        vertPath.replace_extension(".vert");
-                        UUID vertUuid = GetUUID_Unlocked(vertPath);
-                        if (vertUuid.IsValid())
-                        {
-                            fs::path vertArtifact = GetArtifactPath(vertUuid);
-                            if (fs::exists(vertArtifact)) fs::remove(vertArtifact);
-                            s_DirtyAssets.push_back(vertUuid);
-                            LH_LOG(Assets, info, "AssetDatabase: .frag changed, cascading reimport to paired '{}'", vertPath.filename().string());
-                        }
-                    }
                 }
                 else if (status == FileWatcher::FileStatus::Deleted)
                 {

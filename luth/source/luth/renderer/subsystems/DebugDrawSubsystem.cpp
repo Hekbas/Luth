@@ -23,8 +23,8 @@ namespace Luth
             auto sh = ShaderLibrary::LoadEngine(relPath);
             return sh ? sh->GetSpirV() : std::vector<u32>{};
         };
-        m_VertSpv = loadSpv("shaders/debugDraw.vert");
-        m_FragSpv = loadSpv("shaders/debugDraw.frag");
+        m_VertSpv = loadSpv("shaders/debugDraw_vert.slang");
+        m_FragSpv = loadSpv("shaders/debugDraw.slang");
 
         if (m_VertSpv.empty() || m_FragSpv.empty())
         {
@@ -93,8 +93,8 @@ namespace Luth
     bool DebugDrawSubsystem::OnShaderReloaded(const std::string& name, const std::vector<u32>& spv)
     {
         LH_PROFILE_FUNCTION();
-        if      (name == "debugDraw.vert") m_VertSpv = spv;
-        else if (name == "debugDraw.frag") m_FragSpv = spv;
+        if      (name == "debugDraw_vert.slang") m_VertSpv = spv;
+        else if (name == "debugDraw.slang") m_FragSpv = spv;
         else return false;
 
         if (auto* raw = m_LinePipeline.release(); raw)

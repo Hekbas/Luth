@@ -43,13 +43,13 @@ namespace Luth
         auto& fd = m_Pipeline.GetSystem().GetFrameDebugger();
         if (fd.blitPipeline) return; // Already initialized
 
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/debugBlit.frag"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/debugBlit.slang"))
             fd.blitFragSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/debugDepth.frag"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/debugDepth.slang"))
             fd.depthFragSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/debugSlimDecode.frag"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/debugSlimDecode.slang"))
             fd.slimDecodeFragSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/debugSlimMatID.frag"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/debugSlimMatID.slang"))
             fd.slimMatIDFragSpv = sh->GetSpirV();
 
         if (fd.blitFragSpv.empty() || fd.depthFragSpv.empty()
@@ -414,7 +414,7 @@ namespace Luth
         // Capture the CPU-side data we need by value (the lambda runs inside
         // ImmediateSubmit and must be self-contained).
         VkPolygonMode polyMode = (sys.GetShadeMode() == ShadeMode::Wireframe) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-        UUID pbrUUID = ShaderLibrary::Get("pbr.vert")->Handle;
+        UUID pbrUUID = ShaderLibrary::Get("pbr_vert.slang")->Handle;
 
         VulkanContext::Get().ImmediateSubmit([&, this](VkCommandBuffer cmd)
         {

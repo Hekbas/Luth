@@ -32,9 +32,9 @@ namespace Luth
             auto sh = ShaderLibrary::LoadEngine(relPath);
             return sh ? sh->GetSpirV() : std::vector<u32>{};
         };
-        m_ShadowVertSpv        = loadSpv("shaders/shadowDepth.vert");
-        m_ShadowFragSpv        = loadSpv("shaders/shadowDepth.frag");
-        m_ShadowSkinnedVertSpv = loadSpv("shaders/shadowDepth_skinned.vert");
+        m_ShadowVertSpv        = loadSpv("shaders/shadowDepth_vert.slang");
+        m_ShadowFragSpv        = loadSpv("shaders/shadowDepth.slang");
+        m_ShadowSkinnedVertSpv = loadSpv("shaders/shadowDepth_skinned.slang");
 
         if (m_ShadowVertSpv.empty() || m_ShadowFragSpv.empty() || m_ShadowSkinnedVertSpv.empty())
         {
@@ -78,10 +78,10 @@ namespace Luth
             // Push constant: invProjection + viewportSize + _pad + nearZ + farZ + uvec2 tiles = 96 B.
             VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, 96 };
 
-            m_ClusterBuildSpv = loadSpv("shaders/cluster_build.comp");
+            m_ClusterBuildSpv = loadSpv("shaders/cluster_build.slang");
             if (m_ClusterBuildSpv.empty())
             {
-                LH_LOG(Renderer, error, "LightingSubsystem: failed to load cluster_build.comp!");
+                LH_LOG(Renderer, error, "LightingSubsystem: failed to load cluster_build.slang!");
                 return;
             }
             m_ClusterBuildPipeline = std::make_unique<VKComputePipeline>(
@@ -124,10 +124,10 @@ namespace Luth
             // Push constant: mat4 view + u32 pointLightCount + u32 spotLightCount + u32 maxLightsPerCluster + u32 _pad = 80 B.
             VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, 80 };
 
-            m_LightAssignSpv = loadSpv("shaders/light_assign.comp");
+            m_LightAssignSpv = loadSpv("shaders/light_assign.slang");
             if (m_LightAssignSpv.empty())
             {
-                LH_LOG(Renderer, error, "LightingSubsystem: failed to load light_assign.comp!");
+                LH_LOG(Renderer, error, "LightingSubsystem: failed to load light_assign.slang!");
                 return;
             }
             m_LightAssignPipeline = std::make_unique<VKComputePipeline>(
@@ -159,8 +159,8 @@ namespace Luth
             slayoutCI.pBindings    = &sbinding;
             vkCreateDescriptorSetLayout(device, &slayoutCI, nullptr, &m_ClusterVizDescSetLayout);
 
-            m_FullscreenVertSpv = loadSpv("shaders/fullscreen.vert");
-            m_ClusterVizFragSpv = loadSpv("shaders/cluster_viz.frag");
+            m_FullscreenVertSpv = loadSpv("shaders/fullscreen.slang");
+            m_ClusterVizFragSpv = loadSpv("shaders/cluster_viz.slang");
             if (!m_FullscreenVertSpv.empty() && !m_ClusterVizFragSpv.empty())
             {
                 std::vector<VkDescriptorSetLayout> layouts = { m_ClusterVizDescSetLayout, m_LightSetLayout };
@@ -268,7 +268,7 @@ namespace Luth
                 VulkanContext::Get().PushDeletion([raw]() { delete raw; });
         };
 
-        if (name == "cluster_build.comp" && m_ClusterBuildSetLayout)
+        if (name == "cluster_build.slang" && m_ClusterBuildSetLayout)
         {
             m_ClusterBuildSpv = spv;
             deferComp(m_ClusterBuildPipeline);
@@ -278,7 +278,7 @@ namespace Luth
                 std::vector<VkPushConstantRange>{ pc });
             return true;
         }
-        if (name == "light_assign.comp" && m_LightAssignSetLayout)
+        if (name == "light_assign.slang" && m_LightAssignSetLayout)
         {
             m_LightAssignSpv = spv;
             deferComp(m_LightAssignPipeline);
@@ -288,9 +288,9 @@ namespace Luth
                 std::vector<VkPushConstantRange>{ pc });
             return true;
         }
-        if ((name == "cluster_viz.frag" || name == "fullscreen.vert") && m_ClusterVizDescSetLayout)
+        if ((name == "cluster_viz.slang" || name == "fullscreen.slang") && m_ClusterVizDescSetLayout)
         {
-            if (name == "cluster_viz.frag") m_ClusterVizFragSpv = spv;
+            if (name == "cluster_viz.slang") m_ClusterVizFragSpv = spv;
             else                            m_FullscreenVertSpv = spv;
             deferGfx(m_ClusterVizPipeline);
             if (!m_FullscreenVertSpv.empty() && !m_ClusterVizFragSpv.empty())
@@ -310,14 +310,14 @@ namespace Luth
             return true;
         }
 
-        if (name == "shadowDepth.vert")           m_ShadowVertSpv        = spv;
-        else if (name == "shadowDepth.frag")      m_ShadowFragSpv        = spv;
-        else if (name == "shadowDepth_skinned.vert") m_ShadowSkinnedVertSpv = spv;
-        else if (name == "skybox.vert")           m_SkyboxVertSpv        = spv;
-        else if (name == "skybox.frag")           m_SkyboxFragSpv        = spv;
+        if (name == "shadowDepth_vert.slang")           m_ShadowVertSpv        = spv;
+        else if (name == "shadowDepth.slang")      m_ShadowFragSpv        = spv;
+        else if (name == "shadowDepth_skinned.slang") m_ShadowSkinnedVertSpv = spv;
+        else if (name == "skybox_vert.slang")           m_SkyboxVertSpv        = spv;
+        else if (name == "skybox.slang")           m_SkyboxFragSpv        = spv;
         else return false;
 
-        if (name == "skybox.vert" || name == "skybox.frag")
+        if (name == "skybox_vert.slang" || name == "skybox.slang")
         {
             deferGfx(m_SkyboxPipeline);
             BuildSkyboxPipeline(geoLayouts);

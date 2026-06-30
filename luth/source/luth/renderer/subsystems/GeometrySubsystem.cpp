@@ -58,14 +58,14 @@ namespace Luth
             auto sh = ShaderLibrary::LoadEngine(relPath);
             return sh ? sh->GetSpirV() : std::vector<u32>{};
         };
-        m_PBRVertSpv                 = loadSpv("shaders/pbr.vert");
+        m_PBRVertSpv                 = loadSpv("shaders/pbr_vert.slang");
         m_PBRFragSpv                 = loadSpv("shaders/pbr.slang");
-        m_PBRSkinnedVertSpv          = loadSpv("shaders/pbr_skinned.vert");
-        m_DepthPrepassVertSpv        = loadSpv("shaders/depthPrepass.vert");
-        m_DepthPrepassSkinnedVertSpv = loadSpv("shaders/depthPrepass_skinned.vert");
-        m_SlimGBufferVertSpv         = loadSpv("shaders/slim_gbuffer.vert");
-        m_SlimGBufferSkinnedVertSpv  = loadSpv("shaders/slim_gbuffer_skinned.vert");
-        m_SlimGBufferFragSpv         = loadSpv("shaders/slim_gbuffer.frag");
+        m_PBRSkinnedVertSpv          = loadSpv("shaders/pbr_skinned.slang");
+        m_DepthPrepassVertSpv        = loadSpv("shaders/depthPrepass.slang");
+        m_DepthPrepassSkinnedVertSpv = loadSpv("shaders/depthPrepass_skinned.slang");
+        m_SlimGBufferVertSpv         = loadSpv("shaders/slim_gbuffer_vert.slang");
+        m_SlimGBufferSkinnedVertSpv  = loadSpv("shaders/slim_gbuffer_skinned.slang");
+        m_SlimGBufferFragSpv         = loadSpv("shaders/slim_gbuffer.slang");
 
         if (m_PBRVertSpv.empty() || m_PBRFragSpv.empty() || m_PBRSkinnedVertSpv.empty()
          || m_DepthPrepassVertSpv.empty() || m_DepthPrepassSkinnedVertSpv.empty()
@@ -188,11 +188,11 @@ namespace Luth
         pcRange.offset     = 0;
         pcRange.size       = sizeof(Vec4) * 6 + sizeof(u32) * 2;
 
-        auto cullShader = ShaderLibrary::LoadEngine("shaders/gpu_cull.comp");
+        auto cullShader = ShaderLibrary::LoadEngine("shaders/gpu_cull.slang");
         auto spv = cullShader ? cullShader->GetSpirV() : std::vector<u32>{};
         if (spv.empty())
         {
-            LH_LOG(Renderer, error, "GeometrySubsystem: failed to load gpu_cull.comp!");
+            LH_LOG(Renderer, error, "GeometrySubsystem: failed to load gpu_cull.slang!");
             return;
         }
         m_CullPipeline = std::make_unique<VKComputePipeline>(
@@ -357,13 +357,13 @@ namespace Luth
 
         // Cutout variant: same shaders, but writes its own depth (LESS_OR_EQUAL) because the opaque-only
         // prepass omits cutout — the EQUAL opaque config would reject every cutout fragment (prepass cleared
-        // those pixels to 1.0 or holds the surface behind). slim_gbuffer.frag alpha-tests the holes away.
+        // those pixels to 1.0 or holds the surface behind). slim_gbuffer.slang alpha-tests the holes away.
         auto makeCutoutConfig = [&](auto bindings, auto attribs) {
             auto cfg = makeConfig(bindings, attribs);
             cfg.depthWrite     = true;
             cfg.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
             cfg.cullMode       = VK_CULL_MODE_NONE;   // cutout foliage is two-sided — back faces must reach
-            return cfg;                               // the slim G-buffer (slim_gbuffer.frag flips the normal),
+            return cfg;                               // the slim G-buffer (slim_gbuffer.slang flips the normal),
         };                                            // else RT shadows/reflections read the geometry behind it
 
         if (!m_SlimGBufferVertSpv.empty() && !m_SlimGBufferFragSpv.empty())
@@ -428,17 +428,17 @@ namespace Luth
                 VulkanContext::Get().PushDeletion([raw]() { delete raw; });
         };
 
-        if      (name == "pbr.vert")                   m_PBRVertSpv                 = spv;
+        if      (name == "pbr_vert.slang")                   m_PBRVertSpv                 = spv;
         else if (name == "pbr.slang")                  m_PBRFragSpv                 = spv;
-        else if (name == "pbr_skinned.vert")           m_PBRSkinnedVertSpv          = spv;
-        else if (name == "depthPrepass.vert")          m_DepthPrepassVertSpv        = spv;
-        else if (name == "depthPrepass_skinned.vert")  m_DepthPrepassSkinnedVertSpv = spv;
-        else if (name == "slim_gbuffer.vert")          m_SlimGBufferVertSpv         = spv;
-        else if (name == "slim_gbuffer.frag")          m_SlimGBufferFragSpv         = spv;
-        else if (name == "slim_gbuffer_skinned.vert")  m_SlimGBufferSkinnedVertSpv  = spv;
-        else if (name != "gpu_cull.comp") return false;
+        else if (name == "pbr_skinned.slang")           m_PBRSkinnedVertSpv          = spv;
+        else if (name == "depthPrepass.slang")          m_DepthPrepassVertSpv        = spv;
+        else if (name == "depthPrepass_skinned.slang")  m_DepthPrepassSkinnedVertSpv = spv;
+        else if (name == "slim_gbuffer_vert.slang")          m_SlimGBufferVertSpv         = spv;
+        else if (name == "slim_gbuffer.slang")          m_SlimGBufferFragSpv         = spv;
+        else if (name == "slim_gbuffer_skinned.slang")  m_SlimGBufferSkinnedVertSpv  = spv;
+        else if (name != "gpu_cull.slang") return false;
 
-        if (name == "gpu_cull.comp" && m_CullDescLayout)
+        if (name == "gpu_cull.slang" && m_CullDescLayout)
         {
             deferComp(m_CullPipeline);
             VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Vec4) * 6 + sizeof(u32) * 2 };
@@ -446,13 +446,13 @@ namespace Luth
                 std::vector<VkDescriptorSetLayout>{ m_CullDescLayout },
                 std::vector<VkPushConstantRange>{ pc });
         }
-        else if (name == "depthPrepass.vert" || name == "depthPrepass_skinned.vert")
+        else if (name == "depthPrepass.slang" || name == "depthPrepass_skinned.slang")
         {
             deferGfx(m_DepthPrepassPipeline);
             deferGfx(m_DepthPrepassSkinnedPipeline);
             BuildDepthPrepassPipelines(geoLayouts);
         }
-        else if (name == "slim_gbuffer.vert" || name == "slim_gbuffer.frag" || name == "slim_gbuffer_skinned.vert")
+        else if (name == "slim_gbuffer_vert.slang" || name == "slim_gbuffer.slang" || name == "slim_gbuffer_skinned.slang")
         {
             deferGfx(m_SlimGBufferPipeline);
             deferGfx(m_SlimGBufferSkinnedPipeline);
@@ -463,9 +463,9 @@ namespace Luth
         else
         {
             // pbr.* — invalidate the pipeline manager cache, rebuild the manager.
-            const bool isPBR = (name == "pbr.vert" || name == "pbr.slang");
+            const bool isPBR = (name == "pbr_vert.slang" || name == "pbr.slang");
             if (isPBR) {
-                UUID pbrKey = ShaderLibrary::Get("pbr.vert")->Handle;
+                UUID pbrKey = ShaderLibrary::Get("pbr_vert.slang")->Handle;
                 m_GeoPipelineManager.DeferredInvalidateShader(pbrKey);
                 m_GeoSkinnedPipelineManager.DeferredInvalidateShader(pbrKey);
             } else {
@@ -1214,7 +1214,7 @@ namespace Luth
                 sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "GeometryPass", "SceneColor", false,
                     { "pbr", 0, VK_CULL_MODE_BACK_BIT, polyMode, false, true, true, false });
 
-                UUID pbrUUID = ShaderLibrary::Get("pbr.vert")->Handle;
+                UUID pbrUUID = ShaderLibrary::Get("pbr_vert.slang")->Handle;
                 auto* opaquePipeline = m_GeoPipelineManager.GetOrCreate(
                     pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back, polyMode, m_PBRVertSpv, m_PBRFragSpv);
                 if (!opaquePipeline) { sys.GetFrameDebugger().EndCapturePass(); return; }

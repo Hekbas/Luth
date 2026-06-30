@@ -36,7 +36,7 @@ namespace Luth
     }
 
     // The deformed vertex buffer is the interleaved Vertex layout, written field-by-field as 13
-    // hardcoded floats in skinning.comp and read at the same offsets by material.slang's geometry
+    // hardcoded floats in skinning.slang and read at the same offsets by material.slang's geometry
     // table — lock the layout so a Vertex field reorder/resize can't silently desync the shaders.
     static_assert(sizeof(Vertex)              == 52, "deformed-vertex ABI: Vertex must stay 13 tight floats");
     static_assert(offsetof(Vertex, Position)  == 0,  "deformed-vertex ABI: pos @ float 0");
@@ -45,7 +45,7 @@ namespace Luth
     static_assert(offsetof(Vertex, TexCoord1) == 32, "deformed-vertex ABI: uv1 @ float 8");
     static_assert(offsetof(Vertex, Tangent)   == 40, "deformed-vertex ABI: tangent @ float 10");
 
-    // skinning.comp reads the source SkinnedVertex VB directly via scalar buffer_reference — lock the
+    // skinning.slang reads the source SkinnedVertex VB directly via scalar buffer_reference — lock the
     // tight 84 B layout so a field reorder/resize can't silently desync the compute's input fetch.
     static_assert(sizeof(SkinnedVertex)                == 84, "skin-input ABI: SkinnedVertex must stay tight 84 B");
     static_assert(offsetof(SkinnedVertex, Position)    == 0,  "skin-input ABI: pos @ 0");

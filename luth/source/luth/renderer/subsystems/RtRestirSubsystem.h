@@ -44,7 +44,7 @@ namespace Luth
         Outputs AddPasses(RG::RenderGraph& rg, RG::ResourceHandle sceneDepth, RG::ResourceHandle slimNormal,
                           RG::ResourceHandle slimMotion, RG::ResourceHandle slimRoughness);
 
-        // Half-res DI bilateral upscale (shared bilateral_upscale.comp). Reads the half-res denoised DI
+        // Half-res DI bilateral upscale (shared bilateral_upscale.slang). Reads the half-res denoised DI
         // (svgfDiHalf / svgfDiSpecHalf) + full-res depth/normal, writes the full svgfDenoised /
         // svgfDiSpecDenoised. specular picks the channel. Only wired when RestirSettings::halfResolution.
         VkDescriptorSetLayout GetUpscaleLayout() const { return m_UpscaleSetLayout; }

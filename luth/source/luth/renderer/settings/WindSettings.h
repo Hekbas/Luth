@@ -5,7 +5,7 @@
 namespace Luth
 {
     // Global procedural vertex wind — the global wind FIELD. Read each frame by the deform pass
-    // (SkinningSubsystem) when filling deform.comp's push constants for static wind-deformable meshes.
+    // (SkinningSubsystem) when filling deform.slang's push constants for static wind-deformable meshes.
     // Per-entity response (multipliers / direction override) layers on top via Component::Wind. Direction
     // is WORLD-space — the dispatch transforms it into each mesh's object space. Deformation is per-asset,
     // so instances of one mesh bend in lockstep (last-writer-wins). `enabled == false` passes strength 0

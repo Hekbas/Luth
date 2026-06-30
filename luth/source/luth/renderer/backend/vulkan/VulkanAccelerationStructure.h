@@ -15,7 +15,7 @@ namespace Luth
     // For a DEFORMABLE BLAS (skinned or static wind-deformable) it additionally owns the persistent
     // "deformed vertex" buffer (per-frame compute output in the interleaved Vertex layout — AS-build
     // input on refit AND the RT geometry-table source, so ray hits read post-deform normals/tangents,
-    // not bind pose). The deform compute (skinning.comp / deform.comp) reads the source VB directly.
+    // not bind pose). The deform compute (skinning.slang / deform.slang) reads the source VB directly.
     // Dtor pushes every owned VkBuffer + AS handle into VulkanContext::PushDeletion so they
     // retire N+2 frames out — safe against in-flight cmd buffers referencing the AS in a
     // build / traceRays call.

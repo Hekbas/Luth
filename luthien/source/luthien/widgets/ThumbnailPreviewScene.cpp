@@ -227,13 +227,13 @@ namespace Luth::UI::ThumbnailPreviewScene
         bool CreatePipelines()
         {
             std::vector<u32> vert, frag;
-            if (!LoadShader("shaders/thumbnail_mesh.vert", vert)) return false;
-            if (!LoadShader("shaders/thumbnail_mesh.frag", frag)) return false;
+            if (!LoadShader("shaders/thumbnail_mesh_vert.slang", vert)) return false;
+            if (!LoadShader("shaders/thumbnail_mesh.slang", frag)) return false;
 
             s_PipelineStatic  = BuildPipeline(vert, frag, kStaticVertexStride);
             s_PipelineSkinned = BuildPipeline(vert, frag, kSkinnedVertexStride);
             // Graph-preview vertex (adds tangent + UV1); per-material frags pair with it lazily.
-            LoadShader("shaders/thumbnail_graph.vert", s_GraphVertSpv);
+            LoadShader("shaders/thumbnail_graph.slang", s_GraphVertSpv);
             return s_PipelineStatic && s_PipelineSkinned;
         }
 

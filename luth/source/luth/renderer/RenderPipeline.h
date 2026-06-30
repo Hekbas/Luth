@@ -343,7 +343,7 @@ namespace Luth
         // ReSTIR-DI specular SVGF (#154) — flat parallel to the spec fields above. A 4th SvgfDenoiser
         // instance (DenoiserChannel::DiSpecular) denoises restirDISpec via the SURFACE-MOTION reproject
         // (direct point-light specular is surface-attached, not a reflection's virtual image — so it reuses
-        // svgf_reproject.comp, not the hit-distance spec variant); svgfDiSpecDenoised feeds pbr.frag Set 3
+        // svgf_reproject.slang, not the hit-distance spec variant); svgfDiSpecDenoised feeds pbr.frag Set 3
         // b8. Same shapes/clears as the GI SVGF. see arch/rendering-pipeline.md
         std::shared_ptr<Texture> svgfDiSpecDenoised;
         VkDescriptorSet svgfDiSpecPassthroughDescSet = VK_NULL_HANDLE;
