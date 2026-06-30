@@ -6,8 +6,6 @@
 #include "luth/renderer/FrameTargets.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
-#include "luth/renderer/backend/vulkan/VulkanRayTracingPipeline.h"
-#include "luth/renderer/backend/vulkan/RtShaderBindingTable.h"
 #include "luth/renderer/backend/vulkan/VulkanComputePipeline.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
@@ -189,52 +187,6 @@ namespace Luth
         {
             BuildShadowPipeline();
         }
-
-#if LUTH_ENABLE_VALIDATION
-        auto raygenSpv = ShaderCompiler::Compile(FileSystem::EngineAssetsPath("shaders/rt_smoke.rgen"));
-        if (raygenSpv.empty())
-        {
-            LH_LOG(Renderer, critical, "RtSubsystem: smoke shader compile failed — check ShaderCompiler RT mappings");
-            return;
-        }
-
-        RayTracingStages stages;
-        stages.stages.push_back({ VK_SHADER_STAGE_RAYGEN_BIT_KHR, raygenSpv, "main" });
-        RayTracingShaderGroup grp{};
-        grp.type          = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
-        grp.generalShader = 0;
-        stages.groups.push_back(grp);
-
-        VKRayTracingPipeline pipe(stages, {}, {}, 1);
-        if (pipe.GetPipeline() == VK_NULL_HANDLE)
-        {
-            LH_LOG(Renderer, critical, "RtSubsystem: smoke pipeline create failed");
-            return;
-        }
-
-        RtSbtCounts counts; counts.raygenCount = 1;
-        RtShaderBindingTable sbt(pipe, counts);
-        if (sbt.GetBuffer() == VK_NULL_HANDLE)
-        {
-            LH_LOG(Renderer, critical, "RtSubsystem: smoke SBT build failed");
-            return;
-        }
-
-        auto& ctx = VulkanContext::Get();
-        const VkStridedDeviceAddressRegionKHR empty{};
-        ctx.ImmediateSubmit([&](VkCommandBuffer cmd) {
-            pipe.Bind(cmd);
-            ctx.GetRtFn().vkCmdTraceRaysKHR(
-                cmd,
-                &sbt.GetRaygenRegion(),
-                &empty, &empty, &empty,
-                1, 1, 1);
-        });
-
-        LH_LOG(Renderer, info, "RtSubsystem: smoke-test traceRays OK");
-#else
-        LH_LOG(Renderer, info, "RtSubsystem: idle (Release build — smoke test disabled)");
-#endif
     }
 
     void RtSubsystem::Shutdown()
