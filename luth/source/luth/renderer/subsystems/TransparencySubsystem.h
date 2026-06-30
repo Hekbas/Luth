@@ -26,7 +26,7 @@ namespace Luth
         void BuildPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts);
         void Shutdown();
 
-        // Handles pbr_transparent.frag (returns true); pbr.vert / pbr_skinned.vert reloads
+        // Handles pbr_transparent.frag (returns true); pbr.vert / pbr_skinned.slang reloads
         // invalidate the cached variants but return false so GeometrySubsystem still owns them.
         bool OnShaderReloaded(const std::string& name, const std::vector<u32>& spv);
 

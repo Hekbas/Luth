@@ -624,7 +624,7 @@ namespace Luth
         // VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT — see VulkanAllocator::Init.
         features12.bufferDeviceAddress = VK_TRUE;
 
-        // scalarBlockLayout: skinning.comp reads the tight 84 B SkinnedVertex VB directly via a scalar
+        // scalarBlockLayout: skinning.slang reads the tight 84 B SkinnedVertex VB directly via a scalar
         // buffer_reference (no padded skin-input copy).
         features12.scalarBlockLayout = VK_TRUE;
 

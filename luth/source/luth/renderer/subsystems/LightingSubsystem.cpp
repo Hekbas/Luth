@@ -34,7 +34,7 @@ namespace Luth
         };
         m_ShadowVertSpv        = loadSpv("shaders/shadowDepth.vert");
         m_ShadowFragSpv        = loadSpv("shaders/shadowDepth.frag");
-        m_ShadowSkinnedVertSpv = loadSpv("shaders/shadowDepth_skinned.vert");
+        m_ShadowSkinnedVertSpv = loadSpv("shaders/shadowDepth_skinned.slang");
 
         if (m_ShadowVertSpv.empty() || m_ShadowFragSpv.empty() || m_ShadowSkinnedVertSpv.empty())
         {
@@ -312,7 +312,7 @@ namespace Luth
 
         if (name == "shadowDepth.vert")           m_ShadowVertSpv        = spv;
         else if (name == "shadowDepth.frag")      m_ShadowFragSpv        = spv;
-        else if (name == "shadowDepth_skinned.vert") m_ShadowSkinnedVertSpv = spv;
+        else if (name == "shadowDepth_skinned.slang") m_ShadowSkinnedVertSpv = spv;
         else if (name == "skybox.vert")           m_SkyboxVertSpv        = spv;
         else if (name == "skybox.frag")           m_SkyboxFragSpv        = spv;
         else return false;

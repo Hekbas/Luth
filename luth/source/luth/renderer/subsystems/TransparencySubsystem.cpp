@@ -233,7 +233,7 @@ namespace Luth
         }
         // Vert reloads are owned by GeometrySubsystem (cached spv there); our variants compiled
         // against the old spv must still drop. Return false so the geometry handler runs too.
-        if (name == "pbr.vert" || name == "pbr_skinned.vert")
+        if (name == "pbr.vert" || name == "pbr_skinned.slang")
         {
             invalidateSorted();
             invalidateOit();

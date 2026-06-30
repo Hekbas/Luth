@@ -141,7 +141,7 @@ namespace Luth
             // reaches both PostProcess and EditorOverlays (PostProcess returns false for it; EditorOverlays
             // returns true). Debug shaders + IBL precompute remain RP residual.
             // Transparency runs OUTSIDE the || chain (overlays precedent): it must also see
-            // pbr.vert / pbr_skinned.vert (handled = true by Geometry) to invalidate its variants.
+            // pbr.vert / pbr_skinned.slang (handled = true by Geometry) to invalidate its variants.
             const bool transparencyHandled = m_Transparency.OnShaderReloaded(name, spv);
             // SlangParity gate runs OUTSIDE the || chain: it re-scans restir_gi_initial.slang, which
             // RestirGi consumes first (short-circuiting the chain), and it rebuilds no pipeline of its own.
