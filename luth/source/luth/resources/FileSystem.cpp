@@ -180,20 +180,9 @@ namespace Luth
             { ".tga",     AssetType::Texture  },
             { ".mat",     AssetType::Material },
             { ".physmat", AssetType::PhysicsMaterial },
-            // .glsl is reserved for #include headers (common/*.glsl) loaded by the shader compiler's
-            // Includer at compile time, NOT standalone shader assets — kept out of the asset map so
-            // the asset DB skips importing them.
-            { ".vert",    AssetType::Shader   },
-            { ".frag",    AssetType::Shader   },
-            { ".comp",    AssetType::Shader   },
-            { ".rgen",    AssetType::Shader   },
-            { ".rmiss",   AssetType::Shader   },
-            { ".rchit",   AssetType::Shader   },
-            { ".rahit",   AssetType::Shader   },
-            { ".rint",    AssetType::Shader   },
-            { ".rcall",   AssetType::Shader   },
             // .slang carries its stage in a [shader("...")] attribute, not the extension; the importer
-            // resolves it via reflection. Coexists with the GLSL stage extensions above.
+            // resolves it via reflection. Shared common/*.slang include modules have no [shader] entry,
+            // so the importer skips them (no standalone artifact).
             { ".slang",   AssetType::Shader   },
             { ".ttf",     AssetType::Font     },
             { ".luth",    AssetType::Scene    },

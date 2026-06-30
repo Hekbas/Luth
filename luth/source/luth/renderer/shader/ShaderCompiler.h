@@ -7,25 +7,17 @@
 
 namespace Luth
 {
-    // GLSL-to-SPIR-V compiler shim. Wraps shaderc; AssetManager calls Compile during shader import
-    // (pipeline-line) and ShaderWatcher calls it again on hot reload. Compile runs synchronously
-    // — the caller dispatches it from a worker fiber, so the glslangValidator backend doesn't
-    // block the main thread.
+    // Slang -> SPIR-V dispatch. The asset importer calls CompileStaged on import; ShaderWatcher + the
+    // pipeline subsystems call Compile again on hot reload. Compile runs synchronously on a worker fiber.
     class ShaderCompiler
     {
     public:
-        // Infer shader stage from file extension (.vert / .frag / .comp).
-        // Returns ShaderStage::Unknown if the extension is not a known shader stage.
-        static ShaderStage InferStage(const std::filesystem::path& path);
-
-        // Compile GLSL source to SPIR-V. Stage is inferred from extension.
-        // Returns empty vector on failure.
+        // Compile a .slang shader to SPIR-V. Returns an empty vector on failure / non-.slang input.
         static std::vector<u32> Compile(const std::filesystem::path& sourcePath, bool optimize = false);
 
-        // Compile + resolve the pipeline stage together, for the asset importer. GLSL infers the stage
-        // from the extension; .slang reads it from the [shader("...")] attribute via reflection (the
-        // extension can't carry it). An empty spirv or Unknown stage means "not a single-stage shader
-        // asset", so the importer skips it instead of writing a stage-less artifact.
+        // Compile + resolve the pipeline stage together, for the asset importer. The stage is read from the
+        // .slang [shader("...")] attribute via reflection (the extension can't carry it). An empty spirv or
+        // Unknown stage means "not a single-stage shader asset", so the importer skips it.
         struct StagedSpirv { std::vector<u32> spirv; ShaderStage stage = ShaderStage::Unknown; };
         static StagedSpirv CompileStaged(const std::filesystem::path& sourcePath, bool optimize = false);
     };
