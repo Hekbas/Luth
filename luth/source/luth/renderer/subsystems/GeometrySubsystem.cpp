@@ -58,12 +58,12 @@ namespace Luth
             auto sh = ShaderLibrary::LoadEngine(relPath);
             return sh ? sh->GetSpirV() : std::vector<u32>{};
         };
-        m_PBRVertSpv                 = loadSpv("shaders/pbr.vert");
+        m_PBRVertSpv                 = loadSpv("shaders/pbr_vert.slang");
         m_PBRFragSpv                 = loadSpv("shaders/pbr.slang");
         m_PBRSkinnedVertSpv          = loadSpv("shaders/pbr_skinned.slang");
-        m_DepthPrepassVertSpv        = loadSpv("shaders/depthPrepass.vert");
+        m_DepthPrepassVertSpv        = loadSpv("shaders/depthPrepass.slang");
         m_DepthPrepassSkinnedVertSpv = loadSpv("shaders/depthPrepass_skinned.slang");
-        m_SlimGBufferVertSpv         = loadSpv("shaders/slim_gbuffer.vert");
+        m_SlimGBufferVertSpv         = loadSpv("shaders/slim_gbuffer_vert.slang");
         m_SlimGBufferSkinnedVertSpv  = loadSpv("shaders/slim_gbuffer_skinned.slang");
         m_SlimGBufferFragSpv         = loadSpv("shaders/slim_gbuffer.frag");
 
@@ -428,12 +428,12 @@ namespace Luth
                 VulkanContext::Get().PushDeletion([raw]() { delete raw; });
         };
 
-        if      (name == "pbr.vert")                   m_PBRVertSpv                 = spv;
+        if      (name == "pbr_vert.slang")                   m_PBRVertSpv                 = spv;
         else if (name == "pbr.slang")                  m_PBRFragSpv                 = spv;
         else if (name == "pbr_skinned.slang")           m_PBRSkinnedVertSpv          = spv;
-        else if (name == "depthPrepass.vert")          m_DepthPrepassVertSpv        = spv;
+        else if (name == "depthPrepass.slang")          m_DepthPrepassVertSpv        = spv;
         else if (name == "depthPrepass_skinned.slang")  m_DepthPrepassSkinnedVertSpv = spv;
-        else if (name == "slim_gbuffer.vert")          m_SlimGBufferVertSpv         = spv;
+        else if (name == "slim_gbuffer_vert.slang")          m_SlimGBufferVertSpv         = spv;
         else if (name == "slim_gbuffer.frag")          m_SlimGBufferFragSpv         = spv;
         else if (name == "slim_gbuffer_skinned.slang")  m_SlimGBufferSkinnedVertSpv  = spv;
         else if (name != "gpu_cull.slang") return false;
@@ -446,13 +446,13 @@ namespace Luth
                 std::vector<VkDescriptorSetLayout>{ m_CullDescLayout },
                 std::vector<VkPushConstantRange>{ pc });
         }
-        else if (name == "depthPrepass.vert" || name == "depthPrepass_skinned.slang")
+        else if (name == "depthPrepass.slang" || name == "depthPrepass_skinned.slang")
         {
             deferGfx(m_DepthPrepassPipeline);
             deferGfx(m_DepthPrepassSkinnedPipeline);
             BuildDepthPrepassPipelines(geoLayouts);
         }
-        else if (name == "slim_gbuffer.vert" || name == "slim_gbuffer.frag" || name == "slim_gbuffer_skinned.slang")
+        else if (name == "slim_gbuffer_vert.slang" || name == "slim_gbuffer.frag" || name == "slim_gbuffer_skinned.slang")
         {
             deferGfx(m_SlimGBufferPipeline);
             deferGfx(m_SlimGBufferSkinnedPipeline);
@@ -463,9 +463,9 @@ namespace Luth
         else
         {
             // pbr.* — invalidate the pipeline manager cache, rebuild the manager.
-            const bool isPBR = (name == "pbr.vert" || name == "pbr.slang");
+            const bool isPBR = (name == "pbr_vert.slang" || name == "pbr.slang");
             if (isPBR) {
-                UUID pbrKey = ShaderLibrary::Get("pbr.vert")->Handle;
+                UUID pbrKey = ShaderLibrary::Get("pbr_vert.slang")->Handle;
                 m_GeoPipelineManager.DeferredInvalidateShader(pbrKey);
                 m_GeoSkinnedPipelineManager.DeferredInvalidateShader(pbrKey);
             } else {
@@ -1214,7 +1214,7 @@ namespace Luth
                 sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "GeometryPass", "SceneColor", false,
                     { "pbr", 0, VK_CULL_MODE_BACK_BIT, polyMode, false, true, true, false });
 
-                UUID pbrUUID = ShaderLibrary::Get("pbr.vert")->Handle;
+                UUID pbrUUID = ShaderLibrary::Get("pbr_vert.slang")->Handle;
                 auto* opaquePipeline = m_GeoPipelineManager.GetOrCreate(
                     pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back, polyMode, m_PBRVertSpv, m_PBRFragSpv);
                 if (!opaquePipeline) { sys.GetFrameDebugger().EndCapturePass(); return; }

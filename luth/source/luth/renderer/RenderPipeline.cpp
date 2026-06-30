@@ -115,7 +115,7 @@ namespace Luth
         // Shader hot-reload callback: pulls fresh SPIR-V into the cached blob
         // and rebuilds pipelines that use it. Fires after ShaderLibrary::Reload
         // has already recompiled and re-reflected the single-stage shader.
-        // Library keys are the shader filename (e.g. "pbr.vert", "gtao_main.slang").
+        // Library keys are the shader filename (e.g. "pbr_vert.slang", "gtao_main.slang").
         ShaderLibrary::SetReloadCallback([this](const std::string& name) {
             // No vkDeviceWaitIdle: old pipelines are deferred-destroyed via
             // VulkanContext::PushDeletion, which drains MAX_FRAMES_IN_FLIGHT
@@ -137,11 +137,11 @@ namespace Luth
                 BoneMatrixBuffer::GetDescriptorSetLayout(),
                 m_Geometry.GetSet5Layout()
             };
-            // Subsystems handle their own shaders + pipeline rebuilds. Order ensures fullscreen.vert
+            // Subsystems handle their own shaders + pipeline rebuilds. Order ensures fullscreen.slang
             // reaches both PostProcess and EditorOverlays (PostProcess returns false for it; EditorOverlays
             // returns true). Debug shaders + IBL precompute remain RP residual.
             // Transparency runs OUTSIDE the || chain (overlays precedent): it must also see
-            // pbr.vert / pbr_skinned.slang (handled = true by Geometry) to invalidate its variants.
+            // pbr_vert.slang / pbr_skinned.slang (handled = true by Geometry) to invalidate its variants.
             const bool transparencyHandled = m_Transparency.OnShaderReloaded(name, spv);
             // SlangParity gate runs OUTSIDE the || chain: it re-scans restir_gi_initial.slang, which
             // RestirGi consumes first (short-circuiting the chain), and it rebuilds no pipeline of its own.
@@ -160,7 +160,7 @@ namespace Luth
                               || m_DenoiseGi->OnShaderReloaded(name, spv)
                               || m_DenoiseRefl->OnShaderReloaded(name, spv)
                               || m_DenoiseDiSpec->OnShaderReloaded(name, spv);
-            // PostProcess returns false for fullscreen.vert so EditorOverlays still gets to rebuild
+            // PostProcess returns false for fullscreen.slang so EditorOverlays still gets to rebuild
             // its outline/grid pipelines below.
             const bool ppHandled       = m_PostProcess.OnShaderReloaded(name, spv);
             const bool overlaysHandled = m_EditorOverlays.OnShaderReloaded(name, spv, geoLayouts);

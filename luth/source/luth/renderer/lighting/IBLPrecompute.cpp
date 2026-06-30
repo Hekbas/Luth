@@ -591,7 +591,7 @@ namespace Luth
                 };
                 result.skyboxVB = std::make_shared<VKVertexBuffer>(cubeVertices, sizeof(cubeVertices));
 
-                if (auto sh = ShaderLibrary::LoadEngine("shaders/skybox.vert"))
+                if (auto sh = ShaderLibrary::LoadEngine("shaders/skybox_vert.slang"))
                     result.skyboxVertSpv = sh->GetSpirV();
                 if (auto sh = ShaderLibrary::LoadEngine("shaders/skybox.frag"))
                     result.skyboxFragSpv = sh->GetSpirV();

@@ -193,7 +193,7 @@ namespace Luth
             auto sh = ShaderLibrary::LoadEngine(relPath);
             return sh ? sh->GetSpirV() : std::vector<u32>{};
         };
-        m_FullscreenVertSpv   = loadSpv("shaders/fullscreen.vert");
+        m_FullscreenVertSpv   = loadSpv("shaders/fullscreen.slang");
         m_BloomDownSpv        = loadSpv("shaders/bloom_downsample.slang");
         m_BloomUpSpv          = loadSpv("shaders/bloom_upsample.slang");
         m_PostProcessFragSpv  = loadSpv("shaders/postprocess.frag");
@@ -307,7 +307,7 @@ namespace Luth
                 VulkanContext::Get().PushDeletion([raw]() { delete raw; });
         };
 
-        if      (name == "fullscreen.vert")        m_FullscreenVertSpv  = spv;
+        if      (name == "fullscreen.slang")        m_FullscreenVertSpv  = spv;
         else if (name == "bloom_downsample.slang") m_BloomDownSpv       = spv;
         else if (name == "bloom_upsample.slang")   m_BloomUpSpv         = spv;
         else if (name == "postprocess.frag")       m_PostProcessFragSpv = spv;
@@ -321,9 +321,9 @@ namespace Luth
         deferGfx(m_SlimVizPipeline);
         deferGfx(m_TaaResolvePipeline);
         BuildPipelines();
-        // For fullscreen.vert, return false so the orchestrator also rebuilds Outline + Grid
+        // For fullscreen.slang, return false so the orchestrator also rebuilds Outline + Grid
         // (they share the same vertex shader). PostProcess pipelines are already rebuilt above.
-        return name != "fullscreen.vert";
+        return name != "fullscreen.slang";
     }
 
     void PostProcessSubsystem::UpdateUBO()

@@ -94,7 +94,7 @@ namespace Luth
             m_TransparentFragSpv = sh->GetSpirV();
         if (auto sh = ShaderLibrary::LoadEngine("shaders/pbr_oit_store.slang"))
             m_OitStoreFragSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/fullscreen.vert"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/fullscreen.slang"))
             m_FullscreenVertSpv = sh->GetSpirV();
         if (auto sh = ShaderLibrary::LoadEngine("shaders/oit_resolve.frag"))
             m_ResolveFragSpv = sh->GetSpirV();
@@ -233,7 +233,7 @@ namespace Luth
         }
         // Vert reloads are owned by GeometrySubsystem (cached spv there); our variants compiled
         // against the old spv must still drop. Return false so the geometry handler runs too.
-        if (name == "pbr.vert" || name == "pbr_skinned.slang")
+        if (name == "pbr_vert.slang" || name == "pbr_skinned.slang")
         {
             invalidateSorted();
             invalidateOit();

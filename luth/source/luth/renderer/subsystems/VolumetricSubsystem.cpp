@@ -287,7 +287,7 @@ namespace Luth
             layoutCI.pBindings    = bindings;
             vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_CompositeDescLayout);
 
-            if (auto sh = ShaderLibrary::LoadEngine("shaders/fullscreen.vert"))
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/fullscreen.slang"))
                 m_FullscreenVertSpv = sh->GetSpirV();
             if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_composite.slang"))
                 m_CompositeFragSpv = sh->GetSpirV();
@@ -677,7 +677,7 @@ namespace Luth
                 std::vector<VkPushConstantRange>{ pc });
             return true;
         }
-        if ((name == "volumetric_composite.slang" || name == "fullscreen.vert")
+        if ((name == "volumetric_composite.slang" || name == "fullscreen.slang")
             && m_CompositeDescLayout)
         {
             if (name == "volumetric_composite.slang") m_CompositeFragSpv = spv;

@@ -414,7 +414,7 @@ namespace Luth
         // Capture the CPU-side data we need by value (the lambda runs inside
         // ImmediateSubmit and must be self-contained).
         VkPolygonMode polyMode = (sys.GetShadeMode() == ShadeMode::Wireframe) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-        UUID pbrUUID = ShaderLibrary::Get("pbr.vert")->Handle;
+        UUID pbrUUID = ShaderLibrary::Get("pbr_vert.slang")->Handle;
 
         VulkanContext::Get().ImmediateSubmit([&, this](VkCommandBuffer cmd)
         {

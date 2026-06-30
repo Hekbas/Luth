@@ -32,7 +32,7 @@ namespace Luth
             auto sh = ShaderLibrary::LoadEngine(relPath);
             return sh ? sh->GetSpirV() : std::vector<u32>{};
         };
-        m_ShadowVertSpv        = loadSpv("shaders/shadowDepth.vert");
+        m_ShadowVertSpv        = loadSpv("shaders/shadowDepth_vert.slang");
         m_ShadowFragSpv        = loadSpv("shaders/shadowDepth.frag");
         m_ShadowSkinnedVertSpv = loadSpv("shaders/shadowDepth_skinned.slang");
 
@@ -159,7 +159,7 @@ namespace Luth
             slayoutCI.pBindings    = &sbinding;
             vkCreateDescriptorSetLayout(device, &slayoutCI, nullptr, &m_ClusterVizDescSetLayout);
 
-            m_FullscreenVertSpv = loadSpv("shaders/fullscreen.vert");
+            m_FullscreenVertSpv = loadSpv("shaders/fullscreen.slang");
             m_ClusterVizFragSpv = loadSpv("shaders/cluster_viz.slang");
             if (!m_FullscreenVertSpv.empty() && !m_ClusterVizFragSpv.empty())
             {
@@ -288,7 +288,7 @@ namespace Luth
                 std::vector<VkPushConstantRange>{ pc });
             return true;
         }
-        if ((name == "cluster_viz.slang" || name == "fullscreen.vert") && m_ClusterVizDescSetLayout)
+        if ((name == "cluster_viz.slang" || name == "fullscreen.slang") && m_ClusterVizDescSetLayout)
         {
             if (name == "cluster_viz.slang") m_ClusterVizFragSpv = spv;
             else                            m_FullscreenVertSpv = spv;
@@ -310,14 +310,14 @@ namespace Luth
             return true;
         }
 
-        if (name == "shadowDepth.vert")           m_ShadowVertSpv        = spv;
+        if (name == "shadowDepth_vert.slang")           m_ShadowVertSpv        = spv;
         else if (name == "shadowDepth.frag")      m_ShadowFragSpv        = spv;
         else if (name == "shadowDepth_skinned.slang") m_ShadowSkinnedVertSpv = spv;
-        else if (name == "skybox.vert")           m_SkyboxVertSpv        = spv;
+        else if (name == "skybox_vert.slang")           m_SkyboxVertSpv        = spv;
         else if (name == "skybox.frag")           m_SkyboxFragSpv        = spv;
         else return false;
 
-        if (name == "skybox.vert" || name == "skybox.frag")
+        if (name == "skybox_vert.slang" || name == "skybox.frag")
         {
             deferGfx(m_SkyboxPipeline);
             BuildSkyboxPipeline(geoLayouts);

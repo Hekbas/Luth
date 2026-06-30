@@ -58,12 +58,12 @@ namespace Luth
             auto sh = ShaderLibrary::LoadEngine(relPath);
             return sh ? sh->GetSpirV() : std::vector<u32>{};
         };
-        m_SelectionMaskVertSpv        = loadSpv("shaders/selectionMask.vert");
+        m_SelectionMaskVertSpv        = loadSpv("shaders/selectionMask_vert.slang");
         m_SelectionMaskFragSpv        = loadSpv("shaders/selectionMask.frag");
-        m_SelectionMaskSkinnedVertSpv = loadSpv("shaders/selectionMask_skinned.vert");
+        m_SelectionMaskSkinnedVertSpv = loadSpv("shaders/selectionMask_skinned.slang");
         m_OutlineFragSpv              = loadSpv("shaders/outline.frag");
         m_GridFragSpv                 = loadSpv("shaders/grid.frag");
-        m_FullscreenVertSpv           = loadSpv("shaders/fullscreen.vert");
+        m_FullscreenVertSpv           = loadSpv("shaders/fullscreen.slang");
 
         if (m_SelectionMaskVertSpv.empty() || m_SelectionMaskFragSpv.empty() ||
             m_SelectionMaskSkinnedVertSpv.empty() ||
@@ -275,22 +275,22 @@ namespace Luth
                 VulkanContext::Get().PushDeletion([raw]() { delete raw; });
         };
 
-        if      (name == "selectionMask.vert")         m_SelectionMaskVertSpv        = spv;
+        if      (name == "selectionMask_vert.slang")         m_SelectionMaskVertSpv        = spv;
         else if (name == "selectionMask.frag")         m_SelectionMaskFragSpv        = spv;
-        else if (name == "selectionMask_skinned.vert") m_SelectionMaskSkinnedVertSpv = spv;
+        else if (name == "selectionMask_skinned.slang") m_SelectionMaskSkinnedVertSpv = spv;
         else if (name == "outline.frag")               m_OutlineFragSpv              = spv;
         else if (name == "grid.frag")                  m_GridFragSpv                 = spv;
-        else if (name == "fullscreen.vert")            m_FullscreenVertSpv           = spv;
+        else if (name == "fullscreen.slang")            m_FullscreenVertSpv           = spv;
         else return false;
 
-        if (name == "outline.frag" || name == "grid.frag" || name == "fullscreen.vert")
+        if (name == "outline.frag" || name == "grid.frag" || name == "fullscreen.slang")
         {
             deferGfx(m_OutlinePipeline);
             deferGfx(m_GridPipeline);
             BuildOutlinePipeline();
             BuildGridPipeline();
         }
-        if (name == "selectionMask.vert" || name == "selectionMask.frag" || name == "selectionMask_skinned.vert")
+        if (name == "selectionMask_vert.slang" || name == "selectionMask.frag" || name == "selectionMask_skinned.slang")
         {
             deferGfx(m_SelectionMaskPipeline);
             deferGfx(m_SelectionMaskSkinnedPipeline);

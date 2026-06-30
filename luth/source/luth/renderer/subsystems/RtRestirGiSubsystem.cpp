@@ -211,7 +211,7 @@ namespace Luth
             vci.bindingCount = 2; vci.pBindings = vb;
             vkCreateDescriptorSetLayout(device, &vci, nullptr, &m_ReservoirVizSetLayout);
 
-            if (auto sh = ShaderLibrary::LoadEngine("shaders/fullscreen.vert"))              m_FullscreenVertSpv   = sh->GetSpirV();
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/fullscreen.slang"))              m_FullscreenVertSpv   = sh->GetSpirV();
             if (auto sh = ShaderLibrary::LoadEngine("shaders/restir_gi_reservoir_viz.slang")) m_ReservoirVizFragSpv = sh->GetSpirV();
             if (!m_FullscreenVertSpv.empty() && !m_ReservoirVizFragSpv.empty())
             {
@@ -291,7 +291,7 @@ namespace Luth
 
         // Reservoir debug-viz graphics pipeline (its own frag + the shared fullscreen vert). Rebuilt
         // with the same config as Init; the old pipeline defers a frame (an in-flight frame may bind it).
-        if ((name == "restir_gi_reservoir_viz.slang" || name == "fullscreen.vert") && m_ReservoirVizSetLayout != VK_NULL_HANDLE)
+        if ((name == "restir_gi_reservoir_viz.slang" || name == "fullscreen.slang") && m_ReservoirVizSetLayout != VK_NULL_HANDLE)
         {
             if (name == "restir_gi_reservoir_viz.slang") m_ReservoirVizFragSpv = spv;
             else                                        m_FullscreenVertSpv   = spv;

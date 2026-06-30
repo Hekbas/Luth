@@ -810,7 +810,7 @@ namespace Luth
 
         // Create new Material
         nlohmann::json matJson;
-        UUID pbrUUID = AssetDatabase::GetUUID(FileSystem::EngineAssetsPath("shaders/pbr.vert"));
+        UUID pbrUUID = AssetDatabase::GetUUID(FileSystem::EngineAssetsPath("shaders/pbr_vert.slang"));
         matJson["shader"] = pbrUUID.IsValid() ? pbrUUID.ToString() : "";
         // Render mode (Opaque=0/Cutout=1/Transparent=2; Fade=3 is editor-only): glTF alphaMode wins,
         // else opacity<1 → Transparent. The opacity>0.001 floor dodges the FBX "0 means default" quirk.
