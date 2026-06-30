@@ -115,7 +115,7 @@ namespace Luth
         // Shader hot-reload callback: pulls fresh SPIR-V into the cached blob
         // and rebuilds pipelines that use it. Fires after ShaderLibrary::Reload
         // has already recompiled and re-reflected the single-stage shader.
-        // Library keys are the shader filename (e.g. "pbr.vert", "gtao_main.comp").
+        // Library keys are the shader filename (e.g. "pbr.vert", "gtao_main.slang").
         ShaderLibrary::SetReloadCallback([this](const std::string& name) {
             // No vkDeviceWaitIdle: old pipelines are deferred-destroyed via
             // VulkanContext::PushDeletion, which drains MAX_FRAMES_IN_FLIGHT

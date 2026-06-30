@@ -51,11 +51,11 @@ namespace Luth
 
             VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(i32) * 2 + sizeof(float) * 6 };
 
-            if (auto sh = ShaderLibrary::LoadEngine("shaders/gtao_depth_prefilter.comp"))
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/gtao_depth_prefilter.slang"))
                 m_PrefilterSpv = sh->GetSpirV();
             if (m_PrefilterSpv.empty())
             {
-                LH_LOG(Renderer, error, "GTAOSubsystem: failed to load gtao_depth_prefilter.comp!");
+                LH_LOG(Renderer, error, "GTAOSubsystem: failed to load gtao_depth_prefilter.slang!");
                 return;
             }
             m_PrefilterPipeline = std::make_unique<VKComputePipeline>(
@@ -100,11 +100,11 @@ namespace Luth
 
             VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(float) * 4 + sizeof(u32) * 4 };
 
-            if (auto sh = ShaderLibrary::LoadEngine("shaders/gtao_main.comp"))
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/gtao_main.slang"))
                 m_MainSpv = sh->GetSpirV();
             if (m_MainSpv.empty())
             {
-                LH_LOG(Renderer, error, "GTAOSubsystem: failed to load gtao_main.comp!");
+                LH_LOG(Renderer, error, "GTAOSubsystem: failed to load gtao_main.slang!");
                 return;
             }
             m_MainPipeline = std::make_unique<VKComputePipeline>(
@@ -134,11 +134,11 @@ namespace Luth
             layoutCI.pBindings    = bindings;
             vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_DenoiseDescLayout);
 
-            if (auto sh = ShaderLibrary::LoadEngine("shaders/gtao_denoise.comp"))
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/gtao_denoise.slang"))
                 m_DenoiseSpv = sh->GetSpirV();
             if (m_DenoiseSpv.empty())
             {
-                LH_LOG(Renderer, error, "GTAOSubsystem: failed to load gtao_denoise.comp!");
+                LH_LOG(Renderer, error, "GTAOSubsystem: failed to load gtao_denoise.slang!");
                 return;
             }
             m_DenoisePipeline = std::make_unique<VKComputePipeline>(
@@ -173,7 +173,7 @@ namespace Luth
                 VulkanContext::Get().PushDeletion([raw]() { delete raw; });
         };
 
-        if (name == "gtao_depth_prefilter.comp" && m_PrefilterDescLayout)
+        if (name == "gtao_depth_prefilter.slang" && m_PrefilterDescLayout)
         {
             m_PrefilterSpv = spv;
             deferComp(m_PrefilterPipeline);
@@ -183,7 +183,7 @@ namespace Luth
                 std::vector<VkPushConstantRange>{ pc });
             return true;
         }
-        if (name == "gtao_main.comp" && m_MainDescLayout)
+        if (name == "gtao_main.slang" && m_MainDescLayout)
         {
             m_MainSpv = spv;
             deferComp(m_MainPipeline);
@@ -193,7 +193,7 @@ namespace Luth
                 std::vector<VkPushConstantRange>{ pc });
             return true;
         }
-        if (name == "gtao_denoise.comp" && m_DenoiseDescLayout)
+        if (name == "gtao_denoise.slang" && m_DenoiseDescLayout)
         {
             m_DenoiseSpv = spv;
             deferComp(m_DenoisePipeline);

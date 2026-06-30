@@ -491,11 +491,11 @@ namespace Luth
             vkCreateSampler(device, &bsCI, nullptr, &m_BlueNoiseSampler);
 
             std::vector<u32> bakeSpv;
-            if (auto sh = ShaderLibrary::LoadEngine("shaders/blue_noise_bake.comp"))
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/blue_noise_bake.slang"))
                 bakeSpv = sh->GetSpirV();
             if (bakeSpv.empty())
             {
-                LH_LOG(Renderer, error, "VolumetricSubsystem: failed to load blue_noise_bake.comp!");
+                LH_LOG(Renderer, error, "VolumetricSubsystem: failed to load blue_noise_bake.slang!");
                 return;
             }
 

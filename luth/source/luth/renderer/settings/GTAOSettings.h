@@ -4,7 +4,7 @@ namespace Luth
 {
     // GTAO (Ground Truth Ambient Occlusion, Jimenez 2016 / Intel XeGTAO)
     // runtime-tunable parameters. Mirrored to the GPU via GTAOUBO below
-    // and read by gtao_main.comp / gtao_denoise.comp; intensity/enabled
+    // and read by gtao_main.slang / gtao_denoise.slang; intensity/enabled
     // are also sampled by pbr.frag when modulating the ambient term.
     struct GTAOSettings
     {

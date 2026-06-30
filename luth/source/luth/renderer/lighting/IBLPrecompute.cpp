@@ -161,7 +161,7 @@ namespace Luth
                 // ---- 4. Equirect → Cubemap conversion ----
                 {
                     LH_PROFILE_SCOPE("EquirectToCubemap");
-                    auto sh = ShaderLibrary::LoadEngine("shaders/equirect_to_cubemap.comp");
+                    auto sh = ShaderLibrary::LoadEngine("shaders/equirect_to_cubemap.slang");
                     auto spv = sh ? sh->GetSpirV() : std::vector<u32>{};
 
                     VkDescriptorSetLayoutBinding layoutBindings[2] = {};
@@ -305,7 +305,7 @@ namespace Luth
                     result.irradianceMap = std::make_shared<VKTexture>(irrSize, irrSize, TextureFormat::RGBA16F, 6,
                         VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT, 1, VK_IMAGE_USAGE_STORAGE_BIT);
 
-                    auto sh = ShaderLibrary::LoadEngine("shaders/irradiance_convolve.comp");
+                    auto sh = ShaderLibrary::LoadEngine("shaders/irradiance_convolve.slang");
                     auto spv = sh ? sh->GetSpirV() : std::vector<u32>{};
 
                     VkDescriptorSetLayoutBinding layoutBindings[2] = {};
@@ -396,7 +396,7 @@ namespace Luth
                     result.prefilteredMap = std::make_shared<VKTexture>(pfSize, pfSize, TextureFormat::RGBA16F, 6,
                         VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT, pfMips, VK_IMAGE_USAGE_STORAGE_BIT);
 
-                    auto sh = ShaderLibrary::LoadEngine("shaders/prefilter_env.comp");
+                    auto sh = ShaderLibrary::LoadEngine("shaders/prefilter_env.slang");
                     auto spv = sh ? sh->GetSpirV() : std::vector<u32>{};
 
                     VkDescriptorSetLayoutBinding layoutBindings[2] = {};
@@ -502,7 +502,7 @@ namespace Luth
                     result.brdfLut = std::make_shared<VKTexture>(lutSize, lutSize, TextureFormat::RG16F, 1, 0, 1,
                         VK_IMAGE_USAGE_STORAGE_BIT);
 
-                    auto sh = ShaderLibrary::LoadEngine("shaders/brdf_lut.comp");
+                    auto sh = ShaderLibrary::LoadEngine("shaders/brdf_lut.slang");
                     auto spv = sh ? sh->GetSpirV() : std::vector<u32>{};
 
                     VkDescriptorSetLayoutBinding layoutBinding = { 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr };
