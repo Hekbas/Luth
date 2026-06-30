@@ -7,6 +7,18 @@ namespace Luth
 {
     struct EditorSettings;
 
+    // Serializable scene-view camera pose. These four orbit fields fully determine the view —
+    // m_Position is recomputed from them (see EditorCamera::ApplyPose), matching the
+    // m_Position == CalculatePosition() invariant the input modes maintain. FOV/clips stay
+    // global prefs (EditorSettings), so they are not stored per scene.
+    struct EditorCameraPose
+    {
+        Vec3  focalPoint = { 0.0f, 50.0f, 0.0f };
+        float distance   = 10.0f;
+        float pitch      = 0.0f;
+        float yaw        = 0.0f;
+    };
+
     // Orbit-and-fly camera that drives the Scene viewport. ScenePanel input updates it on the main
     // thread between frames; the resulting view and projection matrices feed RenderingSystem each
     // frame through EditorViewportState. Locked-entity mode follows a target Entity's transform.
@@ -64,6 +76,11 @@ namespace Luth
 
         void ApplySettings(const EditorSettings& s);
         void SyncToSettings(EditorSettings& s) const;
+
+        // Per-scene view persistence (SceneViewStore). CapturePose snapshots the orbit state;
+        // ApplyPose restores it, drops any Shift+F lock, and recomputes position.
+        EditorCameraPose CapturePose() const;
+        void ApplyPose(const EditorCameraPose& pose);
 
     private:
         void UpdateProjection();

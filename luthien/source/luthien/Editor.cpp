@@ -256,6 +256,7 @@ namespace Luth
         if (auto* pp = GetPanel<ProjectPanel>())
             s_Settings.thumbnailSize = pp->GetThumbnailSize();
         s_Settings.lastSceneUUID = s_ScenePath.empty() ? "" : AssetDatabase::GetUUID(s_ScenePath).ToString();
+        CaptureSceneView();
 
         SaveSettings();
         SaveActiveWorkspaceSidecar();
@@ -699,6 +700,9 @@ namespace Luth
     {
         if (!s_ActiveScene) return;
 
+        // Persist the outgoing scene's camera before clearing.
+        CaptureSceneView();
+
         // Clear all entities
         s_ActiveScene->Clear();
         CommandHistory::Clear();
@@ -720,11 +724,18 @@ namespace Luth
     {
         if (!s_ActiveScene) return;
 
+        // Persist the outgoing scene's camera before swapping scenes.
+        CaptureSceneView();
+
         if (SceneSerializer::Load(*s_ActiveScene, path)) {
             CommandHistory::Clear();
             s_ScenePath = path;
             s_IsDirty = false;
-            s_Settings.lastSceneUUID = AssetDatabase::GetUUID(path).ToString();
+            std::string sceneUUID = AssetDatabase::GetUUID(path).ToString();
+            s_Settings.lastSceneUUID = sceneUUID;
+
+            // Restore the editor camera to where this scene was last framed.
+            RestoreSceneView(sceneUUID);
 
             // Eagerly kick off loading for all assets referenced by the scene
             auto view = s_ActiveScene->GetAllEntitiesWith<Component::MeshRenderer>();
@@ -767,6 +778,9 @@ namespace Luth
             if (!fs::exists(metaPath)) {
                 MetaFile::Create(s_ScenePath, AssetType::Scene);
             }
+
+            // Persist the current scene-view camera alongside the save.
+            CaptureSceneView();
         }
     }
 
@@ -806,6 +820,35 @@ namespace Luth
 
         if (!s_SettingsPath.empty())
             EditorSettings::Save(s_Settings, s_SettingsPath);
+    }
+
+    std::filesystem::path Editor::SceneViewsPath()
+    {
+        return FileSystem::ProjectPath() / ".luth" / "scene_views.json";
+    }
+
+    void Editor::CaptureSceneView()
+    {
+        // Unsaved scenes have no path, hence no UUID to key the pose against.
+        if (s_ScenePath.empty()) return;
+
+        UUID uuid = AssetDatabase::GetUUID(s_ScenePath);
+        if (!uuid.IsValid()) return;
+
+        auto* sp = GetPanel<ScenePanel>();
+        if (!sp) return;
+
+        s_SceneViews.Set(uuid.ToString(), sp->GetEditorCamera().CapturePose());
+        s_SceneViews.Save(SceneViewsPath());   // write-through — tiny file, crash-safe
+    }
+
+    void Editor::RestoreSceneView(const std::string& sceneUUID)
+    {
+        auto pose = s_SceneViews.Get(sceneUUID);
+        if (!pose) return;
+
+        if (auto* sp = GetPanel<ScenePanel>())
+            sp->GetEditorCamera().ApplyPose(*pose);
     }
 
     namespace
@@ -1332,6 +1375,10 @@ namespace Luth
 
         // Reload editor settings from the new project directory
         LoadSettings();
+
+        // Load this project's persisted scene-view camera poses so the last-scene auto-load
+        // below restores it at the camera it was left at.
+        s_SceneViews.Load(SceneViewsPath());
 
         // Clear scene state
         s_ScenePath.clear();

@@ -222,4 +222,20 @@ namespace Luth
         s.cameraZoomSpeed     = m_ZoomSpeed;
         s.cameraShiftMult     = m_ShiftMultiplier;
     }
+
+    EditorCameraPose EditorCamera::CapturePose() const {
+        return { m_FocalPoint, m_Distance, m_Pitch, m_Yaw };
+    }
+
+    void EditorCamera::ApplyPose(const EditorCameraPose& pose) {
+        // The Shift+F lock targets an entity from the outgoing scene — drop it so OnUpdate
+        // can't snap the focal point to a stale handle once the new scene is live.
+        ClearLockedEntity();
+        m_FocalPoint = pose.focalPoint;
+        m_Distance   = Math::Max(pose.distance, 0.1f);
+        m_Pitch      = Math::Clamp(pose.pitch, -89.0f, 89.0f);
+        m_Yaw        = pose.yaw;
+        m_Position   = CalculatePosition();
+        UpdateView();
+    }
 }

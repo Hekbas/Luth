@@ -6,6 +6,7 @@
 #include "luth/scene/Scene.h"
 #include "luthien/EditorSettings.h"
 #include "luthien/ProjectLauncher.h"
+#include "luthien/SceneViewStore.h"
 #include "luthien/Workspace.h"
 
 #include <memory>
@@ -202,6 +203,13 @@ namespace Luth
         // so per-workspace visibility tweaks persist without an explicit Save As.
         static void SaveActiveWorkspaceSidecar();
 
+        // Per-scene editor-camera pose persistence (SceneViewStore → <project>/.luth/scene_views.json).
+        // Capture writes through on scene save/switch/shutdown; restore runs after a scene loads.
+        // A scene with no path (unsaved) has no UUID key and is skipped.
+        static void CaptureSceneView();
+        static void RestoreSceneView(const std::string& sceneUUID);
+        static std::filesystem::path SceneViewsPath();
+
         static void ProcessShortcuts();
         static void DrawMenuBar();
         static void UpdateWindowTitle();
@@ -235,6 +243,10 @@ namespace Luth
         // Settings
         static inline EditorSettings s_Settings;
         static inline std::filesystem::path s_SettingsPath;
+
+        // Per-project scene-view camera poses (keyed by scene UUID). Loaded on project change,
+        // written through on capture.
+        static inline SceneViewStore s_SceneViews;
 
         // Deferred style change (fonts can't be rebuilt mid-frame)
         static inline std::string s_PendingStyle;
