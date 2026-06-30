@@ -82,7 +82,7 @@ Project Load (Phase 2, after user selects a project):
 | **TextureImporter** | .png/.jpg/.tga | stb_image → RGBA8 pixels, reads .meta settings | `[AssetHeader][TextureHeader][pixels]` |
 | **ModelImporter** | .fbx/.obj/.gltf/.dae | Assimp (triangulate, normals, tangents, flip UVs), axis correction, extracts embedded textures + materials as side-effect | `[AssetHeader][ModelHeader][MaterialUUIDs][Meshes]` |
 | **MaterialImporter** | .mat (JSON) | Wraps JSON in artifact | `[AssetHeader][JsonSize][JsonData]` |
-| **ShaderImporter** | .vert / .frag / .comp (GLSL) | Infers stage from extension, compiles one file via shaderc → SPIR-V | `[AssetHeader(v=2)][ShaderHeader{Stage,SpirVSize}][SpirV]` |
+| **ShaderImporter** | .slang | Compiles via the in-process Slang session; stage read from the `[shader("...")]` attribute via reflection (the shared `common/*.slang` include modules have no entry point, so the importer skips them) | `[AssetHeader(v=2)][ShaderHeader{Stage,SpirVSize}][SpirV]` |
 
 All importers run on worker threads (no Vulkan access). GPU resource creation happens on main thread only.
 
