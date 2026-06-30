@@ -62,8 +62,8 @@ namespace Luth
     };
 
     // ── Forward+ clustered lighting ──
-    // invariant: cluster tile + slice counts must match the GLSL constants in cluster_build.comp,
-    // light_assign.comp, and pbr.frag's ComputeClusterID. SSBO bindings on Set 3 b0-b2 (see arch/rendering-pipeline.md).
+    // invariant: cluster tile + slice counts must match the GLSL constants in cluster_build.slang,
+    // light_assign.slang, and pbr.frag's ComputeClusterID. SSBO bindings on Set 3 b0-b2 (see arch/rendering-pipeline.md).
 
     inline constexpr u32 k_ClusterTilesX        = 16;
     inline constexpr u32 k_ClusterTilesY        =  9;

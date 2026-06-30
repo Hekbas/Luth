@@ -188,11 +188,11 @@ namespace Luth
         pcRange.offset     = 0;
         pcRange.size       = sizeof(Vec4) * 6 + sizeof(u32) * 2;
 
-        auto cullShader = ShaderLibrary::LoadEngine("shaders/gpu_cull.comp");
+        auto cullShader = ShaderLibrary::LoadEngine("shaders/gpu_cull.slang");
         auto spv = cullShader ? cullShader->GetSpirV() : std::vector<u32>{};
         if (spv.empty())
         {
-            LH_LOG(Renderer, error, "GeometrySubsystem: failed to load gpu_cull.comp!");
+            LH_LOG(Renderer, error, "GeometrySubsystem: failed to load gpu_cull.slang!");
             return;
         }
         m_CullPipeline = std::make_unique<VKComputePipeline>(
@@ -436,9 +436,9 @@ namespace Luth
         else if (name == "slim_gbuffer.vert")          m_SlimGBufferVertSpv         = spv;
         else if (name == "slim_gbuffer.frag")          m_SlimGBufferFragSpv         = spv;
         else if (name == "slim_gbuffer_skinned.slang")  m_SlimGBufferSkinnedVertSpv  = spv;
-        else if (name != "gpu_cull.comp") return false;
+        else if (name != "gpu_cull.slang") return false;
 
-        if (name == "gpu_cull.comp" && m_CullDescLayout)
+        if (name == "gpu_cull.slang" && m_CullDescLayout)
         {
             deferComp(m_CullPipeline);
             VkPushConstantRange pc{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Vec4) * 6 + sizeof(u32) * 2 };
