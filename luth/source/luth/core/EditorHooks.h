@@ -61,16 +61,22 @@ namespace Luth
         float gridFadeEnd       = 200.0f;
         float gridLineThickness = 1.0f;
 
-        // Editor in-world gizmo toggles + palette (mirrors CameraParams; defaults off for runtime).
-        bool showBoneDebug    = false;
-        bool showLightGizmos  = false;
-        bool showCameraGizmos = false;
-        bool showAABBGizmos   = false;
-        Vec4 gizmoCameraColor       = { 0.706f, 0.706f, 0.863f, 0.706f };
-        Vec4 gizmoAABBColor         = { 0.627f, 0.627f, 0.627f, 0.392f };
-        Vec4 gizmoAABBSelectedColor = { 1.000f, 0.627f, 0.000f, 0.784f };
-        Vec4 gizmoBoneLineColor     = { 0.000f, 1.000f, 0.502f, 0.784f };
-        Vec4 gizmoBoneJointColor    = { 1.000f, 1.000f, 0.000f, 1.000f };
+        // Editor in-world gizmo scopes + palette (mirrors CameraParams; off in runtime). Each category
+        // draws when (all || selected&&isSel); All dims unselected to gizmoAlphaUnselected. see arch/editor.md
+        bool lightsSelected  = false;  bool lightsAll  = false;
+        bool camerasSelected = false;  bool camerasAll = false;
+        bool boundsSelected  = false;  bool boundsAll  = false;
+        bool bonesSelected   = false;  bool bonesAll   = false;
+        bool fogSelected     = false;  bool fogAll     = false;
+        bool windSelected    = false;  bool windAll    = false;
+        float gizmoAlphaUnselected  = 0.5f;
+        Vec4  gizmoCameraColor      = { 0.706f, 0.706f, 0.863f, 0.706f };
+        Vec4  gizmoAABBColor        = { 0.627f, 0.627f, 0.627f, 0.392f };
+        Vec4  gizmoAABBSelectedColor= { 1.000f, 0.627f, 0.000f, 0.784f };
+        Vec4  gizmoBoneLineColor    = { 0.000f, 1.000f, 0.502f, 0.784f };
+        Vec4  gizmoBoneJointColor   = { 1.000f, 1.000f, 0.000f, 1.000f };
+        Vec4  gizmoFogColor         = { 0.300f, 0.800f, 1.000f, 0.500f };
+        Vec4  gizmoWindColor        = { 0.600f, 0.900f, 1.000f, 0.800f };
 
         // When true, AnimationSystem still ticks while PlayState::Editing so
         // characters animate in the scene view. Flip off for strict

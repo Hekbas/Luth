@@ -43,10 +43,15 @@ namespace Luth
         float thumbnailSize             = 64.0f;
         float texturePreviewFooterHeight = 220.0f;   // pinned-footer height in TextureEditor / Material / Model inspectors
         bool  showControlsOverlay       = true;
-        bool  showBoneDebug             = false;
-        bool  showLightGizmos           = true;
-        bool  showCameraGizmos          = true;
-        bool  showAABBGizmos            = false;
+        // In-world gizmo scopes (mirror the physics Selected/All model). Engine reads via CameraParams.
+        bool  lightsSelected  = true;   bool  lightsAll  = false;
+        bool  camerasSelected = true;   bool  camerasAll = false;
+        bool  boundsSelected  = false;  bool  boundsAll  = false;
+        bool  bonesSelected   = false;  bool  bonesAll   = false;
+        bool  fogSelected     = false;  bool  fogAll     = true;
+        bool  windSelected    = true;   bool  windAll    = false;
+        float gizmoAlphaUnselected      = 0.5f;
+        float gizmoIconScale            = 1.5f;   // scene billboard icon size multiplier
         bool  showGrid                  = true;
         bool  showTriIndicatorOverlay   = true;
         // Last-selected debug render mode (Normals=3 / EntityID=4 in ShadeMode).

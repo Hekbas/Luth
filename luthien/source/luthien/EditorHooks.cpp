@@ -81,15 +81,20 @@ namespace
                             ((c >> IM_COL32_B_SHIFT) & 0xFFu) / 255.0f,
                             ((c >> IM_COL32_A_SHIFT) & 0xFFu) / 255.0f);
             };
-            out.showBoneDebug          = s.showBoneDebug;
-            out.showLightGizmos        = s.showLightGizmos;
-            out.showCameraGizmos       = s.showCameraGizmos;
-            out.showAABBGizmos         = s.showAABBGizmos;
+            out.lightsSelected  = s.lightsSelected;   out.lightsAll  = s.lightsAll;
+            out.camerasSelected = s.camerasSelected;  out.camerasAll = s.camerasAll;
+            out.boundsSelected  = s.boundsSelected;   out.boundsAll  = s.boundsAll;
+            out.bonesSelected   = s.bonesSelected;    out.bonesAll   = s.bonesAll;
+            out.fogSelected     = s.fogSelected;      out.fogAll     = s.fogAll;
+            out.windSelected    = s.windSelected;     out.windAll    = s.windAll;
+            out.gizmoAlphaUnselected   = s.gizmoAlphaUnselected;
             out.gizmoCameraColor       = colToVec4(EditorColors::GizmoCamera);
             out.gizmoAABBColor         = colToVec4(EditorColors::GizmoAABB);
             out.gizmoAABBSelectedColor = colToVec4(EditorColors::GizmoAABBSelected);
             out.gizmoBoneLineColor     = colToVec4(EditorColors::GizmoBoneLine);
             out.gizmoBoneJointColor    = colToVec4(EditorColors::GizmoBoneJoint);
+            out.gizmoFogColor          = colToVec4(EditorColors::GizmoFog);
+            out.gizmoWindColor         = colToVec4(EditorColors::GizmoWind);
 
             out.previewAnimationInEditor = s.previewAnimationInEditor;
 

@@ -10,6 +10,8 @@
 #include "luthien/widgets/Icons.h"
 #include "luth/scene/Scene.h"
 #include "luth/scene/Components.h"
+#include "luth/scene/components/FogVolume.h"
+#include "luth/scene/components/Wind.h"
 
 namespace Luth
 {
@@ -24,6 +26,8 @@ namespace Luth
     {
         DrawLights(scene, camera, selected);
         DrawCameras(scene, camera, selected);
+        DrawFog(scene, camera, selected);
+        DrawWind(scene, camera, selected);
     }
 
     ImVec2 ViewportOverlays::ProjectToScreen(const EditorCamera& camera, const Vec3& worldPos) const
@@ -52,7 +56,8 @@ namespace Luth
     void ViewportOverlays::DrawLights(const std::shared_ptr<Scene>& scene,
                                       const EditorCamera& camera, Entity selected)
     {
-        if (!Editor::GetSettings().showLightGizmos) return;
+        const auto& gs = Editor::GetSettings();
+        if (!gs.lightsSelected && !gs.lightsAll) return;   // icons show whenever lights are enabled (either scope)
         if (!scene) return;
 
         auto& registry = scene->Registry();
@@ -66,7 +71,8 @@ namespace Luth
         auto icon = [&](entt::entity e, const Vec3& worldPos, const char* glyph, ImU32 color) {
             ImVec2 screenPos = ProjectToScreen(camera, worldPos);
             if (screenPos.x >= 0.0f)
-                m_Gizmo.DrawGizmoIcon(drawList, screenPos, glyph, color, e, isHovered, hasValidSelection);
+                m_Gizmo.DrawGizmoIcon(drawList, screenPos, glyph, color, e, isHovered, hasValidSelection,
+                                      Math::Length(camera.GetPosition() - worldPos));
         };
 
         for (auto e : registry.view<WorldTransform, DirectionalLight>()) {
@@ -93,7 +99,8 @@ namespace Luth
     void ViewportOverlays::DrawCameras(const std::shared_ptr<Scene>& scene,
                                        const EditorCamera& camera, Entity selected)
     {
-        if (!Editor::GetSettings().showCameraGizmos) return;
+        const auto& gs = Editor::GetSettings();
+        if (!gs.camerasSelected && !gs.camerasAll) return;   // icons show whenever cameras are enabled (either scope)
         if (!scene) return;
 
         auto& registry = scene->Registry();
@@ -106,10 +113,73 @@ namespace Luth
 
         for (auto e : registry.view<WorldTransform, Camera>()) {
             auto& wt = registry.get<WorldTransform>(e);
-            ImVec2 screenPos = ProjectToScreen(camera, Vec3(wt.Matrix[3]));
+            const Vec3 worldPos = Vec3(wt.Matrix[3]);
+            ImVec2 screenPos = ProjectToScreen(camera, worldPos);
             if (screenPos.x >= 0.0f)
                 m_Gizmo.DrawGizmoIcon(drawList, screenPos, ICON_VIDEO_CAMERA_FILL,
-                                      EditorColors::GizmoCamera, e, isHovered, hasValidSelection);
+                                      EditorColors::GizmoCamera, e, isHovered, hasValidSelection,
+                                      Math::Length(camera.GetPosition() - worldPos));
+        }
+
+        drawList->PopClipRect();
+    }
+
+    // ── Fog Volume Icons ──
+
+    void ViewportOverlays::DrawFog(const std::shared_ptr<Scene>& scene,
+                                   const EditorCamera& camera, Entity selected)
+    {
+        const auto& gs = Editor::GetSettings();
+        if (!gs.fogSelected && !gs.fogAll) return;   // icons show whenever fog is enabled (either scope)
+        if (!scene) return;
+
+        auto& registry = scene->Registry();
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        const ImVec2* bounds = m_Viewport.GetBounds();
+        drawList->PushClipRect(bounds[0], bounds[1], true);
+
+        const bool isHovered = m_Viewport.IsHovered();
+        const bool hasValidSelection = selected && selected.IsValid();
+
+        // Icon shares the fog wireframe hue but renders near-opaque so the billboard stays legible.
+        const ImU32 color = (EditorColors::GizmoFog & 0x00FFFFFFu) | (230u << IM_COL32_A_SHIFT);
+        for (auto e : registry.view<WorldTransform, FogVolume>()) {
+            auto& wt = registry.get<WorldTransform>(e);
+            const Vec3 worldPos = Vec3(wt.Matrix[3]);
+            ImVec2 screenPos = ProjectToScreen(camera, worldPos);
+            if (screenPos.x >= 0.0f)
+                m_Gizmo.DrawGizmoIcon(drawList, screenPos, ICON_FOG_FILL, color, e, isHovered, hasValidSelection,
+                                      Math::Length(camera.GetPosition() - worldPos));
+        }
+
+        drawList->PopClipRect();
+    }
+
+    // ── Wind Icons ──
+
+    void ViewportOverlays::DrawWind(const std::shared_ptr<Scene>& scene,
+                                    const EditorCamera& camera, Entity selected)
+    {
+        const auto& gs = Editor::GetSettings();
+        if (!gs.windSelected && !gs.windAll) return;   // icons show whenever wind is enabled (either scope)
+        if (!scene) return;
+
+        auto& registry = scene->Registry();
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        const ImVec2* bounds = m_Viewport.GetBounds();
+        drawList->PushClipRect(bounds[0], bounds[1], true);
+
+        const bool isHovered = m_Viewport.IsHovered();
+        const bool hasValidSelection = selected && selected.IsValid();
+
+        const ImU32 color = (EditorColors::GizmoWind & 0x00FFFFFFu) | (230u << IM_COL32_A_SHIFT);
+        for (auto e : registry.view<WorldTransform, Wind>()) {
+            auto& wt = registry.get<WorldTransform>(e);
+            const Vec3 worldPos = Vec3(wt.Matrix[3]);
+            ImVec2 screenPos = ProjectToScreen(camera, worldPos);
+            if (screenPos.x >= 0.0f)
+                m_Gizmo.DrawGizmoIcon(drawList, screenPos, ICON_WIND_FILL, color, e, isHovered, hasValidSelection,
+                                      Math::Length(camera.GetPosition() - worldPos));
         }
 
         drawList->PopClipRect();

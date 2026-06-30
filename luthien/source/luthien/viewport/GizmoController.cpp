@@ -5,6 +5,7 @@
 #include "luthien/commands/Commands.h"
 #include "luthien/EditorSelection.h"
 #include "luthien/Editor.h"
+#include "luthien/EditorSettings.h"
 #include "luth/scene/Components.h"
 
 #include <ImGuizmo.h>
@@ -173,18 +174,25 @@ namespace Luth
 
     void GizmoController::DrawGizmoIcon(ImDrawList* drawList, ImVec2 screenPos, const char* icon,
                                         ImU32 color, entt::entity entity,
-                                        bool isHovered, bool hasValidSelection)
+                                        bool isHovered, bool hasValidSelection, float distance)
     {
-        constexpr float hitRadius = 16.0f;
+        // Billboard size: a base on-screen size scaled by camera distance about a reference distance,
+        // clamped to [kMinPx, the large-bake size]. Rendering from the 64-px fill font means the glyph
+        // only ever MINIFIES (crisp) — upscaling the 14-px UI bake blurs. Icon Size shifts the curve.
+        // Callers pass the *_FILL glyphs (the large bake carries the Fill range).
+        ImFont* gf = Editor::GetIconFillLarge();
+        constexpr float kBasePx = 22.0f, kRefDist = 12.0f, kMinPx = 14.0f;
+        const float s  = Editor::GetSettings().gizmoIconScale;
+        const float d  = Math::Max(distance, 0.001f);
+        const float px = Math::Clamp(kBasePx * s * (kRefDist / d), kMinPx, gf->FontSize);
+        const float hitRadius = Math::Max(px * 0.6f, 8.0f);
 
-        // Viewport light/camera billboards render in the Fill weight (callers pass the
-        // *_FILL glyphs); the default editor font only carries the Regular weight.
-        ImFont* gf = Editor::GetIconFill();
         ImGui::PushFont(gf);
-        ImVec2 textSize = ImGui::CalcTextSize(icon);
+        ImVec2 textSize = ImGui::CalcTextSize(icon);     // measured at the 64-px native size
         ImGui::PopFont();
-        ImVec2 textPos = { screenPos.x - textSize.x * 0.5f, screenPos.y - textSize.y * 0.5f };
-        drawList->AddText(gf, gf->FontSize, textPos, color, icon);
+        const float k = px / gf->FontSize;               // minify the large glyph down to px
+        ImVec2 textPos = { screenPos.x - textSize.x * k * 0.5f, screenPos.y - textSize.y * k * 0.5f };
+        drawList->AddText(gf, px, textPos, color, icon);
 
         // Only consider ImGuizmo::IsOver() when a transform gizmo is actually active —
         // otherwise it returns stale state from the previous frame

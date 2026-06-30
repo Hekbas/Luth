@@ -263,7 +263,7 @@ Component-level UI in `DrawComponent<Animation>`:
 - **Transport**: Play/Pause/Stop buttons, Speed slider (0–5), Loop checkbox
 - **Timeline scrubber**: SliderFloat 0→duration, sets `CurrentTime` for manual scrubbing when paused
 - **Frame counter**: `time * ticksPerSecond` display
-- **Show Bones**: Toggles `EditorSettings::showBoneDebug`
+- **Show Bones**: Toggles `EditorSettings::bonesSelected`
 
 ### Model Instantiation (`luthien/panels/HierarchyPanel.cpp`)
 

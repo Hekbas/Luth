@@ -361,15 +361,20 @@ namespace Luth
                     cp.gridFadeEnd       = viewState.gridFadeEnd;
                     cp.gridLineThickness = viewState.gridLineThickness;
 
-                    cp.showBoneDebug          = viewState.showBoneDebug;
-                    cp.showLightGizmos        = viewState.showLightGizmos;
-                    cp.showCameraGizmos       = viewState.showCameraGizmos;
-                    cp.showAABBGizmos         = viewState.showAABBGizmos;
+                    cp.lightsSelected  = viewState.lightsSelected;   cp.lightsAll  = viewState.lightsAll;
+                    cp.camerasSelected = viewState.camerasSelected;  cp.camerasAll = viewState.camerasAll;
+                    cp.boundsSelected  = viewState.boundsSelected;   cp.boundsAll  = viewState.boundsAll;
+                    cp.bonesSelected   = viewState.bonesSelected;    cp.bonesAll   = viewState.bonesAll;
+                    cp.fogSelected     = viewState.fogSelected;      cp.fogAll     = viewState.fogAll;
+                    cp.windSelected    = viewState.windSelected;     cp.windAll    = viewState.windAll;
+                    cp.gizmoAlphaUnselected   = viewState.gizmoAlphaUnselected;
                     cp.gizmoCameraColor       = viewState.gizmoCameraColor;
                     cp.gizmoAABBColor         = viewState.gizmoAABBColor;
                     cp.gizmoAABBSelectedColor = viewState.gizmoAABBSelectedColor;
                     cp.gizmoBoneLineColor     = viewState.gizmoBoneLineColor;
                     cp.gizmoBoneJointColor    = viewState.gizmoBoneJointColor;
+                    cp.gizmoFogColor          = viewState.gizmoFogColor;
+                    cp.gizmoWindColor         = viewState.gizmoWindColor;
                 }
                 rs->SetCameraParams(cp);
             }
@@ -456,11 +461,11 @@ namespace Luth
         if (app->m_RunGameSystems)
             SystemRegistry::Update<AnimationSystem>();
 
-        // Editor in-world gizmos (lights/cameras/AABBs/bones/fog) → DebugDraw. Game-stage producer:
+        // Editor in-world gizmos (lights/cameras/bounds/bones/fog/wind) → DebugDraw. Game-stage producer:
         // shares DebugDraw's single-writer slot, reads post-Animation transforms, gated per category
         // by CameraParams (all-off in a runtime build). DebugDrawSubsystem flushes them in the scene view.
         if (auto* rs = SystemRegistry::GetSystem<RenderingSystem>())
-            Gizmos::Draw(*app->m_Scene, rs->GetCameraParams());
+            Gizmos::Draw(*app->m_Scene, rs->GetCameraParams(), rs->GetWindSettings());
 
         // CaptureSnapshot must run after all ECS mutations for the frame —
         // it freezes the state Render(N-1) will read next iteration.
