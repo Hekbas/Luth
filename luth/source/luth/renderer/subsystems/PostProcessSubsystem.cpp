@@ -18,7 +18,7 @@
 
 namespace Luth
 {
-    // Mirrors the GLSL push_constant block in taa_resolve.frag. Source-side de-jitter now lives
+    // Mirrors the GLSL push_constant block in taa_resolve.slang. Source-side de-jitter now lives
     // in slim_gbuffer.frag (ubo.taaParams.zw + ubo.prevJitter), so the resolve no longer carries
     // a jitter delta — just the temporal feedback weight.
     struct TaaResolvePushConstants
@@ -26,7 +26,7 @@ namespace Luth
         f32 temporalAlpha;
     };
     static_assert(sizeof(TaaResolvePushConstants) == 4,
-                  "TaaResolvePushConstants must match taa_resolve.frag's push_constant block");
+                  "TaaResolvePushConstants must match taa_resolve.slang's push_constant block");
 
     // Mirrors bloom_downsample.slang's push_constant. prefilter=1 gates the threshold + Karis
     // bright-pass on the scene->mip0 step; later mips run the plain 13-tap.
@@ -196,9 +196,9 @@ namespace Luth
         m_FullscreenVertSpv   = loadSpv("shaders/fullscreen.slang");
         m_BloomDownSpv        = loadSpv("shaders/bloom_downsample.slang");
         m_BloomUpSpv          = loadSpv("shaders/bloom_upsample.slang");
-        m_PostProcessFragSpv  = loadSpv("shaders/postprocess.frag");
-        m_SlimVizFragSpv      = loadSpv("shaders/slim_viz.frag");
-        m_TaaResolveFragSpv   = loadSpv("shaders/taa_resolve.frag");
+        m_PostProcessFragSpv  = loadSpv("shaders/postprocess.slang");
+        m_SlimVizFragSpv      = loadSpv("shaders/slim_viz.slang");
+        m_TaaResolveFragSpv   = loadSpv("shaders/taa_resolve.slang");
 
         if (m_FullscreenVertSpv.empty() || m_BloomDownSpv.empty() ||
             m_BloomUpSpv.empty() || m_PostProcessFragSpv.empty() ||
@@ -310,9 +310,9 @@ namespace Luth
         if      (name == "fullscreen.slang")        m_FullscreenVertSpv  = spv;
         else if (name == "bloom_downsample.slang") m_BloomDownSpv       = spv;
         else if (name == "bloom_upsample.slang")   m_BloomUpSpv         = spv;
-        else if (name == "postprocess.frag")       m_PostProcessFragSpv = spv;
-        else if (name == "slim_viz.frag")          m_SlimVizFragSpv     = spv;
-        else if (name == "taa_resolve.frag")       m_TaaResolveFragSpv  = spv;
+        else if (name == "postprocess.slang")       m_PostProcessFragSpv = spv;
+        else if (name == "slim_viz.slang")          m_SlimVizFragSpv     = spv;
+        else if (name == "taa_resolve.slang")       m_TaaResolveFragSpv  = spv;
         else return false;
 
         deferComp(m_BloomDownPipeline);

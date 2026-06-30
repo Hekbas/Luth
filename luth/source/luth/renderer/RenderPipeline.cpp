@@ -167,15 +167,15 @@ namespace Luth
             const bool debugHandled    = m_DebugDraw.OnShaderReloaded(name, spv);
             if (handled || ppHandled || overlaysHandled || debugHandled || transparencyHandled)
             {
-                if      (name == "debugBlit.frag")  m_System.GetFrameDebugger().blitFragSpv  = spv;
-                else if (name == "debugDepth.frag") m_System.GetFrameDebugger().depthFragSpv = spv;
+                if      (name == "debugBlit.slang")  m_System.GetFrameDebugger().blitFragSpv  = spv;
+                else if (name == "debugDepth.slang") m_System.GetFrameDebugger().depthFragSpv = spv;
                 LH_LOG(Renderer, info, "Pipelines rebuilt after shader reload: {}", name);
                 return;
             }
 
             // Debug-shader-only path (no pipeline rebuild on RP side; FrameDebuggerContext rebuilds lazily).
-            if      (name == "debugBlit.frag")  m_System.GetFrameDebugger().blitFragSpv  = spv;
-            else if (name == "debugDepth.frag") m_System.GetFrameDebugger().depthFragSpv = spv;
+            if      (name == "debugBlit.slang")  m_System.GetFrameDebugger().blitFragSpv  = spv;
+            else if (name == "debugDepth.slang") m_System.GetFrameDebugger().depthFragSpv = spv;
             // IBL precompute shaders refresh in the library; ReloadSkybox() must run to re-bake.
         });
 

@@ -43,13 +43,13 @@ namespace Luth
         auto& fd = m_Pipeline.GetSystem().GetFrameDebugger();
         if (fd.blitPipeline) return; // Already initialized
 
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/debugBlit.frag"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/debugBlit.slang"))
             fd.blitFragSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/debugDepth.frag"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/debugDepth.slang"))
             fd.depthFragSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/debugSlimDecode.frag"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/debugSlimDecode.slang"))
             fd.slimDecodeFragSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/debugSlimMatID.frag"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/debugSlimMatID.slang"))
             fd.slimMatIDFragSpv = sh->GetSpirV();
 
         if (fd.blitFragSpv.empty() || fd.depthFragSpv.empty()

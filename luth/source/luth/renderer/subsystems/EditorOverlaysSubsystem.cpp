@@ -59,10 +59,10 @@ namespace Luth
             return sh ? sh->GetSpirV() : std::vector<u32>{};
         };
         m_SelectionMaskVertSpv        = loadSpv("shaders/selectionMask_vert.slang");
-        m_SelectionMaskFragSpv        = loadSpv("shaders/selectionMask.frag");
+        m_SelectionMaskFragSpv        = loadSpv("shaders/selectionMask.slang");
         m_SelectionMaskSkinnedVertSpv = loadSpv("shaders/selectionMask_skinned.slang");
-        m_OutlineFragSpv              = loadSpv("shaders/outline.frag");
-        m_GridFragSpv                 = loadSpv("shaders/grid.frag");
+        m_OutlineFragSpv              = loadSpv("shaders/outline.slang");
+        m_GridFragSpv                 = loadSpv("shaders/grid.slang");
         m_FullscreenVertSpv           = loadSpv("shaders/fullscreen.slang");
 
         if (m_SelectionMaskVertSpv.empty() || m_SelectionMaskFragSpv.empty() ||
@@ -276,21 +276,21 @@ namespace Luth
         };
 
         if      (name == "selectionMask_vert.slang")         m_SelectionMaskVertSpv        = spv;
-        else if (name == "selectionMask.frag")         m_SelectionMaskFragSpv        = spv;
+        else if (name == "selectionMask.slang")         m_SelectionMaskFragSpv        = spv;
         else if (name == "selectionMask_skinned.slang") m_SelectionMaskSkinnedVertSpv = spv;
-        else if (name == "outline.frag")               m_OutlineFragSpv              = spv;
-        else if (name == "grid.frag")                  m_GridFragSpv                 = spv;
+        else if (name == "outline.slang")               m_OutlineFragSpv              = spv;
+        else if (name == "grid.slang")                  m_GridFragSpv                 = spv;
         else if (name == "fullscreen.slang")            m_FullscreenVertSpv           = spv;
         else return false;
 
-        if (name == "outline.frag" || name == "grid.frag" || name == "fullscreen.slang")
+        if (name == "outline.slang" || name == "grid.slang" || name == "fullscreen.slang")
         {
             deferGfx(m_OutlinePipeline);
             deferGfx(m_GridPipeline);
             BuildOutlinePipeline();
             BuildGridPipeline();
         }
-        if (name == "selectionMask_vert.slang" || name == "selectionMask.frag" || name == "selectionMask_skinned.slang")
+        if (name == "selectionMask_vert.slang" || name == "selectionMask.slang" || name == "selectionMask_skinned.slang")
         {
             deferGfx(m_SelectionMaskPipeline);
             deferGfx(m_SelectionMaskSkinnedPipeline);

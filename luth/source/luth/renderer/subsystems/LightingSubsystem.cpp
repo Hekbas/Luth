@@ -33,7 +33,7 @@ namespace Luth
             return sh ? sh->GetSpirV() : std::vector<u32>{};
         };
         m_ShadowVertSpv        = loadSpv("shaders/shadowDepth_vert.slang");
-        m_ShadowFragSpv        = loadSpv("shaders/shadowDepth.frag");
+        m_ShadowFragSpv        = loadSpv("shaders/shadowDepth.slang");
         m_ShadowSkinnedVertSpv = loadSpv("shaders/shadowDepth_skinned.slang");
 
         if (m_ShadowVertSpv.empty() || m_ShadowFragSpv.empty() || m_ShadowSkinnedVertSpv.empty())
@@ -311,13 +311,13 @@ namespace Luth
         }
 
         if (name == "shadowDepth_vert.slang")           m_ShadowVertSpv        = spv;
-        else if (name == "shadowDepth.frag")      m_ShadowFragSpv        = spv;
+        else if (name == "shadowDepth.slang")      m_ShadowFragSpv        = spv;
         else if (name == "shadowDepth_skinned.slang") m_ShadowSkinnedVertSpv = spv;
         else if (name == "skybox_vert.slang")           m_SkyboxVertSpv        = spv;
-        else if (name == "skybox.frag")           m_SkyboxFragSpv        = spv;
+        else if (name == "skybox.slang")           m_SkyboxFragSpv        = spv;
         else return false;
 
-        if (name == "skybox_vert.slang" || name == "skybox.frag")
+        if (name == "skybox_vert.slang" || name == "skybox.slang")
         {
             deferGfx(m_SkyboxPipeline);
             BuildSkyboxPipeline(geoLayouts);

@@ -96,7 +96,7 @@ namespace Luth
             m_OitStoreFragSpv = sh->GetSpirV();
         if (auto sh = ShaderLibrary::LoadEngine("shaders/fullscreen.slang"))
             m_FullscreenVertSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/oit_resolve.frag"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/oit_resolve.slang"))
             m_ResolveFragSpv = sh->GetSpirV();
         if (m_TransparentFragSpv.empty() || m_OitStoreFragSpv.empty() ||
             m_FullscreenVertSpv.empty() || m_ResolveFragSpv.empty())
@@ -222,7 +222,7 @@ namespace Luth
             invalidateOit();
             return true;
         }
-        if (name == "oit_resolve.frag")
+        if (name == "oit_resolve.slang")
         {
             m_ResolveFragSpv = spv;
             // Defer-destroy the live pipeline (in-flight frames may still bind it), then rebuild.

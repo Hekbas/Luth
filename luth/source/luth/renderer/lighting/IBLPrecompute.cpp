@@ -593,7 +593,7 @@ namespace Luth
 
                 if (auto sh = ShaderLibrary::LoadEngine("shaders/skybox_vert.slang"))
                     result.skyboxVertSpv = sh->GetSpirV();
-                if (auto sh = ShaderLibrary::LoadEngine("shaders/skybox.frag"))
+                if (auto sh = ShaderLibrary::LoadEngine("shaders/skybox.slang"))
                     result.skyboxFragSpv = sh->GetSpirV();
                 if (result.skyboxVertSpv.empty() || result.skyboxFragSpv.empty())
                     LH_LOG(Renderer, error, "Failed to compile skybox shaders!");
