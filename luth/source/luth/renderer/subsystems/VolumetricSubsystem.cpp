@@ -95,11 +95,11 @@ namespace Luth
 
             VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(InjectPC) };
 
-            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_inject_density.comp"))
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_inject_density.slang"))
                 m_InjectDensitySpv = sh->GetSpirV();
             if (m_InjectDensitySpv.empty())
             {
-                LH_LOG(Renderer, error, "VolumetricSubsystem: failed to load volumetric_inject_density.comp!");
+                LH_LOG(Renderer, error, "VolumetricSubsystem: failed to load volumetric_inject_density.slang!");
                 return;
             }
             // Pipeline layout: Set 0 = GlobalSubsystem's, Set 1 = density-only inject state.
@@ -196,11 +196,11 @@ namespace Luth
 
             VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IntegratePC) };
 
-            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_integrate.comp"))
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_integrate.slang"))
                 m_IntegrateSpv = sh->GetSpirV();
             if (m_IntegrateSpv.empty())
             {
-                LH_LOG(Renderer, error, "VolumetricSubsystem: failed to load volumetric_integrate.comp!");
+                LH_LOG(Renderer, error, "VolumetricSubsystem: failed to load volumetric_integrate.slang!");
                 return;
             }
             m_IntegratePipeline = std::make_unique<VKComputePipeline>(
@@ -243,11 +243,11 @@ namespace Luth
 
             VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ResolvePC) };
 
-            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_resolve.comp"))
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_resolve.slang"))
                 m_ResolveSpv = sh->GetSpirV();
             if (m_ResolveSpv.empty())
             {
-                LH_LOG(Renderer, error, "VolumetricSubsystem: failed to load volumetric_resolve.comp!");
+                LH_LOG(Renderer, error, "VolumetricSubsystem: failed to load volumetric_resolve.slang!");
                 return;
             }
             // Set 0 = GlobalUniforms (prevViewProjection + prevViewParams + temporalAlpha).
@@ -289,7 +289,7 @@ namespace Luth
 
             if (auto sh = ShaderLibrary::LoadEngine("shaders/fullscreen.vert"))
                 m_FullscreenVertSpv = sh->GetSpirV();
-            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_composite.frag"))
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_composite.slang"))
                 m_CompositeFragSpv = sh->GetSpirV();
             if (m_FullscreenVertSpv.empty() || m_CompositeFragSpv.empty())
             {
@@ -339,7 +339,7 @@ namespace Luth
             layoutCI.pBindings    = bindings;
             vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_VizDescLayout);
 
-            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_viz.frag"))
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_viz.slang"))
                 m_VizFragSpv = sh->GetSpirV();
             if (!m_VizFragSpv.empty() && !m_FullscreenVertSpv.empty())
             {
@@ -381,11 +381,11 @@ namespace Luth
 
             // Bake pipeline + descriptor — ephemeral, destroyed at end of this block.
             std::vector<u32> bakeSpv;
-            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_noise_bake.comp"))
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_noise_bake.slang"))
                 bakeSpv = sh->GetSpirV();
             if (bakeSpv.empty())
             {
-                LH_LOG(Renderer, error, "VolumetricSubsystem: failed to load volumetric_noise_bake.comp!");
+                LH_LOG(Renderer, error, "VolumetricSubsystem: failed to load volumetric_noise_bake.slang!");
                 return;
             }
 
@@ -625,7 +625,7 @@ namespace Luth
                 VulkanContext::Get().PushDeletion([raw]() { delete raw; });
         };
 
-        if (name == "volumetric_inject_density.comp" && m_InjectDensityDescLayout)
+        if (name == "volumetric_inject_density.slang" && m_InjectDensityDescLayout)
         {
             m_InjectDensitySpv = spv;
             deferComp(m_InjectDensityPipeline);
@@ -654,7 +654,7 @@ namespace Luth
                 std::vector<VkPushConstantRange>{ pc });
             return true;
         }
-        if (name == "volumetric_integrate.comp" && m_IntegrateDescLayout)
+        if (name == "volumetric_integrate.slang" && m_IntegrateDescLayout)
         {
             m_IntegrateSpv = spv;
             deferComp(m_IntegratePipeline);
@@ -664,7 +664,7 @@ namespace Luth
                 std::vector<VkPushConstantRange>{ pc });
             return true;
         }
-        if (name == "volumetric_resolve.comp" && m_ResolveDescLayout)
+        if (name == "volumetric_resolve.slang" && m_ResolveDescLayout)
         {
             m_ResolveSpv = spv;
             deferComp(m_ResolvePipeline);
@@ -677,10 +677,10 @@ namespace Luth
                 std::vector<VkPushConstantRange>{ pc });
             return true;
         }
-        if ((name == "volumetric_composite.frag" || name == "fullscreen.vert")
+        if ((name == "volumetric_composite.slang" || name == "fullscreen.vert")
             && m_CompositeDescLayout)
         {
-            if (name == "volumetric_composite.frag") m_CompositeFragSpv = spv;
+            if (name == "volumetric_composite.slang") m_CompositeFragSpv = spv;
             else                                     m_FullscreenVertSpv = spv;
             if (auto* raw = m_CompositePipeline.release(); raw)
                 VulkanContext::Get().PushDeletion([raw]() { delete raw; });
@@ -701,7 +701,7 @@ namespace Luth
                 cfg, m_FullscreenVertSpv, m_CompositeFragSpv, setLayouts);
             return true;
         }
-        if (name == "volumetric_viz.frag" && m_VizDescLayout)
+        if (name == "volumetric_viz.slang" && m_VizDescLayout)
         {
             m_VizFragSpv = spv;
             if (auto* raw = m_VizPipeline.release(); raw)
