@@ -74,7 +74,7 @@ namespace Luth
             f32 phiDepth;
             f32 phiNormal;
         };
-        static_assert(sizeof(UpscalePC) == 24, "UpscalePC must match bilateral_upscale.comp push_constant");
+        static_assert(sizeof(UpscalePC) == 24, "UpscalePC must match bilateral_upscale.slang push_constant");
     }
 
     bool RtRestirSubsystem::IsEnabled() const
@@ -208,7 +208,7 @@ namespace Luth
         m_ShadePipeline = std::make_unique<VKComputePipeline>(
             m_ShadeSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
 
-        // Half-res DI bilateral-upscale pipeline (shared bilateral_upscale.comp). Set 0 = global UBO;
+        // Half-res DI bilateral-upscale pipeline (shared bilateral_upscale.slang). Set 0 = global UBO;
         // Set 1 = b0 half-res signal sampler, b1 depth sampler, b2 normal sampler, b3 full-res storage.
         {
             VkDescriptorSetLayoutBinding ub[4]{};
@@ -220,7 +220,7 @@ namespace Luth
             uci.bindingCount = 4; uci.pBindings = ub;
             vkCreateDescriptorSetLayout(device, &uci, nullptr, &m_UpscaleSetLayout);
 
-            if (auto sh = ShaderLibrary::LoadEngine("shaders/bilateral_upscale.comp")) m_UpscaleSpv = sh->GetSpirV();
+            if (auto sh = ShaderLibrary::LoadEngine("shaders/bilateral_upscale.slang")) m_UpscaleSpv = sh->GetSpirV();
             if (!m_UpscaleSpv.empty())
             {
                 const std::vector<VkDescriptorSetLayout> ulayouts = {
@@ -262,7 +262,7 @@ namespace Luth
         LH_PROFILE_FUNCTION();
         if (m_SetLayout == VK_NULL_HANDLE || !m_Pipeline) return false;
 
-        if (name == "bilateral_upscale.comp" && m_UpscaleSetLayout != VK_NULL_HANDLE)
+        if (name == "bilateral_upscale.slang" && m_UpscaleSetLayout != VK_NULL_HANDLE)
         {
             m_UpscaleSpv = spv;
             if (auto* raw = m_UpscalePipeline.release(); raw)

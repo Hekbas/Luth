@@ -46,7 +46,7 @@ namespace Luth
 
         VkDescriptorSetLayout GetSetLayout() const { return m_SetLayout; }
 
-        // Half-res reflections bilateral upscale (shared bilateral_upscale.comp): resolves the half-res
+        // Half-res reflections bilateral upscale (shared bilateral_upscale.slang): resolves the half-res
         // svgfSpecHalf into the full-res svgfSpecDenoised, depth/normal-guided. Only wired when
         // ReflectionsSettings::halfResolution. Mirrors RtRestirGiSubsystem's upscale.
         VkDescriptorSetLayout GetUpscaleLayout() const { return m_UpscaleSetLayout; }

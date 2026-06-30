@@ -15,7 +15,7 @@ namespace Luth
     namespace {
         // gbufferScale/dispatchW/dispatchH let a channel run at a working resolution below the full
         // G-buffer (half-res GI). scale==1 + dispatch==full is the identity path for full-res channels.
-        // Mirrors svgf_reproject.comp's push_constant (5 floats + 3 ints = 32 B).
+        // Mirrors svgf_reproject.slang's push_constant (5 floats + 3 ints = 32 B).
         struct SvgfReprojectPC {
             f32 alphaColor;
             f32 alphaMoments;
@@ -26,9 +26,9 @@ namespace Luth
             i32 dispatchW;
             i32 dispatchH;
         };
-        static_assert(sizeof(SvgfReprojectPC) == 32, "SvgfReprojectPC must match svgf_reproject.comp push_constant");
+        static_assert(sizeof(SvgfReprojectPC) == 32, "SvgfReprojectPC must match svgf_reproject.slang push_constant");
 
-        // Mirrors svgf_moments.comp's push_constant (2 floats + 3 ints = 20 B).
+        // Mirrors svgf_moments.slang's push_constant (2 floats + 3 ints = 20 B).
         struct SvgfMomentsPC {
             f32 phiDepth;
             f32 phiNormal;
@@ -36,9 +36,9 @@ namespace Luth
             i32 dispatchW;
             i32 dispatchH;
         };
-        static_assert(sizeof(SvgfMomentsPC) == 20, "SvgfMomentsPC must match svgf_moments.comp push_constant");
+        static_assert(sizeof(SvgfMomentsPC) == 20, "SvgfMomentsPC must match svgf_moments.slang push_constant");
 
-        // Mirrors svgf_atrous.comp's push_constant (2 ints + 3 floats + 3 ints = 32 B).
+        // Mirrors svgf_atrous.slang's push_constant (2 ints + 3 floats + 3 ints = 32 B).
         struct SvgfAtrousPC {
             i32 stepSize;
             i32 writeFinal;
@@ -49,7 +49,7 @@ namespace Luth
             i32 dispatchW;
             i32 dispatchH;
         };
-        static_assert(sizeof(SvgfAtrousPC) == 32, "SvgfAtrousPC must match svgf_atrous.comp push_constant");
+        static_assert(sizeof(SvgfAtrousPC) == 32, "SvgfAtrousPC must match svgf_atrous.slang push_constant");
 
         // Channel-selected pointers into ViewResources — DI uses the svgf* fields, GI the svgfGi*
         // (flat parallel set, mirroring the S0 restirDI/restirGiDI split). All array fields are
@@ -224,14 +224,14 @@ namespace Luth
         // Reflections denoises a specular signal → a SPECULAR reproject variant (hit-distance virtual
         // reprojection); same layout/pcRange as the diffuse reproject. Moments/à-trous/passthrough shared.
         const char* reprojShader = (m_Channel == DenoiserChannel::Reflections)
-            ? "shaders/svgf_spec_reproject.comp" : "shaders/svgf_reproject.comp";
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/svgf_passthrough.comp"))
+            ? "shaders/svgf_spec_reproject.slang" : "shaders/svgf_reproject.slang";
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/svgf_passthrough.slang"))
             m_PassthroughSpv = sh->GetSpirV();
         if (auto sh = ShaderLibrary::LoadEngine(reprojShader))
             m_ReprojectSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/svgf_moments.comp"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/svgf_moments.slang"))
             m_MomentsSpv = sh->GetSpirV();
-        if (auto sh = ShaderLibrary::LoadEngine("shaders/svgf_atrous.comp"))
+        if (auto sh = ShaderLibrary::LoadEngine("shaders/svgf_atrous.slang"))
             m_AtrousSpv = sh->GetSpirV();
         if (m_PassthroughSpv.empty() || m_ReprojectSpv.empty() || m_MomentsSpv.empty() || m_AtrousSpv.empty())
         {
@@ -294,7 +294,7 @@ namespace Luth
 
         // Defer the old pipeline's destruction — an in-flight frame may still bind it; PushDeletion
         // drains it MAX_FRAMES_IN_FLIGHT frames later (no vkDeviceWaitIdle).
-        if (name == "svgf_passthrough.comp" && m_PassLayout != VK_NULL_HANDLE)
+        if (name == "svgf_passthrough.slang" && m_PassLayout != VK_NULL_HANDLE)
         {
             if (m_PassthroughPipeline)
                 VulkanContext::Get().PushDeletion([p = m_PassthroughPipeline.release()]() { delete p; });
@@ -305,7 +305,7 @@ namespace Luth
             return true;
         }
         const char* myReproj = (m_Channel == DenoiserChannel::Reflections)
-            ? "svgf_spec_reproject.comp" : "svgf_reproject.comp";
+            ? "svgf_spec_reproject.slang" : "svgf_reproject.slang";
         if (name == myReproj && m_ReprojectLayout != VK_NULL_HANDLE)
         {
             if (m_ReprojectPipeline)
@@ -318,7 +318,7 @@ namespace Luth
                 m_ReprojectSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
             return true;
         }
-        if (name == "svgf_moments.comp" && m_MomentsLayout != VK_NULL_HANDLE)
+        if (name == "svgf_moments.slang" && m_MomentsLayout != VK_NULL_HANDLE)
         {
             if (m_MomentsPipeline)
                 VulkanContext::Get().PushDeletion([p = m_MomentsPipeline.release()]() { delete p; });
@@ -330,7 +330,7 @@ namespace Luth
                 m_MomentsSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
             return true;
         }
-        if (name == "svgf_atrous.comp" && m_AtrousLayout != VK_NULL_HANDLE)
+        if (name == "svgf_atrous.slang" && m_AtrousLayout != VK_NULL_HANDLE)
         {
             if (m_AtrousPipeline)
                 VulkanContext::Get().PushDeletion([p = m_AtrousPipeline.release()]() { delete p; });
