@@ -97,6 +97,7 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
 
     // Shade-mode overrides.
     if (i.shadeMode == 1u)  { o.color = float4(albedo.rgb, 1.0);      return o; }   // Unlit
+    if (i.shadeMode == 2u)  { o.color = float4(0.45, 0.85, 1.0, 1.0); return o; }   // Wireframe (flat unlit lines, not lit)
     if (i.shadeMode == 3u)  { o.color = float4(N * 0.5 + 0.5, 1.0);   return o; }   // Normals
     if (i.shadeMode == 4u)
     {
