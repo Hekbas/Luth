@@ -137,6 +137,16 @@ namespace Luth
     static_assert(static_cast<u8>(ShadeMode::SlimMaterialID) - static_cast<u8>(ShadeMode::SlimNormal) == 3,
                   "Slim* ShadeModes must stay contiguous (RenderPipeline slim-viz offset math).");
 
+    // Debug modes whose fragment output is display-ready DATA (encoded normals, IDs, [0,1] channels)
+    // rather than radiance: the composite sRGB-encodes them WITHOUT tonemap/grade (signalled by a
+    // negative tonemapOp to postprocess.slang). Radiance debug modes (Emission, GiRaw/DiRaw/ReflRaw,
+    // ShadowCascades) keep tonemap; bloom is gated off for every non-Lit mode in RenderPipeline.
+    inline bool IsDataDebugMode(ShadeMode m)
+    {
+        return m == ShadeMode::Unlit    || m == ShadeMode::Normals   || m == ShadeMode::EntityID
+            || m == ShadeMode::Metallic || m == ShadeMode::Occlusion || m == ShadeMode::AmbientOcclusion;
+    }
+
     struct GeometryOutput {
         RG::ResourceHandle color;
         RG::ResourceHandle depth;
