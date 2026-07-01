@@ -33,11 +33,14 @@ namespace Luth
         }
         else
         {
+            // No directional light in the scene: zero direct-sun contribution so only ambient/IBL
+            // lights the surface, and disable shadows (castShadows gates the CSM/RT passes in
+            // RenderPipeline). Direction/color are irrelevant at zero intensity but kept sane.
             outLights.dirLight.direction = Math::Normalize(Vec3(1.0f, 1.0f, 0.5f));
             outLights.dirLight.color     = Vec3(1.0f);
-            outLights.dirLight.intensity = 3.0f;
+            outLights.dirLight.intensity = 0.0f;
             outLights.dirLight._pad      = 0.0f;
-            // Shadow params: leave outShadow untouched so last-known config persists.
+            outShadow.castShadows        = false;
         }
 
         const u32 count = static_cast<u32>(snapshot.pointLights.size());
