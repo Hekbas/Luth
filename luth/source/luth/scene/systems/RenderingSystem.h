@@ -130,7 +130,10 @@ namespace Luth
         Metallic, Occlusion, ShadowCascades,
         // Raw screen-space signals — in-shader overrides sampling the same bound textures the lit pass
         // reads (each gated on its feature; greyed in the picker when off). AO reuses gtao.visualize.
-        AmbientOcclusion, GiRaw, DiRaw, RtReflectionRaw
+        AmbientOcclusion, GiRaw, DiRaw, RtReflectionRaw,
+        // Shaded fill + a flat wireframe overlay (a second line-polygon pass in GeometrySubsystem). The fill
+        // renders lit (no shader override), so it is NOT a data-debug mode: the composite tonemaps it.
+        WireframeShaded
     };
 
     // RenderPipeline decodes Slim viz as an offset from SlimNormal — keep these four contiguous.

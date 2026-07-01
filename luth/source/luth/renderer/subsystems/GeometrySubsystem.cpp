@@ -66,6 +66,7 @@ namespace Luth
         m_SlimGBufferVertSpv         = loadSpv("shaders/slim_gbuffer_vert.slang");
         m_SlimGBufferSkinnedVertSpv  = loadSpv("shaders/slim_gbuffer_skinned.slang");
         m_SlimGBufferFragSpv         = loadSpv("shaders/slim_gbuffer.slang");
+        m_WireframeOverlayFragSpv    = loadSpv("shaders/wireframe_overlay.slang");
 
         if (m_PBRVertSpv.empty() || m_PBRFragSpv.empty() || m_PBRSkinnedVertSpv.empty()
          || m_DepthPrepassVertSpv.empty() || m_DepthPrepassSkinnedVertSpv.empty()
@@ -285,6 +286,37 @@ namespace Luth
                 }
                 return config;
             });
+
+        // Shaded-wireframe overlay: flat line-polygon pipelines redrawn over the lit fill (LEQUAL depth,
+        // no write). Static uses the pbr vertex layout; skinned uses the empty deformable input. Created
+        // directly (not via a manager) for the custom line/depth config; a distinct frag keeps the fill's
+        // pipeline cache untouched.
+        if (!m_PBRVertSpv.empty() && !m_WireframeOverlayFragSpv.empty())
+        {
+            PipelineConfig cfg;
+            cfg.colorFormats   = { VK_FORMAT_R16G16B16A16_SFLOAT, VK_FORMAT_R32_UINT };
+            cfg.depthFormat    = VK_FORMAT_D32_SFLOAT;
+            cfg.frontFace      = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+            cfg.polygonMode    = VK_POLYGON_MODE_LINE;
+            cfg.cullMode       = VK_CULL_MODE_NONE;
+            cfg.depthTest      = true;
+            cfg.depthWrite     = false;
+            cfg.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+            cfg.blendEnabled   = false;
+            cfg.bindingDescriptions   = bindingDescs;
+            cfg.attributeDescriptions = attribDescs;
+            m_WireframeOverlayPipeline = std::make_unique<VKPipeline>(
+                cfg, m_PBRVertSpv, m_WireframeOverlayFragSpv, geoLayouts);
+
+            if (!m_PBRSkinnedVertSpv.empty())
+            {
+                PipelineConfig scfg = cfg;
+                scfg.bindingDescriptions.clear();
+                scfg.attributeDescriptions.clear();
+                m_WireframeOverlaySkinnedPipeline = std::make_unique<VKPipeline>(
+                    scfg, m_PBRSkinnedVertSpv, m_WireframeOverlayFragSpv, geoLayouts);
+            }
+        }
     }
 
     void GeometrySubsystem::BuildDepthPrepassPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts)
@@ -1319,6 +1351,51 @@ namespace Luth
                 // Transparent moved to TransparencySubsystem's pass after skybox + fog composite.
                 DrawBatch(sys.GetDrawList().opaque, Material::RenderMode::Opaque);
                 DrawBatch(sys.GetDrawList().cutout, Material::RenderMode::Cutout);
+
+                // Shaded wireframe: redraw opaque + cutout as flat lines over the lit fill. LEQUAL depth
+                // against the prepass depth hides occluded edges; reuses the bound Sets 0-5 + indirect draws.
+                if (sys.GetShadeMode() == ShadeMode::WireframeShaded && m_WireframeOverlayPipeline)
+                {
+                    auto DrawOverlay = [&](const std::vector<DrawCommand>& draws)
+                    {
+                        VKPipeline* cur = nullptr;
+                        for (const auto& dc : draws)
+                        {
+                            VKPipeline* want = dc.isDeformed ? m_WireframeOverlaySkinnedPipeline.get()
+                                                             : m_WireframeOverlayPipeline.get();
+                            if (!want) continue;
+                            if (want != cur)
+                            {
+                                cur = want;
+                                cur->Bind(cmd);
+                                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    cur->GetLayout(), 0, 6, sets, 0, nullptr);
+                            }
+                            auto mesh = dc.model->GetMesh(dc.meshIndex);
+                            auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
+                            auto ib = std::static_pointer_cast<VKIndexBuffer >(mesh->GetIndexBuffer ());
+                            if (!ib) continue;
+                            if (!dc.isDeformed)
+                            {
+                                if (!vb) continue;
+                                VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
+                                VkDeviceSize offsets[] = { 0 };
+                                vkCmdBindVertexBuffers(cmd, 0, 1, vbuf, offsets);
+                            }
+                            vkCmdBindIndexBuffer(cmd, ib->GetVulkanBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                            // Direct draw (not indirect): firstInstance = gpuObjectIndex feeds gl_BaseInstance
+                            // so the VS reads objects[idx]. Skips GPU cull (minor overdraw, fine for a debug
+                            // overlay) and stays independent of which indirect region a draw list lives in.
+                            vkCmdDrawIndexed(cmd, ib->GetCount(), 1, 0, 0, dc.gpuObjectIndex);
+                        }
+                    };
+                    DrawOverlay(sys.GetDrawList().opaque);
+                    DrawOverlay(sys.GetDrawList().cutout);
+                    // Transparent meshes render their lit fill later (OIT); draw their wireframe here too so
+                    // Shaded Wireframe shows glass edges. They test against opaque depth (glass wrote none),
+                    // so the full silhouette shows through the surface.
+                    DrawOverlay(sys.GetDrawList().transparent);
+                }
 
                 sys.GetFrameDebugger().EndCapturePass();
             }

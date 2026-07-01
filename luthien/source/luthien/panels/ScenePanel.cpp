@@ -214,7 +214,7 @@ namespace Luth
                 struct RenderModeBtn { const char* icon; const char* tip; int mode; bool filled; };
                 static const RenderModeBtn kRenderModes[] = {
                     { ICON_WIREFRAME,        "Wireframe",                                 (int)ShadeMode::Wireframe, false },
-                    { ICON_WIREFRAME_SHADED, "Shaded Wireframe (engine support pending)", -1,                        true  },
+                    { ICON_WIREFRAME_SHADED, "Shaded Wireframe",                          (int)ShadeMode::WireframeShaded, true  },
                     { ICON_CIRCLE,           "Unlit",                                     (int)ShadeMode::Unlit,     false },
                     { ICON_MATERIAL_FILL,    "Lit",                                       (int)ShadeMode::Lit,       true  },
                 };
