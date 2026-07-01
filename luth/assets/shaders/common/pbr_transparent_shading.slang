@@ -64,10 +64,15 @@ public float4 EvalTransparentSurfaceColor(uint materialIndex, uint shadeMode, fl
         nrm = ApplyTangentNormal(mi.normal, T, B, N);
     if (!frontFacing) nrm = -nrm;
 
-    // ShadeMode debug overrides — parity with pbr (alpha 1.0).
-    if (shadeMode == 1u)  return float4(mi.baseColor.rgb, 1.0);
-    if (shadeMode == 3u)  return float4(nrm * 0.5 + 0.5, 1.0);
-    if (shadeMode == 13u) return float4(mi.emissive, 1.0);
+    // ShadeMode debug overrides for the material-channel modes (alpha 1.0). Screen-space / opaque-coupled
+    // modes (AO, cascades, raw GI/DI/reflection, entityID) do not apply to transparent fragments: the
+    // opaque-coupled inputs are not bound here (see the file header).
+    if (shadeMode == 1u)  return float4(mi.baseColor.rgb, 1.0);    // Unlit
+    if (shadeMode == 2u)  return float4(0.45, 0.85, 1.0, 1.0);     // Wireframe (flat)
+    if (shadeMode == 3u)  return float4(nrm * 0.5 + 0.5, 1.0);     // Normals
+    if (shadeMode == 13u) return float4(mi.emissive, 1.0);         // Emission
+    if (shadeMode == 14u) return float4(mi.metallic.xxx, 1.0);     // Metallic
+    if (shadeMode == 15u) return float4(mi.occlusion.xxx, 1.0);    // Occlusion
 
     float3 V  = normalize(ubo.cameraPos - worldPos);
     float3 Lo = float3(0.0);
