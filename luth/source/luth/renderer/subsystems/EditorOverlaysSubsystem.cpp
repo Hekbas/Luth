@@ -176,7 +176,7 @@ namespace Luth
             cfg.depthFormat  = VK_FORMAT_D32_SFLOAT;
             cfg.depthTest    = true; cfg.depthWrite = true;
             cfg.blendEnabled = false;
-            cfg.cullMode     = VK_CULL_MODE_BACK_BIT;
+            cfg.cullMode     = VK_CULL_MODE_NONE;   // selection outline must cover back-facing silhouettes
             cfg.frontFace    = VK_FRONT_FACE_COUNTER_CLOCKWISE;
             cfg.bindingDescriptions   = posBindings;
             cfg.attributeDescriptions = posAttribs;
@@ -196,7 +196,7 @@ namespace Luth
             cfg.depthFormat  = VK_FORMAT_D32_SFLOAT;
             cfg.depthTest    = true; cfg.depthWrite = true;
             cfg.blendEnabled = false;
-            cfg.cullMode     = VK_CULL_MODE_BACK_BIT;
+            cfg.cullMode     = VK_CULL_MODE_NONE;   // selection outline must cover back-facing silhouettes
             cfg.frontFace    = VK_FRONT_FACE_COUNTER_CLOCKWISE;
             cfg.bindingDescriptions   = skinnedBindings;
             cfg.attributeDescriptions = skinnedAttribs;
@@ -442,7 +442,7 @@ namespace Luth
                 ViewResources* vr = m_Pipeline->GetCurrentViewResources();
 
                 sys.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "SelectionMaskPass", "SelectionMask", false,
-                    { "selectionMask", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL, false, true, true, false });
+                    { "selectionMask", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, true, true, false });
 
                 if (!m_SelectionMaskPipeline) { sys.GetFrameDebugger().EndCapturePass(); return; }
 
@@ -533,7 +533,7 @@ namespace Luth
                             sys.GetFrameDebugger().CaptureDrawCall("SelectionMaskPass",
                                 dc.model->GetName() + "[" + std::to_string(dc.meshIndex) + "]",
                                 entName, dc.entityIndex, ib->GetCount(), pc,
-                                { "selectionMask", 0, VK_CULL_MODE_BACK_BIT, VK_POLYGON_MODE_FILL,
+                                { "selectionMask", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL,
                                   currentSkinned, true, true, false });
                         }
                     }
