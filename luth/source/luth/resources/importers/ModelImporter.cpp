@@ -417,7 +417,7 @@ namespace Luth
 
                 i32 boneIndex = skeleton.FindBone(nodeName);
                 if (boneIndex < 0) {
-                    LH_LOG(Assets, warn, "ModelImporter: Animation channel '{}' not found in skeleton — skipping", nodeName);
+                    LH_LOG(Assets, warn, "ModelImporter: Animation channel '{}' not found in skeleton - skipping", nodeName);
                     continue;
                 }
 

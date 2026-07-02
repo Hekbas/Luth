@@ -649,7 +649,7 @@ namespace Luth
             static std::atomic<bool> warned{ false };
             bool expected = false;
             if (warned.compare_exchange_strong(expected, true))
-                LH_LOG(Renderer, warn, "GPU object cap ({}) exceeded — up to {} draws dropped. Raise k_MaxGPUObjects or add culling/LOD.",
+                LH_LOG(Renderer, warn, "GPU object cap ({}) exceeded - up to {} draws dropped. Raise k_MaxGPUObjects or add culling/LOD.",
                              (u32)RenderPipeline::k_MaxGPUObjects, dropped);
         }
 

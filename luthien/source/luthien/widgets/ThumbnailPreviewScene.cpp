@@ -427,7 +427,7 @@ namespace Luth::UI::ThumbnailPreviewScene
         if (!CreateWhiteTexture())      { Shutdown(); return false; }
         // Non-fatal: on failure material graph previews fall back to the stock Lambert shader.
         if (!CreatePreviewResources())
-            LH_LOG(Editor, warn, "Thumbnail: graph-preview resources failed — material previews stay Lambert");
+            LH_LOG(Editor, warn, "Thumbnail: graph-preview resources failed - material previews stay Lambert");
 
         s_Initialized = true;
         return true;

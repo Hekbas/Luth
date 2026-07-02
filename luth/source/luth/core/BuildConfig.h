@@ -6,7 +6,7 @@
 // compilers or premake versions).
 
 #if !defined(LUTH_BUILD_DEBUG) && !defined(LUTH_BUILD_RELEASE) && !defined(LUTH_BUILD_DIST)
-    #error "No LUTH_BUILD_* configuration defined — premake5.lua must set one"
+    #error "No LUTH_BUILD_* configuration defined - premake5.lua must set one"
 #endif
 
 // ---- Derived feature flags ----

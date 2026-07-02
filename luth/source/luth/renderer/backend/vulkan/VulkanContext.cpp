@@ -394,7 +394,7 @@ namespace Luth
 
         LH_LOG(Renderer, critical, "No Vulkan device meets baseline (VK_KHR_swapchain + RT extensions "
                          "[acceleration_structure, ray_tracing_pipeline, ray_query, deferred_host_operations] "
-                         "+ graphics queue) — Luth is RT-mandatory per rt-renderer arc");
+                         "+ graphics queue). Luth requires ray tracing.");
     }
 
     void VulkanContext::CreateLogicalDevice()
@@ -488,7 +488,7 @@ namespace Luth
         {
             const u32 b = queueFamilies[m_ComputeFamily].timestampValidBits;
             if (b != 0 && graphicsBits != 0 && b != graphicsBits)
-                LH_LOG(Renderer, critical, "Compute family timestampValidBits ({}) differs from graphics ({}) — GPU timer "
+                LH_LOG(Renderer, critical, "Compute family timestampValidBits ({}) differs from graphics ({}) - GPU timer "
                                  "math would corrupt on the compute stream; per-family period support not implemented.",
                                  b, graphicsBits);
         }
@@ -496,7 +496,7 @@ namespace Luth
         {
             const u32 b = queueFamilies[m_TransferFamily].timestampValidBits;
             if (b != 0 && graphicsBits != 0 && b != graphicsBits)
-                LH_LOG(Renderer, critical, "Transfer family timestampValidBits ({}) differs from graphics ({}) — GPU timer "
+                LH_LOG(Renderer, critical, "Transfer family timestampValidBits ({}) differs from graphics ({}) - GPU timer "
                                  "math would corrupt on the transfer stream; per-family period support not implemented.",
                                  b, graphicsBits);
         }
@@ -537,7 +537,7 @@ namespace Luth
                      && availRq.rayQuery;
         if (!ok)
         {
-            LH_LOG(Renderer, critical, "Required Vulkan 1.1/1.2/1.3 + RT features missing on selected device — "
+            LH_LOG(Renderer, critical, "Required Vulkan 1.1/1.2/1.3 + RT features missing on selected device - "
                 "shaderDrawParameters={} descriptorBindingPartiallyBound={} "
                 "descriptorBindingSampledImageUpdateAfterBind={} descriptorBindingStorageBufferUpdateAfterBind={} "
                 "descriptorBindingStorageImageUpdateAfterBind={} descriptorBindingUniformBufferUpdateAfterBind={} "
@@ -769,7 +769,7 @@ namespace Luth
         // then async-compute (if distinct), then async-transfer (if distinct); distinctFamilies was built that way.
         m_ConcurrentFamilyIndices = distinctFamilies;
 
-        LH_LOG(Renderer, info, "Queue layout — graphics={}, compute={} ({}), transfer={} ({})",
+        LH_LOG(Renderer, info, "Queue layout - graphics={}, compute={} ({}), transfer={} ({})",
             m_GraphicsFamily,
             m_ComputeFamily,  m_ComputeIsAsync  ? "async" : "aliased",
             m_TransferFamily, m_TransferIsAsync ? "async" : "aliased");
@@ -811,7 +811,7 @@ namespace Luth
             (PFN_vkGetQueueCheckpointDataNV)vkGetDeviceProcAddr(m_Device, "vkGetQueueCheckpointDataNV");
         if (!m_CheckpointFn.vkCmdSetCheckpointNV || !m_CheckpointFn.vkGetQueueCheckpointDataNV)
         {
-            LH_LOG(Renderer, warn, "VK_NV_device_diagnostic_checkpoints fp load failed — disabling");
+            LH_LOG(Renderer, warn, "VK_NV_device_diagnostic_checkpoints fp load failed - disabling");
             m_CheckpointFn = {};
             m_CheckpointsAvailable = false;
         }
@@ -941,7 +941,7 @@ namespace Luth
         const VkResult r = vkQueueSubmit2(m_GraphicsQueue, 1, &submitInfo, fence);
         if (r != VK_SUCCESS)
         {
-            LH_LOG(Renderer, error, "VulkanContext: Graphics SubmitInfo2 failed — VkResult={}", (int)r);
+            LH_LOG(Renderer, error, "VulkanContext: Graphics SubmitInfo2 failed - VkResult={}", (int)r);
             if (r == VK_ERROR_DEVICE_LOST) DumpCheckpointsOnDeviceLost("Graphics submit");
             return false;
         }
@@ -956,7 +956,7 @@ namespace Luth
         const VkResult r = vkQueueSubmit2(m_ComputeQueue, 1, &submitInfo, fence);
         if (r != VK_SUCCESS)
         {
-            LH_LOG(Renderer, error, "VulkanContext: Compute SubmitInfo2 failed — VkResult={}", (int)r);
+            LH_LOG(Renderer, error, "VulkanContext: Compute SubmitInfo2 failed - VkResult={}", (int)r);
             if (r == VK_ERROR_DEVICE_LOST) DumpCheckpointsOnDeviceLost("Compute submit");
             return false;
         }
@@ -969,7 +969,7 @@ namespace Luth
         const VkResult r = vkQueueSubmit2(m_TransferQueue, 1, &submitInfo, fence);
         if (r != VK_SUCCESS)
         {
-            LH_LOG(Renderer, error, "VulkanContext: Transfer SubmitInfo2 failed — VkResult={}", (int)r);
+            LH_LOG(Renderer, error, "VulkanContext: Transfer SubmitInfo2 failed - VkResult={}", (int)r);
             if (r == VK_ERROR_DEVICE_LOST) DumpCheckpointsOnDeviceLost("Transfer submit");
             return false;
         }
@@ -992,10 +992,10 @@ namespace Luth
         // "no checkpoints recorded" is expected, not informative. see arch/gpu-crash-debugging.md
         AftermathCrashTracker::OnDeviceLost();
 
-        LH_LOG(Renderer, critical, "─── GPU device lost (origin: {}) — dumping checkpoints ───", originLabel);
+        LH_LOG(Renderer, critical, "--- GPU device lost (origin: {}) - dumping checkpoints ---", originLabel);
         if (!m_CheckpointsAvailable || !m_CheckpointFn.vkGetQueueCheckpointDataNV)
         {
-            LH_LOG(Renderer, critical, "  VK_NV_device_diagnostic_checkpoints unavailable — no localization possible");
+            LH_LOG(Renderer, critical, "  VK_NV_device_diagnostic_checkpoints unavailable - no localization possible");
             return;
         }
 
@@ -1024,7 +1024,7 @@ namespace Luth
         dump("Graphics", m_GraphicsQueue);
         if (m_ComputeIsAsync)  dump("Compute",  m_ComputeQueue);
         if (m_TransferIsAsync) dump("Transfer", m_TransferQueue);
-        LH_LOG(Renderer, critical, "─── End checkpoint dump ───");
+        LH_LOG(Renderer, critical, "--- End checkpoint dump ---");
     }
 
     VkResult VulkanContext::Present(const VkPresentInfoKHR& presentInfo)

@@ -514,7 +514,7 @@ namespace Luth::RG
             if (m_Passes.size() != s_lastSig)
             {
                 s_lastSig = m_Passes.size();
-                LH_LOG(Renderer, info, "[RG] barrier trace — {} passes", m_Passes.size());
+                LH_LOG(Renderer, info, "[RG] barrier trace - {} passes", m_Passes.size());
                 for (u32 i = 0; i < m_Passes.size(); ++i)
                 {
                     const auto& p = m_Passes[i];

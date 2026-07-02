@@ -122,7 +122,7 @@ namespace Luth
             auto vk = std::static_pointer_cast<VulkanShader>(ShaderLibrary::Get(name));
             if (!vk || !vk->IsValid())
             {
-                LH_LOG(Renderer, error, "Shader reload: '{}' invalid — keeping existing pipelines", name);
+                LH_LOG(Renderer, error, "Shader reload: '{}' invalid - keeping existing pipelines", name);
                 return;
             }
             const auto& spv = vk->GetSpirV();

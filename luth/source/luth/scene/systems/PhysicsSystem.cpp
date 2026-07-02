@@ -757,7 +757,7 @@ namespace Luth
         if ((collider.type == Component::Collider::Type::MeshRef) &&
             rb.motion != Component::RigidBody::Motion::Static)
         {
-            LH_LOG(Physics, warn, "PhysicsSystem: MeshRef requires Static body — skipping entity {}",
+            LH_LOG(Physics, warn, "PhysicsSystem: MeshRef requires Static body - skipping entity {}",
                          (u32)entity);
             return BuildResult::Failed;
         }
@@ -793,7 +793,7 @@ namespace Luth
 
         if (reg.any_of<Component::Parent>(entity))
         {
-            LH_LOG(Physics, warn, "PhysicsSystem: entity {} has a Parent — physics-driven Transform sync ignores"
+            LH_LOG(Physics, warn, "PhysicsSystem: entity {} has a Parent - physics-driven Transform sync ignores"
                          " hierarchy and may drift", (u32)entity);
         }
 
@@ -938,7 +938,7 @@ namespace Luth
             if (hasRB && hasCC)
             {
                 if (m_WarnedBothComponents.insert(entity).second)
-                    LH_LOG(Physics, warn, "PhysicsSystem: entity {} has both RigidBody and CharacterController — drop",
+                    LH_LOG(Physics, warn, "PhysicsSystem: entity {} has both RigidBody and CharacterController - drop",
                                  (u32)entity);
                 continue;
             }
@@ -1050,7 +1050,7 @@ namespace Luth
         {
             if (m_WarnedNonCapsule.insert(entity).second)
                 LH_LOG(Physics, warn, "PhysicsSystem: CharacterController on entity {} needs a Capsule Collider "
-                             "— got type {} — skipping", (u32)entity, (int)collider.type);
+                             "- got type {} - skipping", (u32)entity, (int)collider.type);
             return BuildResult::Failed;
         }
 
@@ -1066,7 +1066,7 @@ namespace Luth
         const Quat rot = Quat(Math::Radians(transform.Rotation));
         if (reg.any_of<Component::Parent>(entity))
         {
-            LH_LOG(Physics, warn, "PhysicsSystem: character entity {} has a Parent — pose sync ignores hierarchy "
+            LH_LOG(Physics, warn, "PhysicsSystem: character entity {} has a Parent - pose sync ignores hierarchy "
                          "and may drift", (u32)entity);
         }
 
@@ -1351,7 +1351,7 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
         LH_CORE_ASSERT(!m_StepInFlight.load(std::memory_order_acquire),
-                       "PhysicsSystem::Raycast called during Step — NarrowPhaseQuery is not safe "
+                       "PhysicsSystem::Raycast called during Step - NarrowPhaseQuery is not safe "
                        "to call from a contact callback or any code reachable from m_System.Update");
 
         // Jolt's CastRay takes (origin, direction*length); anything past mDirection's length is

@@ -118,7 +118,7 @@ namespace Luth
                 static bool warned = false;
                 if (!warned)
                 {
-                    LH_LOG(Renderer, warn, "GPUTimerPool: pass count {} exceeds maxPasses {} — raise GPUTimerPool::Init(). "
+                    LH_LOG(Renderer, warn, "GPUTimerPool: pass count {} exceeds maxPasses {} - raise GPUTimerPool::Init(). "
                                  "GPU per-pass timing + pipeline stats are off until then.", passCount, m_MaxPasses);
                     warned = true;
                 }

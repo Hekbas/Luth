@@ -43,7 +43,7 @@ namespace Luth
                 UI::Property("Color Alpha", sv.alphaColor, 0.01f, 0.0f, 1.0f);
                 Tip("Temporal EMA blend for color at steady state.\nLower = more accumulation / stability, more lag under motion.");
                 UI::Property("Moments Alpha", sv.alphaMoments, 0.01f, 0.0f, 1.0f);
-                Tip("Temporal EMA blend for the luminance moments (variance estimate)\nthat drives à-trous edge-stopping. Usually tracks Color Alpha.");
+                Tip("Temporal EMA blend for the luminance moments (variance estimate)\nthat drives a-trous edge-stopping. Usually tracks Color Alpha.");
                 UI::Property("Depth Threshold", sv.depthThreshold, 0.005f, 0.0f, 1.0f);
                 Tip("Relative linear-depth tolerance for accepting reprojected history.");
                 UI::Property("Normal Threshold", sv.normalThreshold, 0.005f, 0.0f, 1.0f);
@@ -217,7 +217,7 @@ namespace Luth
                     UI::Property("Spatial Normal Threshold", gi.spatialNormalThreshold, 0.005f, 0.0f, 1.0f);
 
                     UI::Property("Secondary Albedo (scaffold)", gi.secondaryAlbedo, 0.01f, 0.0f, 1.0f);
-                    Tip("Constant fallback albedo for the secondary hit — only used when the\nshader's GI_USE_SCAFFOLD_LO debug path is enabled (real material otherwise).");
+                    Tip("Constant fallback albedo for the secondary hit - only used when the\nshader's GI_USE_SCAFFOLD_LO debug path is enabled (real material otherwise).");
                     UI::EndProperties();
                 }
                 endSection();
@@ -297,12 +297,12 @@ namespace Luth
                     UI::Property("Scattering Intensity", vs.scatteringIntensity, 0.5f, 0.0f, 100.0f);
                     Tip("Artistic multiplier on total in-scatter. 1.0 = energy-conserving; 10-50 = visible at default scenes.");
                     UI::Property("Multi-Scatter", vs.multiScatterIntensity, 0.01f, 0.0f, 1.0f);
-                    Tip("2nd-order multi-scatter — lifts shadowed fog that single-scatter leaves black.");
+                    Tip("2nd-order multi-scatter - lifts shadowed fog that single-scatter leaves black.");
                     UI::Property("Sky Fog Strength", vs.skyFogStrength, 0.01f, 0.0f, 1.0f);
                     UI::Property("Sun Absorption Steps", vs.sunFogAbsorptionSteps, 0, 16);
                     Tip("Sun light-path absorption ray-march steps. 0 = disabled; 4 = quality default.");
                     UI::Property("RT Shadows", vs.rtShadows);
-                    Tip("Ray-traced fog shadows (one ray per froxel per cluster light + sun). Costly — showcase only.");
+                    Tip("Ray-traced fog shadows (one ray per froxel per cluster light + sun). Costly - showcase only.");
                     UI::EndProperties();
                 }
                 if (UI::BeginProperties("VolumetricTemporal")) {
@@ -399,7 +399,7 @@ namespace Luth
                 }
                 if (UI::BeginProperties("SpecAaProps")) {
                     UI::Property("Specular AA", pp.specularAaEnabled);
-                    Tip("Tokuyoshi 2019 — lifts BRDF roughness from screen-space normal curvature.\nKills specular sparkle on curved metal at glancing angles.");
+                    Tip("Tokuyoshi 2019 - lifts BRDF roughness from screen-space normal curvature.\nKills specular sparkle on curved metal at glancing angles.");
                     UI::Property("Sigma", pp.specularAaSigma, 0.01f, 0.0f, 1.0f);
                     UI::EndProperties();
                 }

@@ -326,7 +326,7 @@ namespace Luth
         if (!material.HasGraph()) return UUID::Invalid();
         if (!FileSystem::HasProject())
         {
-            LH_LOG(Renderer, warn, "MaterialGraphCodegen: no project loaded — cannot emit a graph shader");
+            LH_LOG(Renderer, warn, "MaterialGraphCodegen: no project loaded - cannot emit a graph shader");
             return UUID::Invalid();
         }
 
@@ -335,7 +335,7 @@ namespace Luth
         Lowerer low(material.GetGraph());
         if (low.paramCount > MAT_GRAPH_STRIDE)
         {
-            LH_LOG(Renderer, error, "MaterialGraphCodegen: '{}' has {} graph constants (> MAT_GRAPH_STRIDE {}) — renders stock",
+            LH_LOG(Renderer, error, "MaterialGraphCodegen: '{}' has {} graph constants (> MAT_GRAPH_STRIDE {}) - renders stock",
                           material.Handle.ToString(), low.paramCount, MAT_GRAPH_STRIDE);
             return UUID::Invalid();
         }
@@ -402,7 +402,7 @@ namespace Luth
                 }
         }
         if (!previewUUID.IsValid())
-            LH_LOG(Renderer, warn, "MaterialGraphCodegen: '{}' preview consumer failed — editor preview stays stock", prevBase);
+            LH_LOG(Renderer, warn, "MaterialGraphCodegen: '{}' preview consumer failed - editor preview stays stock", prevBase);
 
         // New structure -> assign an RT eval variant (capped on distinct structures). Beyond the cap the
         // material renders correctly in raster (per-structure shader) but stays stock in RT.
@@ -410,7 +410,7 @@ namespace Luth
         if (s_Structures.size() < kMaxGraphVariants)
             variant = static_cast<u32>(s_Structures.size()) + 1;
         else
-            LH_LOG(Renderer, warn, "MaterialGraphCodegen: RT variant cap ({}) reached — '{}' renders stock in RT", kMaxGraphVariants, consBase);
+            LH_LOG(Renderer, warn, "MaterialGraphCodegen: RT variant cap ({}) reached - '{}' renders stock in RT", kMaxGraphVariants, consBase);
 
         s_Structures[structHash] = StructInfo{ variant, shader->Handle, previewUUID, canonSrc };
         material.SetGraphShaderUUID(shader->Handle);

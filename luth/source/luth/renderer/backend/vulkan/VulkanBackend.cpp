@@ -192,7 +192,7 @@ namespace Luth
         gaInfo.signalSemaphoreInfoCount = 1;
         gaInfo.pSignalSemaphoreInfos    = &gaSignal;
         if (!VulkanContext::Get().SubmitGraphics2(gaInfo, VK_NULL_HANDLE))
-            LH_LOG(Renderer, error, "VulkanBackend::SubmitView — graphics-A submit failed (frame {}, view {}).", frameIndex, viewSlot);
+            LH_LOG(Renderer, error, "VulkanBackend::SubmitView - graphics-A submit failed (frame {}, view {}).", frameIndex, viewSlot);
 
         // ---- async-compute submit ----
         // Only fires when the view's RG routed any pass to AsyncCompute. Compute waits the gA value at ALL_COMMANDS
@@ -243,7 +243,7 @@ namespace Luth
             cInfo.signalSemaphoreInfoCount = 1;
             cInfo.pSignalSemaphoreInfos    = &cSignal;
             if (!VulkanContext::Get().SubmitCompute2(cInfo, VK_NULL_HANDLE))
-                LH_LOG(Renderer, error, "VulkanBackend::SubmitView — compute submit failed (frame {}, view {}).", frameIndex, viewSlot);
+                LH_LOG(Renderer, error, "VulkanBackend::SubmitView - compute submit failed (frame {}, view {}).", frameIndex, viewSlot);
             m_CurrentFrameLastComputeValue = computeSignalValue;
         }
 
@@ -307,7 +307,7 @@ namespace Luth
         gbInfo.signalSemaphoreInfoCount = gbSignalCount;
         gbInfo.pSignalSemaphoreInfos    = gbSignals;
         if (!VulkanContext::Get().SubmitGraphics2(gbInfo, VK_NULL_HANDLE))
-            LH_LOG(Renderer, error, "VulkanBackend::SubmitView — graphics-B submit failed (frame {}, view {}).", frameIndex, viewSlot);
+            LH_LOG(Renderer, error, "VulkanBackend::SubmitView - graphics-B submit failed (frame {}, view {}).", frameIndex, viewSlot);
 
         // Cache per-frame final timeline values + present on the last view. AcquireImage reads these caches when
         // gating GPU-N-2 page reclaim (skips compute wait when the per-frame value is 0).

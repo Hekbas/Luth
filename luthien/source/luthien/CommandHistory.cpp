@@ -11,7 +11,7 @@ namespace Luth
 
         if (s_Blocked) {
             if (!s_WarnedBlocked) {
-                LH_LOG(Editor, warn, "CommandHistory blocked during play — edits discarded");
+                LH_LOG(Editor, warn, "CommandHistory blocked during play - edits discarded");
                 s_WarnedBlocked = true;
             }
             return;

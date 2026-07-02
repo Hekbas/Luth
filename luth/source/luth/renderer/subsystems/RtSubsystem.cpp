@@ -139,7 +139,7 @@ namespace Luth
         }
         else
         {
-            LH_LOG(Renderer, critical, "RtSubsystem: persistent empty TLAS build failed — Set 0 binding 6 will be null on frame 0");
+            LH_LOG(Renderer, critical, "RtSubsystem: persistent empty TLAS build failed - Set 0 binding 6 will be null on frame 0");
         }
 
         // Pass-local sampler: linear clamp-to-edge for both SceneDepth + SlimNormal reads.

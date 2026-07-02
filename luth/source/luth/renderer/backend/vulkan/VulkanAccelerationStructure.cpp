@@ -83,7 +83,7 @@ namespace Luth
         auto ib = std::dynamic_pointer_cast<VKIndexBuffer>(mesh.GetIndexBuffer());
         if (!vb || !ib)
         {
-            LH_LOG(Renderer, error, "CreateStaticBLAS: non-Vulkan VB/IB on mesh — skipping BLAS");
+            LH_LOG(Renderer, error, "CreateStaticBLAS: non-Vulkan VB/IB on mesh - skipping BLAS");
             return nullptr;
         }
         const u32 vertCount  = mesh.GetVertexCount();
@@ -206,7 +206,7 @@ namespace Luth
         auto ib = std::dynamic_pointer_cast<VKIndexBuffer>(mesh.GetIndexBuffer());
         if (!vb || !ib)
         {
-            LH_LOG(Renderer, error, "CreateDeformableBLAS: non-Vulkan VB/IB on mesh — skipping BLAS");
+            LH_LOG(Renderer, error, "CreateDeformableBLAS: non-Vulkan VB/IB on mesh - skipping BLAS");
             return nullptr;
         }
         const u32 vertCount  = mesh.GetVertexCount();

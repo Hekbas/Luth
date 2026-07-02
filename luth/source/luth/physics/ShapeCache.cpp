@@ -182,7 +182,7 @@ namespace Luth::Physics
                         }
                         if (firstTime)
                         {
-                            LH_LOG(Physics, warn, "ShapeCache: model '{}' has PhysicsBake = None — body "
+                            LH_LOG(Physics, warn, "ShapeCache: model '{}' has PhysicsBake = None - body "
                                          "skipped. Set 'Bake Mode' to Auto in the Model importer "
                                          "and reimport to enable.",
                                          meta.Path.filename().string());

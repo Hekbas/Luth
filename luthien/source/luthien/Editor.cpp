@@ -912,7 +912,7 @@ namespace Luth
         namespace fs = std::filesystem;
 
         if (fs::exists(BuiltinIni(name))) {
-            LH_LOG(Editor, warn, "Cannot overwrite built-in workspace '{}' — pick a different name", name);
+            LH_LOG(Editor, warn, "Cannot overwrite built-in workspace '{}' - pick a different name", name);
             return false;
         }
 
@@ -1346,7 +1346,7 @@ namespace Luth
             title += "*";
         }
         if (EditorAutoSave::IsNoticeActive()) {
-            title += " — ";
+            title += " - ";
             title += EditorAutoSave::GetLastNotice();
         }
 

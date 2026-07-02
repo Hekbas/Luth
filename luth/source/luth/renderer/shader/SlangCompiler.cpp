@@ -21,7 +21,7 @@ namespace Luth
         {
             if (SLANG_FAILED(slang::createGlobalSession(out.writeRef())) || !out)
             {
-                LH_LOG(Shaders, error, "Slang: createGlobalSession failed — prebuilt DLLs missing or core module not found");
+                LH_LOG(Shaders, error, "Slang: createGlobalSession failed - prebuilt DLLs missing or core module not found");
                 return false;
             }
             static std::once_flag s_ready;
@@ -99,7 +99,7 @@ namespace Luth
             target.flags = kDefaultTargetFlags;             // SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY
             target.floatingPointMode = SLANG_FLOATING_POINT_MODE_PRECISE;
             if (target.profile == SLANG_PROFILE_UNKNOWN)
-                LH_LOG(Shaders, warn, "Slang: profile 'spirv_1_5' unknown on this build — emitting at target default");
+                LH_LOG(Shaders, warn, "Slang: profile 'spirv_1_5' unknown on this build - emitting at target default");
 
             slang::CompilerOptionEntry opts[] = {
                 { slang::CompilerOptionName::DebugInformation,

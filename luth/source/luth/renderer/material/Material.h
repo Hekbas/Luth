@@ -82,7 +82,7 @@ namespace Luth
     // Per-material graph-constant stride (float4 slots/material). invariant: matches material.slang MAT_GRAPH_STRIDE;
     // shader paramBase = materialIndex * MAT_GRAPH_STRIDE indexes gMatParams; drift cross-corrupts. Bounds value nodes.
     inline constexpr u32 MAT_GRAPH_STRIDE = 16;
-    static_assert(sizeof(Vec4) == 16, "gMatParams is StructuredBuffer<float4> — Vec4 must be 16 B std430");
+    static_assert(sizeof(Vec4) == 16, "gMatParams is StructuredBuffer<float4> - Vec4 must be 16 B std430");
 
     class Material : public Asset
     {

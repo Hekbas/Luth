@@ -55,7 +55,7 @@ namespace Luth
         LH_PROFILE_FUNCTION();
         for (const auto& name : m_Pending)
         {
-            LH_LOG(Shaders, info, "Shader file changed — reloading '{}'", name);
+            LH_LOG(Shaders, info, "Shader file changed - reloading '{}'", name);
             ShaderLibrary::Reload(name);
             LH_PROFILE_MESSAGE(("Shader reloaded: " + name).c_str());
         }
