@@ -52,7 +52,7 @@ namespace Luth::RG
         std::vector<PooledBuffer>                    m_BufferPool;
         u64 m_FrameIndex = 0;
 
-        // Frames; ~0.5s @ 60Hz. Was 10000 (~3 minutes — effectively "never evict"), which
+        // Frames; ~0.5s @ 60Hz. Was 10000 (~3 minutes, effectively "never evict"), which
         // let viewport-resize churn accumulate stale entries in the cache.
         static constexpr u64 k_StaleFrameThreshold = 30;
     };

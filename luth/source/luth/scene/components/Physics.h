@@ -29,7 +29,7 @@ namespace Luth::Component
         Quat localRotation{1.0f, 0.0f, 0.0f, 0.0f};
 
         // The active union member is determined by `type`. ConvexHullRef and MeshRef share the meshRef
-        // layout — only the interpretation differs (convex hull vs triangle-mesh shape from the same
+        // layout; only the interpretation differs (convex hull vs triangle-mesh shape from the same
         // model asset). modelHi/modelLo together form the asset's UUID; meshIndex selects the submesh.
         union
         {
@@ -45,8 +45,8 @@ namespace Luth::Component
     static_assert(sizeof(Collider) <= 64, "Collider exceeds 64-byte budget");
 
     // Body parameters and runtime velocity. mass <= 0 derives from shape volume * density at body build
-    // time. materialUUID points to a PhysicsMaterial asset; the zero UUID means engine default. Per-body
-    // material is a Tier 0 simplification — once compound shapes land, material moves per-shape.
+    // time. materialUUID points to a PhysicsMaterial asset; the zero UUID means engine default. Material is currently per-body;
+    // when compound shapes land it moves per-shape.
     struct RigidBody
     {
         enum class Motion  : u8 { Static, Kinematic, Dynamic };
@@ -70,7 +70,7 @@ namespace Luth::Component
 
     // Runtime-only handle into PhysicsSystem's body table. PhysicsSystem attaches this when it creates a
     // Jolt body for a (RigidBody + Collider) pair, and removes it when either component drops. Never
-    // serialized. The bodyId field is opaque (a JPH::BodyID's internal u32) — gameplay code should not
+    // serialized. The bodyId field is opaque (a JPH::BodyID's internal u32); gameplay code should not
     // read it directly. shapeFingerprint detects shape edits so the body can be rebuilt only when needed.
     struct PhysicsBodyRuntime
     {
@@ -92,7 +92,7 @@ namespace Luth::Component
     };
 
     // Kinematic, query-driven character. Pairs with a Collider whose Type::Capsule supplies the swept
-    // shape — TryCreateCharacter refuses non-capsule colliders (Failed + warn). Movement is fed via
+    // shape; TryCreateCharacter refuses non-capsule colliders (Failed + warn). Movement is fed via
     // desiredVelocity each frame (horizontal); PhysicsSystem integrates gravity into the y component
     // and consumes jumpQueued on grounded frames. groundState + currentVelocity are read-back fields
     // refreshed post-step. Mutually exclusive with RigidBody on the same entity.

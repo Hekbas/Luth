@@ -76,10 +76,10 @@ namespace Luth
             return Physics::Layers::MOVING;
         }
 
-        // ── Debug-draw helpers ──
+        // ---- Debug-draw helpers ----
 
         // Pack a float-RGBA in [0,1] into a u32 with the byte layout DebugDraw expects (byte 0 = R,
-        // byte 3 = A) — same encoding as VK_FORMAT_R8G8B8A8_UNORM and JPH::Color::GetUInt32.
+        // byte 3 = A); same encoding as VK_FORMAT_R8G8B8A8_UNORM and JPH::Color::GetUInt32.
         u32 PackColor(const Vec4& c)
         {
             auto to8 = [](float x) { return static_cast<u32>(std::clamp(x, 0.0f, 1.0f) * 255.0f); };
@@ -131,7 +131,7 @@ namespace Luth
         }
 
         // Function-local cache of (cos, sin) pairs around the unit circle. Regenerated when the
-        // segment count changes — single static is fine because PhysicsSystem::Update runs on the
+        // segment count changes; single static is fine because PhysicsSystem::Update runs on the
         // game-stage fiber (single-writer).
         std::span<const Vec2> GetUnitCircle(u32 segments)
         {
@@ -169,7 +169,7 @@ namespace Luth
             }
         }
 
-        // Wire sphere as three orthogonal great circles in the XY/XZ/YZ planes — Unity-style.
+        // Wire sphere as three orthogonal great circles in the XY/XZ/YZ planes, Unity-style.
         void DrawWireSphere(const Mat4& m, float radius, u32 color, std::span<const Vec2> unit)
         {
             DrawWireCircle(m, Vec3(1, 0, 0), Vec3(0, 1, 0), radius, color, unit);
@@ -201,7 +201,7 @@ namespace Luth
         }
 
         // Wire capsule along local Y axis (Jolt convention). Two equator circles at the cylinder ends, two side
-        // seams along the cylinder, and one half-circle per hemisphere in each of the XY/ZY planes — readable
+        // seams along the cylinder, and one half-circle per hemisphere in each of the XY/ZY planes; readable
         // silhouette without going full icosphere.
         void DrawWireCapsule(const Mat4& m, float halfHeight, float radius, u32 color, std::span<const Vec2> unit)
         {
@@ -229,7 +229,7 @@ namespace Luth
             Circle(topCenter,    axisX, axisZ);
             Circle(bottomCenter, axisX, axisZ);
 
-            // Side seams (4 vertical lines at ±X, ±Z on the cylinder).
+            // Side seams (4 vertical lines at +/-X, +/-Z on the cylinder).
             Luth::DebugDraw::Line(topCenter + axisX * radius, bottomCenter + axisX * radius, color);
             Luth::DebugDraw::Line(topCenter - axisX * radius, bottomCenter - axisX * radius, color);
             Luth::DebugDraw::Line(topCenter + axisZ * radius, bottomCenter + axisZ * radius, color);
@@ -257,7 +257,7 @@ namespace Luth
             HemiArc(bottomCenter, axisZ, axisY, /*topHalf*/false);
         }
 
-        // Axis-aligned wire box from world-space corners — used for the AABB pass.
+        // Axis-aligned wire box from world-space corners; used for the AABB pass.
         void DrawWireAABB(const Vec3& mn, const Vec3& mx, u32 color)
         {
             const Vec3 c[8] = {
@@ -274,7 +274,7 @@ namespace Luth
             Luth::DebugDraw::Line(c[2], c[6], color); Luth::DebugDraw::Line(c[3], c[7], color);
         }
 
-        // Local AABB of a primitive collider. Returns false for shapes we don't render yet
+        // Local AABB of a primitive collider. Returns false for shapes not rendered yet
         // (ConvexHullRef / MeshRef) so the caller can skip them.
         bool ColliderLocalAABB(const Component::Collider& c, Vec3& outMin, Vec3& outMax)
         {
@@ -299,7 +299,7 @@ namespace Luth
         }
 
         // Translate Jolt's body origin + identity orientation into a Mat4 for the CoM axis cross.
-        // We don't need the body's full rotation for the cross — the axes are world-space — but
+        // The cross doesn't need the body's full rotation (the axes are world-space), but
         // consumers may want the body's frame for future passes.
         Mat4 ComposeIdentity(const Vec3& origin)
         {
@@ -308,7 +308,7 @@ namespace Luth
             return m;
         }
 
-        // ── Character helpers ──
+        // ---- Character helpers ----
 
         // Fingerprint inputs for CharacterController. Structural fields force a full rebuild on change: capsule shape,
         // local offset/rotation, character padding, predictive contact distance. Tunables with JPH setters (mass,
@@ -353,7 +353,7 @@ namespace Luth
     PhysicsSystem::PhysicsSystem()
         : m_TempAlloc(kTempAllocatorBytes)
         , m_JobAdapter(kAdapterMaxJobs, kAdapterMaxBarriers)
-        // entt::null is a templated null_t with a conversion operator to any entity-like type —
+        // entt::null is a templated null_t with a conversion operator to any entity-like type;
         // passed bare into vector's (size_type, const T&) it ambiguates with (size_type, Allocator&).
         // Materialise as entt::entity to pin the overload.
         , m_EntityByBodyIndex(kMaxBodies, entt::entity{entt::null})
@@ -369,14 +369,14 @@ namespace Luth
 
     PhysicsSystem::~PhysicsSystem()
     {
-        // Unhook the listener before draining bodies — any in-flight callback would access a
-        // member that's about to be destroyed. The job system is already drained by the time we
-        // get here (App teardown order), but the belt-and-suspenders unhook is cheap.
+        // Unhook the listener before draining bodies; any in-flight callback would access a
+        // member that's about to be destroyed. The job system is already drained by this point
+        // (App teardown order), but the belt-and-suspenders unhook is cheap.
         m_System.SetContactListener(nullptr);
         DetachSignals();
 
         // Destroy any remaining bodies before m_System tears down. Skipping this leaks the body
-        // manager's slots but is otherwise safe — Jolt's destructor cleans up the body table itself.
+        // manager's slots but is otherwise safe (Jolt's destructor cleans up the body table itself).
         // Doing it explicitly keeps allocator stats honest.
         if (!m_BodyMap.empty())
         {
@@ -391,7 +391,7 @@ namespace Luth
         m_PendingDestroy.clear();
         m_PendingBuild.clear();
 
-        // Same for characters — owned heap allocations, must release before m_System (CharacterVirtual
+        // Same for characters: owned heap allocations, must release before m_System (CharacterVirtual
         // holds a back-pointer to the system used at Update time).
         for (auto& [_, ch] : m_CharacterMap) delete ch;
         m_CharacterMap.clear();
@@ -399,7 +399,7 @@ namespace Luth
         m_PendingCharacterDestroy.clear();
     }
 
-    // ── Update ──
+    // ---- Update ----
 
     void PhysicsSystem::Update(Scene* scene)
     {
@@ -407,8 +407,8 @@ namespace Luth
 
         // Signal plumbing, deferred-destroy drain, and deferred-build drain all run regardless of
         // PlayState. Bailing under the Editing gate before signal connect leaves AddComponent calls
-        // during scene load with no listener; deferring destroys/builds across frames means we'd
-        // otherwise leak/skip them during authoring. Order matters: DrainPendingDestroys before
+        // during scene load with no listener; destroys/builds are deferred across frames and would
+        // otherwise leak or be skipped during authoring. Order matters: DrainPendingDestroys before
         // DrainPendingBuilds so a destroy + re-add of the same entity in one frame produces one
         // fresh body, not a destroyed dangling one.
         EnsureSignalsConnected(scene);
@@ -434,8 +434,8 @@ namespace Luth
 
         m_Accumulator += Time::DeltaTime();
 
-        // Cap the accumulator so a frame stall doesn't spiral. Lost time is acceptable here — the alt is
-        // an unbounded catch-up loop that makes a stall worse.
+        // Cap the accumulator so a frame stall doesn't spiral. Lost time is acceptable here; the
+        // alternative is an unbounded catch-up loop that makes a stall worse.
         const f32 maxAccum = kMaxSubSteps * kFixedDt;
         if (m_Accumulator > maxAccum)
             m_Accumulator = maxAccum;
@@ -451,9 +451,9 @@ namespace Luth
 
         for (int i = 0; i < substeps; ++i)
         {
-            // Query re-entry guard covers BOTH the character sweep and the JPH world step — either
+            // Query re-entry guard covers BOTH the character sweep and the JPH world step; either
             // path holds body locks. Set/cleared here (not inside Step) so UpdateCharacters runs under
-            // the same guard. Same memory ordering as before.
+            // the same guard.
             m_StepInFlight.store(true, std::memory_order_release);
             UpdateCharacters(scene, kFixedDt);
             Step(kFixedDt, /*collisionSteps*/1);
@@ -480,7 +480,7 @@ namespace Luth
         LH_PROFILE_FUNCTION();
         if (!scene) return;
 
-        // Skip entirely in runtime builds — there's no editor to drive the toggles, and the only
+        // Skip entirely in runtime builds: there's no editor to drive the toggles, and the only
         // sane runtime default is "off". A headless smoke harness can still emit debug lines via
         // DebugDraw directly if needed.
         auto* hooks = EditorHooks::Get();
@@ -506,7 +506,7 @@ namespace Luth
         auto& bi  = m_System.GetBodyInterface();
 
         // Single iteration over the (Collider + WorldTransform + RigidBody + PhysicsBodyRuntime)
-        // view feeds all three passes — cheaper than walking three times for typical body counts.
+        // view feeds all three passes; cheaper than walking three times for typical body counts.
         auto view = reg.view<Component::Collider, Component::WorldTransform,
                              Component::RigidBody, Component::PhysicsBodyRuntime>();
         for (auto entity : view)
@@ -569,7 +569,7 @@ namespace Luth
                 Vec3 lmn, lmx;
                 if (ColliderLocalAABB(collider, lmn, lmx))
                 {
-                    // 8-corner transform → world-space min/max. Slight overestimation under rotation
+                    // 8-corner transform -> world-space min/max. Slight overestimation under rotation
                     // for sphere/capsule; acceptable for a debug visualization.
                     Vec3 wmn(std::numeric_limits<float>::max());
                     Vec3 wmx(std::numeric_limits<float>::lowest());
@@ -604,7 +604,7 @@ namespace Luth
             }
         }
 
-        // Character pass — wire capsule colored by groundState. Gated by the same physicsShapes*
+        // Character pass: wire capsule colored by groundState. Gated by the same physicsShapes*
         // toggles as bodies. Position is one frame behind during play (WorldTransform refresh lands
         // post-step), same as the body path above.
         if (wantShapes)
@@ -642,7 +642,7 @@ namespace Luth
         }
     }
 
-    // ── Signals ──
+    // ---- Signals ----
 
     void PhysicsSystem::EnsureSignalsConnected(Scene* scene)
     {
@@ -667,7 +667,7 @@ namespace Luth
             m_PendingDestroy.clear();
             m_PendingBuild.clear();
 
-            // Same dance for characters — owned heap allocations, no broadphase to remove from
+            // Same dance for characters: owned heap allocations, no broadphase to remove from
             // since CharacterVirtual is query-driven (not a body).
             for (auto& [_, ch] : m_CharacterMap) delete ch;
             m_CharacterMap.clear();
@@ -676,7 +676,7 @@ namespace Luth
             m_WarnedNonCapsule.clear();
             m_WarnedBothComponents.clear();
 
-            // Drop cached asset shapes — model UUIDs may collide across projects after
+            // Drop cached asset shapes: model UUIDs may collide across projects after
             // UnloadProject + LoadProject. Worst case is a fresh build per shape on first body
             // create in the new scene; serving stale geometry to a different project would be
             // a correctness bug.
@@ -715,17 +715,17 @@ namespace Luth
     void PhysicsSystem::OnComponentConstructed(entt::registry& /*reg*/, entt::entity entity)
     {
         // Defer the build to Update start. Inline TryCreateBody here would race with the Inspector's
-        // "Add Component → user edits fields" pattern: on_construct fires synchronously inside
+        // "Add Component -> user edits fields" pattern: on_construct fires synchronously inside
         // AddComponent before the user can write any field, so the body would be built with default
         // values and the later edits would no-op against an already-built body. Queueing means the
-        // build picks up whatever the component looks like at next Update — and on_update edits
+        // build picks up whatever the component looks like at next Update; on_update edits
         // also queue, so a body always reflects the latest fields after one frame.
         QueueBuild(entity);
     }
 
     void PhysicsSystem::OnComponentUpdated(entt::registry& /*reg*/, entt::entity entity)
     {
-        // patch<>() on either Collider or RigidBody routes here. Queue a rebuild — DrainPendingBuilds
+        // patch<>() on either Collider or RigidBody routes here. Queue a rebuild; DrainPendingBuilds
         // tears down the existing body before reissuing TryCreateBody so shape, mass, layer, motion
         // type, and motion quality are all picked up from the latest component state.
         QueueBuild(entity);
@@ -740,7 +740,7 @@ namespace Luth
         DestroyCharacterForEntity(reg, entity);
     }
 
-    // ── Body lifecycle ──
+    // ---- Body lifecycle ----
 
     PhysicsSystem::BuildResult PhysicsSystem::TryCreateBody(Scene* scene, entt::entity entity)
     {
@@ -774,7 +774,7 @@ namespace Luth
 
         // Pin the source Model so AssetManager::Trim can't evict it while a body still references
         // its vertex data. Mirrors the RenderSnapshot/MeshRenderer pattern; HoldAsset is idempotent
-        // on the same UUID. Materials follow in the PhysicsMaterial sub-task.
+        // on the same UUID.
         if (collider.type == Component::Collider::Type::ConvexHullRef
             || collider.type == Component::Collider::Type::MeshRef)
         {
@@ -797,7 +797,7 @@ namespace Luth
                          " hierarchy and may drift", (u32)entity);
         }
 
-        // Resolve PhysicsMaterial. UUID::Invalid (or not-yet-loaded) → engine baseline. Pin the
+        // Resolve PhysicsMaterial. UUID::Invalid (or not-yet-loaded) -> engine baseline. Pin the
         // asset on success so AssetManager::Trim can't evict it while a body holds its values.
         const PhysicsMaterial* matPtr = &PhysicsMaterial::Default();
         if (rb.materialUUID.IsValid())
@@ -830,8 +830,8 @@ namespace Luth
         }
         else if (mat.density > 0.0f)
         {
-            // Density × shape volume. MeshShape::GetVolume returns 0 (no well-defined volume) and
-            // is gated to Static where mass is irrelevant — fall through to Jolt's default in
+            // Density * shape volume. MeshShape::GetVolume returns 0 (no well-defined volume) and
+            // is gated to Static where mass is irrelevant; fall through to Jolt's default in
             // that case. Same applies to any other shape that returns 0.
             const float volume = shape->GetVolume();
             if (volume > 0.0f)
@@ -854,10 +854,10 @@ namespace Luth
 
         // Pack entity into user data for reverse lookup from contact callbacks. OnContactAdded /
         // OnContactPersisted read it via Body::GetUserData; OnContactRemoved can't access bodies
-        // (ContactListener.h:127), so we also fill m_EntityByBodyIndex below for that path.
+        // (ContactListener.h:127), so the m_EntityByBodyIndex side table below covers that path.
         bi.SetUserData(id, static_cast<JPH::uint64>(entity));
 
-        // Side table for OnContactRemoved. Index is BodyID's 23-bit slot index — bounded by
+        // Side table for OnContactRemoved. Index is BodyID's 23-bit slot index, bounded by
         // kMaxBodies, so an array indexed by GetIndex() is O(1) and bounded ~64 KB.
         const u32 bodyIdx = id.GetIndex();
         if (bodyIdx < m_EntityByBodyIndex.size())
@@ -908,7 +908,7 @@ namespace Luth
 
     void PhysicsSystem::QueueBuild(entt::entity entity)
     {
-        // Cheap append. Dedup runs once at drain time — sort+unique scales better than per-insert
+        // Cheap append. Dedup runs once at drain time; sort+unique scales better than per-insert
         // std::find when many entities are queued in one frame (e.g. scene load).
         m_PendingBuild.push_back(entity);
     }
@@ -923,7 +923,7 @@ namespace Luth
         auto& bi = m_System.GetBodyInterface();
         auto& reg = scene->Registry();
 
-        // Shadow vector for retries — entities whose source asset hasn't loaded yet stay queued
+        // Shadow vector for retries: entities whose source asset hasn't loaded yet stay queued
         // for next Update. Bounded by the count of asset-backed bodies in the scene; per-frame
         // work is ~one BodyMap lookup per pending entity until the asset arrives.
         std::vector<entt::entity> retry;
@@ -933,7 +933,7 @@ namespace Luth
             const bool hasRB = reg.all_of<Component::RigidBody>(entity);
             const bool hasCC = reg.all_of<Component::CharacterController>(entity);
 
-            // Mutual exclusion — a single entity can't simulate as both rigid body and character.
+            // Mutual exclusion: a single entity can't simulate as both rigid body and character.
             // Warn once per entity so an authoring slip doesn't spam the log.
             if (hasRB && hasCC)
             {
@@ -947,7 +947,7 @@ namespace Luth
             {
                 auto chIt = m_CharacterMap.find(entity);
 
-                // Fast path: character exists, fingerprint matches → only tunable fields changed. Apply mass /
+                // Fast path: character exists, fingerprint matches -> only tunable fields changed. Apply mass /
                 // max-strength / max-slope / penetration-recovery in place.
                 if (chIt != m_CharacterMap.end()
                     && reg.all_of<Component::Collider, Component::CharacterController, Component::CharacterControllerRuntime>(entity))
@@ -962,7 +962,7 @@ namespace Luth
                     }
                 }
 
-                // Structural change → tear down then rebuild.
+                // Structural change -> tear down then rebuild.
                 if (chIt != m_CharacterMap.end())
                 {
                     delete chIt->second;
@@ -974,11 +974,10 @@ namespace Luth
             }
 
             // Body path (default). Entities with only Collider (no RB, no CC) reach here and
-            // return Failed from TryCreateBody, which drops them from the queue — same behaviour
-            // as before the dispatch was added.
+            // return Failed from TryCreateBody, which drops them from the queue.
             auto bodyIt = m_BodyMap.find(entity);
 
-            // Fast path: body exists, fingerprint matches → only tunable fields changed. Apply damping / gravity /
+            // Fast path: body exists, fingerprint matches -> only tunable fields changed. Apply damping / gravity /
             // velocity in place and skip the (expensive for asset shapes) shape rebuild + body recreate.
             if (bodyIt != m_BodyMap.end()
                 && reg.all_of<Component::Collider, Component::RigidBody, Component::PhysicsBodyRuntime>(entity))
@@ -994,7 +993,7 @@ namespace Luth
                 }
             }
 
-            // Tear down the existing body before rebuild. Safe to do synchronously here — drain runs
+            // Tear down the existing body before rebuild. Safe to do synchronously here: drain runs
             // at Update start, before any Step, so no in-flight simulation depends on the body.
             if (bodyIt != m_BodyMap.end())
             {
@@ -1005,7 +1004,7 @@ namespace Luth
 
             // TryCreateBody re-emplaces PhysicsBodyRuntime with the new bodyId on success, returns
             // RetryLater if the source asset isn't loaded yet (re-queue), and Failed for everything
-            // else — bad components, opt-out, invalid params (drop).
+            // else: bad components, opt-out, invalid params (drop).
             if (TryCreateBody(scene, entity) == BuildResult::RetryLater)
                 retry.push_back(entity);
         }
@@ -1032,7 +1031,7 @@ namespace Luth
         }
     }
 
-    // ── Character lifecycle ──
+    // ---- Character lifecycle ----
 
     PhysicsSystem::BuildResult PhysicsSystem::TryCreateCharacter(Scene* scene, entt::entity entity)
     {
@@ -1045,8 +1044,8 @@ namespace Luth
         const auto& cc        = reg.get<Component::CharacterController>(entity);
         const auto& transform = reg.get<Component::Transform>(entity);
 
-        // Path B contract: character requires a Capsule collider. Other shapes are an authoring error
-        // — warn once per entity rather than spamming each rebuild trigger.
+        // Characters require a Capsule collider; other shapes are an authoring error.
+        // Warn once per entity rather than spamming each rebuild trigger.
         if (collider.type != Component::Collider::Type::Capsule)
         {
             if (m_WarnedNonCapsule.insert(entity).second)
@@ -1055,7 +1054,7 @@ namespace Luth
             return BuildResult::Failed;
         }
 
-        // Reuse ShapeCache for primitives — it routes Capsule through ShapeBuilder and wraps with
+        // Reuse ShapeCache for primitives: it routes Capsule through ShapeBuilder and wraps with
         // RotatedTranslatedShape when localOffset/localRotation are non-identity. No asset path is
         // involved for a capsule, so RetryLater is impossible here today; the branch exists for the
         // future "asset-backed character shape" extension.
@@ -1071,8 +1070,8 @@ namespace Luth
                          "and may drift", (u32)entity);
         }
 
-        // CharacterVirtualSettings. mCharacterPadding and mPredictiveContactDistance are construction-
-        // only (no JPH setters) — both live in the fingerprint, so a change forces tear-down + rebuild.
+        // mCharacterPadding and mPredictiveContactDistance are construction-only (no JPH setters);
+        // both live in the fingerprint, so a change forces tear-down + rebuild.
         JPH::CharacterVirtualSettings settings;
         settings.mShape                     = outcome.shape;
         settings.mUp                        = JPH::Vec3::sAxisY();
@@ -1084,7 +1083,7 @@ namespace Luth
         settings.mMaxSlopeAngle             = Math::Radians(cc.maxSlopeAngleDeg);
 
         // Jolt-internal heap allocation via JPH_OVERRIDE_NEW_DELETE on CharacterVirtualSettings
-        // (CharacterVirtual.h:25) — documented exception to the LH_NEW cornerstone.
+        // (CharacterVirtual.h:25); documented exception to the LH_NEW cornerstone.
         auto* ch = new JPH::CharacterVirtual(&settings, Physics::ToJolt(pos), Physics::ToJolt(rot),
                                              static_cast<JPH::uint64>(entity), &m_System);
 
@@ -1128,7 +1127,7 @@ namespace Luth
     void PhysicsSystem::ApplyCharacterTuning(JPH::CharacterVirtual* ch, const Component::CharacterController& cc)
     {
         // Only the fields with public setters on CharacterVirtual / CharacterBase. mCharacterPadding
-        // and mPredictiveContactDistance are construction-only and live in the fingerprint — a change
+        // and mPredictiveContactDistance are construction-only and live in the fingerprint; a change
         // there forces a tear-down + rebuild instead of reaching this path.
         ch->SetMass(cc.mass);
         ch->SetMaxStrength(cc.maxStrength);
@@ -1153,8 +1152,8 @@ namespace Luth
             if (!ch) continue;
 
             // Compose velocity: horizontal from desiredVelocity (PlayerControllerSystem feeds this);
-            // vertical = previous-frame vertical + gravity*dt, or jumpSpeed if the user queued a jump
-            // and we're standing on something. CharacterVirtual::Update does NOT integrate gravity
+            // vertical = previous-frame vertical + gravity*dt, or jumpSpeed if a jump is queued and
+            // the character is grounded. CharacterVirtual::Update does NOT integrate gravity
             // (CharacterVirtual.h:322), so the caller owns it.
             Vec3 v;
             v.x = cc.desiredVelocity.x;
@@ -1162,13 +1161,13 @@ namespace Luth
             v.y = cc.currentVelocity.y + gravity.y * cc.gravityFactor * dt;
             if (cc.jumpQueued && cc.IsGrounded())
                 v.y = cc.jumpSpeed;
-            cc.jumpQueued = false;  // consume regardless — a queued jump that misses the grounded
+            cc.jumpQueued = false;  // consume regardless; a queued jump that misses the grounded
                                     // window is intentionally lost (no buffering at Tier 1)
 
             ch->SetLinearVelocity(Physics::ToJolt(v));
 
-            // ExtendedUpdate adds default StickToFloor + WalkStairs on top of plain Update — gives us
-            // Tier 1's "JPH defaults" stair/slope handling for free. Empty filters mean the character
+            // ExtendedUpdate adds default StickToFloor + WalkStairs on top of plain Update: Tier 1's
+            // "JPH defaults" stair/slope handling for free. Empty filters mean the character
             // collides per the existing BPLayerInterface rules (MOVING vs STATIC/TRIGGER).
             JPH::CharacterVirtual::ExtendedUpdateSettings extSettings{};
             ch->ExtendedUpdate(dt, Physics::ToJolt(gravity * cc.gravityFactor), extSettings,
@@ -1192,7 +1191,7 @@ namespace Luth
             const auto* ch = view.get<Component::CharacterControllerRuntime>(entity).character;
             if (!ch) continue;
 
-            // CharacterVirtual position only — rotation is not driven by the sweep (the character is
+            // CharacterVirtual position only; rotation is not driven by the sweep (the character is
             // an upright capsule). Preserve whatever rotation the user authored on Transform.
             auto& transform = view.get<Component::Transform>(entity);
             auto& world     = view.get<Component::WorldTransform>(entity);
@@ -1207,7 +1206,7 @@ namespace Luth
     {
         if (!scene) return;
 
-        // Snapshot under lock so the callback can keep pushing while we walk the registry.
+        // Snapshot under lock so the callback can keep pushing during the registry walk.
         std::vector<UUID> dirty;
         {
             SpinLockGuard guard(m_DirtyAssetsLock);
@@ -1217,7 +1216,7 @@ namespace Luth
 
         m_ShapeCache.OnAssetReimported(dirty);
 
-        // Asset content changed under a stable UUID — none of the fields hashed into shapeFingerprint
+        // Asset content changed under a stable UUID: none of the fields hashed into shapeFingerprint
         // shift, so the DrainPendingBuilds fast path would silently skip the rebuild. Clear the
         // stored fingerprint to force a mismatch and the rebuild branch.
         auto& reg = scene->Registry();
@@ -1228,7 +1227,7 @@ namespace Luth
         };
 
         // Rebuild bodies whose Collider references one of the dirty UUIDs. Linear scan over the
-        // dirty list per collider is fine — dirty lists from FileWatcher are typically 1-3 UUIDs.
+        // dirty list per collider is fine; dirty lists from FileWatcher are typically 1-3 UUIDs.
         auto colliderView = reg.view<Component::Collider>();
         for (auto entity : colliderView)
         {
@@ -1242,7 +1241,7 @@ namespace Luth
             }
         }
 
-        // Same pattern for PhysicsMaterial reimports — friction/restitution/density edits in
+        // Same pattern for PhysicsMaterial reimports: friction/restitution/density edits in
         // an external editor land here. Re-queue any body that references the dirty material UUID.
         auto rbView = reg.view<Component::RigidBody>();
         for (auto entity : rbView)
@@ -1262,7 +1261,7 @@ namespace Luth
 
         // Bound to `this` for the lifetime of the App. AssetDatabase has no unregister API today;
         // PhysicsSystem outlives the App loop so the dangling-callback hazard is theoretical, not
-        // observable. The callback only stages UUIDs — registry walks happen on the game-stage
+        // observable. The callback only stages UUIDs; registry walks happen on the game-stage
         // fiber via DrainDirtyAssets.
         AssetDatabase::AddChangeCallback([this]() {
             const auto& dirty = AssetDatabase::GetDirtyAssets();
@@ -1273,7 +1272,7 @@ namespace Luth
         m_ChangeCallbackRegistered = true;
     }
 
-    // ── Transform <-> Body sync ──
+    // ---- Transform <-> Body sync ----
 
     void PhysicsSystem::SyncTransformsToBodies(Scene* scene)
     {
@@ -1326,7 +1325,7 @@ namespace Luth
             const JPH::Vec3 lvel = bi.GetLinearVelocity(id);
             const JPH::Vec3 avel = bi.GetAngularVelocity(id);
 
-            // Write back to local Transform — correct for root entities and the documented Tier 0
+            // Write back to local Transform: correct for root entities and the documented Tier 0
             // contract; parented entities drift (warned at body-create time). WorldTransform is also
             // updated directly so render systems reading it this frame see the post-step pose.
             auto& transform = view.get<Component::Transform>(entity);
@@ -1345,7 +1344,7 @@ namespace Luth
         }
     }
 
-    // ── Queries ──
+    // ---- Queries ----
 
     bool PhysicsSystem::Raycast(const Vec3& origin, const Vec3& dir, f32 maxDist,
                                 u32 layerMask, Physics::RaycastHit& outHit) const
@@ -1355,7 +1354,7 @@ namespace Luth
                        "PhysicsSystem::Raycast called during Step — NarrowPhaseQuery is not safe "
                        "to call from a contact callback or any code reachable from m_System.Update");
 
-        // Jolt's CastRay takes (origin, direction*length) — anything past mDirection's length is
+        // Jolt's CastRay takes (origin, direction*length); anything past mDirection's length is
         // not reported. Encoding maxDist into the direction keeps the public API split (caller
         // passes a unit-ish direction + a distance) without forcing them to normalise.
         const JPH::RRayCast ray(Physics::ToJolt(origin), Physics::ToJolt(dir * maxDist));
@@ -1368,9 +1367,9 @@ namespace Luth
         if (!npq.CastRay(ray, hit, bpFilter, objFilter))
             return false;
 
-        // Resolve normal + entity. The body lock interface is the read-only path — safe outside
+        // Resolve normal + entity. The body lock interface is the read-only path, safe outside
         // Step. SucceededAndIsInBroadPhase confirms the body still exists between hit detection
-        // and our follow-up read (a body destroyed in between is a non-issue at Tier-0 since
+        // and the follow-up read (a body destroyed in between is a non-issue at Tier 0 since
         // queries are called from gameplay code on the main fiber, not from contact callbacks).
         const auto& bli = m_System.GetBodyLockInterface();
         JPH::BodyLockRead lock(bli, hit.mBodyID);
@@ -1395,7 +1394,7 @@ namespace Luth
     {
         // CollideShape collector that funnels hits into a caller-provided span and clamps when full.
         // ForceEarlyOut terminates the broadphase walk; further AddHit calls would be unbounded work
-        // we'd just throw away. Body lookup uses the no-lock body interface — query is single-threaded
+        // thrown away anyway. Body lookup uses the no-lock body interface; the query is single-threaded
         // and outside Step, so the broadphase isn't mutating concurrently.
         class SpanOverlapCollector final : public JPH::CollideShapeCollector
         {
@@ -1486,7 +1485,7 @@ namespace Luth
         return OverlapShape(result.Get().GetPtr(), center, rot, layerMask, outHits);
     }
 
-    // ── Event drain ──
+    // ---- Event drain ----
 
     u32 PhysicsSystem::DrainEvents(std::span<Physics::PhysicsEvent> outEvents)
     {

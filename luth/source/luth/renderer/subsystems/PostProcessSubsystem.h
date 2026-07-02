@@ -16,9 +16,8 @@ namespace Luth
     struct ViewResources;
     struct SlimGBufferOutput;
 
-    // Owns the PostProcess descriptor layout/sampler, the bloom extract +
-    // bloom blur + tonemap-composite pipelines, and the per-frame PP UBO
-    // upload (rebound to all 4 PP descriptor sets in one batched write).
+    // Owns the PostProcess descriptor layout/sampler, the bloom extract + bloom blur + tonemap-composite
+    // pipelines, and the per-frame PP UBO upload (rebound to all 4 PP descriptor sets in one batched write).
     class PostProcessSubsystem
     {
     public:
@@ -34,10 +33,10 @@ namespace Luth
         void WriteView(ViewResources& vr, FrameTargets& targets);
 
         // Stable per-view writes for the bloom pyramid down/up sets (source mip -> b0, dest mip -> b1).
-        // Written once per resize — the per-mip textures only change when the view resizes.
+        // Written once per resize; the per-mip textures only change when the view resizes.
         void WriteBloomView(ViewResources& vr);
 
-        // Stable per-view writes for the TAA resolve set (bindings 0/1/3 — sceneColor / motion /
+        // Stable per-view writes for the TAA resolve set (bindings 0/1/3: sceneColor / motion /
         // sceneDepth). Binding 2 (history-prev sampler) is rebound per-frame in WriteTaaResolvePerFrame.
         void WriteTaaResolveView(ViewResources& vr, FrameTargets& targets);
         void WriteTaaResolvePerFrame(ViewResources& vr, u32 frameAbs);
@@ -57,7 +56,7 @@ namespace Luth
         // history-curr. Returned handle is what downstream bloom + grid + composite consume.
         RG::ResourceHandle AddTaaResolvePass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor,
                                              RG::ResourceHandle motion, RG::ResourceHandle sceneDepth);
-        // Live slim G-buffer viz — bypasses tonemap. Mode = SlimNormal/Roughness/Motion/MaterialID,
+        // Live slim G-buffer viz; bypasses tonemap. Mode = SlimNormal/Roughness/Motion/MaterialID,
         // scale is motion magnification (unused for other modes). Runs after composite, writes LDR.
         // slimGB carries the producer-side RG handles from SlimGBufferPass; re-importing the same
         // VkImages would create aliased RG resources the barrier solver can't reconcile.

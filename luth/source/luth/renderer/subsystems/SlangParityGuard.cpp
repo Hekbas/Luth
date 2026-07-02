@@ -10,7 +10,7 @@ namespace Luth
 {
     namespace
     {
-        // The production shader the gate watches — a self-contained rayQuery+bindless+BDA consumer.
+        // The production shader the gate watches: a self-contained rayQuery+bindless+BDA consumer.
         constexpr const char* kGateName = "restir_gi_initial.slang";
         constexpr const char* kGatePath = "shaders/restir_gi_initial.slang";
 
@@ -27,7 +27,7 @@ namespace Luth
                 const u32 word = spv[i];
                 const u32 wc   = word >> 16;
                 const u32 op   = word & 0xFFFFu;
-                if (wc == 0 || i + wc > spv.size()) break;           // malformed — stop walking
+                if (wc == 0 || i + wc > spv.size()) break;           // malformed; stop walking
                 if (op == 17u && wc >= 2u)                           // OpCapability
                 {
                     switch (spv[i + 1])
@@ -57,7 +57,7 @@ namespace Luth
     void SlangParityGuard::RunGate()
     {
         LH_PROFILE_FUNCTION();
-        // SPIR-V is free from the ShaderLibrary cache — the watched shader is a production consumer that a
+        // SPIR-V is free from the ShaderLibrary cache: the watched shader is a production consumer that a
         // subsystem already loaded; LoadEngine returns the cached artifact, no recompile.
         if (auto sh = ShaderLibrary::LoadEngine(kGatePath))
             m_GateSpv = sh->GetSpirV();
@@ -70,9 +70,9 @@ namespace Luth
         CheckSlangSpirv();
     }
 
-    // Scan the compiled SPIR-V for the bindless-codegen signals slang#10525-class bugs break — the
+    // Scan the compiled SPIR-V for the bindless-codegen signals slang#10525-class bugs break: the
     // NonUniform decorations on the bindless texture accesses and the caps that make them valid. Sets the
-    // verdict; logs once per check (INFO on pass, WARN on regression). Deterministic — no GPU, no frame.
+    // verdict; logs once per check (INFO on pass, WARN on regression). Deterministic: no GPU, no frame.
     void SlangParityGuard::CheckSlangSpirv()
     {
         LH_PROFILE_FUNCTION();

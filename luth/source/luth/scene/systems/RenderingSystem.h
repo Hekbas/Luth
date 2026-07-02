@@ -51,10 +51,10 @@ namespace Luth
         float     skyboxIntensity;
         float     debugVisualizeCascades;
         float     cascadeBlendWidth;
-        Vec2      viewportSize;        // pixels (W, H) — fragment cluster ID, screen-space reconstruction
+        Vec2      viewportSize;        // pixels (W, H); fragment cluster ID, screen-space reconstruction
         float     nearZ;
         float     farZ;
-        // Volumetric fog params. rgb/a packing keeps the std140 ride efficient — 4 vec4 = 64 B.
+        // Volumetric fog params. rgb/a packing keeps the std140 ride efficient: 4 vec4 = 64 B.
         // .a of distanceFogColorDensity / heightFogColorDensity carries density (single-channel).
         // distanceFogParams: x = start, y = maxOpacity, z = enabled flag (0/1), w = pad.
         // heightFogParams:   x = refHeight, y = falloff, z = enabled flag, w = multiScatterIntensity.
@@ -70,20 +70,20 @@ namespace Luth
         // x = noiseScale (world-space frequency, 1/wavelength_m), y = noiseStrength (0..1 modulation
         // amplitude), z/w pad. Drives the Worley-FBM density-noise term in the inject shader.
         Vec4 volNoiseParams;
-        // xyz = wind direction × speed (m/s) — animates the noise sample UV over time, w pad.
+        // xyz = wind direction x speed (m/s); animates the noise sample UV over time, w pad.
         Vec4 volNoiseWind;
         // x = scatteringIntensity (post-canonical artistic multiplier on inject_scatter's output;
         // matches UE5 "Scattering Distribution" / Frostbite multiplier). y = blueNoiseDither (1/0).
         // zw reserved.
         Vec4 volScatterParams;
         // x = specularAaEnabled (1/0), y = specularAaSigma. Tokuyoshi 2019 screen-space normal-curvature
-        // variance lifted into roughness in pbr.frag — kills high-freq specular sparkle on curved metal.
+        // variance lifted into roughness in pbr.frag; kills high-freq specular sparkle on curved metal.
         Vec4 specAaParams;
         // x = taaEnabled (1/0), y = temporalAlpha (history feedback, 0.05..0.2), zw = currentJitter (pixels).
         Vec4 taaParams;
         // xy = prevJitter (pixels, last frame's currentJitter); zw pad. Paired with taaParams.zw so
         // slim_gbuffer.slang can dejitter motion source-side (Tardif form): the producer writes pure
-        // scene motion, supersedes the resolve-side push-constant jitterDelta. See source-side-taa-dejitter.
+        // scene motion, supersedes the resolve-side push-constant jitterDelta.
         Vec4 prevJitter;
         // x = shadowingMode (0=RasterCSM, 1=RtShadows), y = rtOriginEpsilon, z = rtNormalEpsilon, w pad.
         // pbr.frag::ComputeShadow dispatches on .x; RT path reads .y/.z for ray-origin biasing (Wächter-Binder).
@@ -91,44 +91,44 @@ namespace Luth
         // x = ReSTIR DI enabled (1 when the subsystem is on AND a valid DI image exists). When set,
         // pbr.frag samples the demodulated DI image (Set 3 b5) instead of running the point-light loop.
         Vec4 restirParams;
-        // Path-traced reference mode (rt-renderer C.5). x = enabled (RenderMode::PathTrace), y =
+        // Path-traced reference mode. x = enabled (RenderMode::PathTrace), y =
         // samplesPerFrame, z = maxBounces, w = accumulated sample count. PT bypasses pbr.frag entirely
         // (it overwrites the post chain's HDR input), so this is informational/debug, not a pbr.frag gate.
         Vec4 pathTraceParams;
-        // RT reflections (rt-renderer D.1). x = enabled (1 → pbr.frag composites the denoised reflection
+        // RT reflections. x = enabled (1 = pbr.frag composites the denoised reflection
         // into the split-sum specular IBL), y = roughnessFadeStart, z = roughnessFadeEnd (full RT below
         // Start, smoothstep to prefiltered-env IBL, pure IBL above End), w pad.
         Vec4 reflParams;
-        // depth → world for the RT-reflection denoiser's virtual reprojection. APPENDED at the end — never
+        // depth->world for the RT-reflection denoiser's virtual reprojection. APPENDED at the end; never
         // insert mid-struct: shaders with an inline GlobalUniforms prefix (skybox.frag etc.) would desync.
         Mat4 invViewProjection;
     };
 
     // Top-level render path selector. Raster = the clustered Forward+ / ReSTIR pipeline; PathTrace = the
-    // brute-force ground-truth reference (rt-renderer C.5). An A/B compare toggle like ShadowingMode /
-    // TonemapOperator — distinct from ShadeMode (post-tonemap debug-viz blits, not a path replacement).
+    // brute-force ground-truth reference. An A/B compare toggle like ShadowingMode /
+    // TonemapOperator; distinct from ShadeMode (post-tonemap debug-viz blits, not a path replacement).
     enum class RenderMode : u8 { Raster = 0, PathTrace = 1 };
 
     enum class ShadeMode : u8 {
         Lit = 0, Unlit, Wireframe, Normals, EntityID,
-        // Slim G-buffer live viz — bypasses tonemap and blits the selected attachment to LDR.
+        // Slim G-buffer live viz: bypasses tonemap and blits the selected attachment to LDR.
         // Implemented in PostProcessSubsystem::AddSlimVizPass via slim_viz.frag.
         SlimNormal, SlimRoughness, SlimMotion, SlimMaterialID,
-        // Forward+ cluster density viz — samples SceneDepth to compute the per-fragment 3D cluster
+        // Forward+ cluster density viz: samples SceneDepth to compute the per-fragment 3D cluster
         // ID and heat-maps the cluster's light count over LDR. LightingSubsystem::AddClusterVizPass.
         ClustersDensity,
-        // Volumetric fog atlas viz — samples SceneDepth to derive the Wronski slice, then reads
+        // Volumetric fog atlas viz: samples SceneDepth to derive the Wronski slice, then reads
         // the per-view fog atlas. Two modes: density heat-map and integrated in-scatter radiance.
         VolumetricDensity, VolumetricInScatter,
-        // ReSTIR GI reservoir viz — heat-maps the spatial reservoir's M (confidence) + age (staleness).
+        // ReSTIR GI reservoir viz: heat-maps the spatial reservoir's M (confidence) + age (staleness).
         RestirGiReservoir,
-        // Emissive radiance only — in-shader override in pbr_shade.slang; isolates emission for raster==RT A/B.
+        // Emissive radiance only: in-shader override in pbr_shade.slang; isolates emission for raster==RT A/B.
         Emission,
-        // In-shader per-draw channel overrides (obj.shadeMode → pbr_shade.slang); cheap, raster==RT-safe.
-        // ShadowCascades reuses the CSM/RT cascade-tint path. APPENDED — never renumber existing values
+        // In-shader per-draw channel overrides (obj.shadeMode -> pbr_shade.slang); cheap, raster==RT-safe.
+        // ShadowCascades reuses the CSM/RT cascade-tint path. APPENDED; never renumber existing values
         // (the object buffer, slim-viz offset math, and the live shader branches all key off them).
         Metallic, Occlusion, ShadowCascades,
-        // Raw screen-space signals — in-shader overrides sampling the same bound textures the lit pass
+        // Raw screen-space signals: in-shader overrides sampling the same bound textures the lit pass
         // reads (each gated on its feature; greyed in the picker when off). AO reuses gtao.visualize.
         AmbientOcclusion, GiRaw, DiRaw, RtReflectionRaw,
         // Shaded fill + a flat wireframe overlay (a second line-polygon pass in GeometrySubsystem). The fill
@@ -136,7 +136,7 @@ namespace Luth
         WireframeShaded
     };
 
-    // RenderPipeline decodes Slim viz as an offset from SlimNormal — keep these four contiguous.
+    // RenderPipeline decodes Slim viz as an offset from SlimNormal; keep these four contiguous.
     static_assert(static_cast<u8>(ShadeMode::SlimMaterialID) - static_cast<u8>(ShadeMode::SlimNormal) == 3,
                   "Slim* ShadeModes must stay contiguous (RenderPipeline slim-viz offset math).");
 
@@ -156,13 +156,13 @@ namespace Luth
         RG::ResourceHandle entityID;
     };
 
-    // SlimGBufferPass outputs — written between DepthPrepass and GTAO Prefilter. Consumed by
+    // SlimGBufferPass outputs, written between DepthPrepass and GTAO Prefilter. Consumed by
     // TAA (motion), downstream RT denoisers (normal + roughness), RT reflections (normal).
     struct SlimGBufferOutput {
-        RG::ResourceHandle normal;     // RG16F — octahedral world-space normal
-        RG::ResourceHandle roughness;  // R8    — perceptual roughness
-        RG::ResourceHandle motion;     // RG16F — NDC delta (currNDC - prevNDC)
-        RG::ResourceHandle materialID; // R16U  — bindless material slot
+        RG::ResourceHandle normal;     // RG16F: octahedral world-space normal
+        RG::ResourceHandle roughness;  // R8:    perceptual roughness
+        RG::ResourceHandle motion;     // RG16F: NDC delta (currNDC - prevNDC)
+        RG::ResourceHandle materialID; // R16U:  bindless material slot
     };
 
     struct SelectionMaskOutput {
@@ -170,16 +170,14 @@ namespace Luth
         RG::ResourceHandle depth;
     };
 
-    // ECS-glue layer for the renderer. Owns frame-level scene inputs
-    // (CameraParams, DrawList, FrameTargets) and orchestrates per-frame
-    // work by invoking RenderPipeline. Lighting inputs (gatherer, cascade
-    // fit, shadow params) live on LightingSystem; RenderingSystem looks
-    // it up from SystemRegistry each frame.
+    // ECS-glue layer for the renderer. Owns frame-level scene inputs (CameraParams, DrawList,
+    // FrameTargets) and orchestrates per-frame work by invoking RenderPipeline. Lighting inputs
+    // (gatherer, cascade fit, shadow params) live on LightingSystem; RenderingSystem looks it up
+    // from SystemRegistry each frame.
     //
-    // Graphics resources (pipelines, descriptor sets, samplers, UBOs, SSBOs,
-    // indirect/object buffers, IBL cubemaps, bloom textures, GPU timers,
-    // named-texture registry, captured graph snapshot, per-draw + depth
-    // preview textures) live on RenderPipeline.
+    // Graphics resources (pipelines, descriptor sets, samplers, UBOs, SSBOs, indirect/object buffers,
+    // IBL cubemaps, bloom textures, GPU timers, named-texture registry, captured graph snapshot,
+    // per-draw + depth preview textures) live on RenderPipeline.
     class RenderingSystem : public ISystem
     {
     public:
@@ -189,13 +187,11 @@ namespace Luth
         void Update(Scene* scene) override;
         void Resize(u32 width, u32 height);
 
-        // Queue an extra view to render this frame. Called by editor panels
-        // (e.g. GamePanel) before Update; views record in queued order ahead
-        // of the scene view's subgraph. Cleared each Update.
+        // Queue an extra view to render this frame. Called by editor panels (e.g. GamePanel) before
+        // Update; views record in queued order ahead of the scene view's subgraph. Cleared each Update.
         void QueueView(const RenderView& view) { m_QueuedViews.push_back(view); }
 
-        // Project lifecycle hooks: extend / restrict the shader hot-reload
-        // watcher to cover the active project's shaders directory.
+        // Project lifecycle hooks: extend / restrict the shader hot-reload watcher to cover the active project's shaders directory.
         void OnProjectLoaded();
         void OnProjectUnloaded();
 
@@ -227,26 +223,26 @@ namespace Luth
         SvgfSettings& GetSvgfSettings() { return m_SvgfSettings; }
         const SvgfSettings& GetSvgfSettings() const { return m_SvgfSettings; }
 
-        // Separate SVGF tuning for the ReSTIR GI denoiser instance — GI is a noisier, lower-frequency
-        // signal already temporally accumulated by its reservoir, so it leans on wider à-trous + a
+        // Separate SVGF tuning for the ReSTIR GI denoiser instance: GI is a noisier, lower-frequency
+        // signal already temporally accumulated by its reservoir, so it leans on wider a-trous + a
         // shorter SVGF history than DI. Surfaced as the editor's "SVGF (GI)" section.
         SvgfSettings& GetSvgfGiSettings() { return m_SvgfGiSettings; }
         const SvgfSettings& GetSvgfGiSettings() const { return m_SvgfGiSettings; }
 
-        // Specular (RT-reflection) denoiser tuning — a sharper, view-dependent signal than diffuse GI, so
-        // fewer à-trous levels (less smear on mirrors) + the hit-distance virtual reprojection carries the
+        // Specular (RT-reflection) denoiser tuning: a sharper, view-dependent signal than diffuse GI, so
+        // fewer a-trous levels (less smear on mirrors) + the hit-distance virtual reprojection carries the
         // temporal stability. Surfaced as the editor's "SVGF (Specular)" section.
         SvgfSettings& GetSvgfSpecSettings() { return m_SvgfSpecSettings; }
         const SvgfSettings& GetSvgfSpecSettings() const { return m_SvgfSpecSettings; }
 
-        // ReSTIR-DI specular denoiser tuning (#154) — same shape as the reflection spec denoiser.
+        // ReSTIR-DI specular denoiser tuning; same shape as the reflection spec denoiser.
         SvgfSettings& GetSvgfDiSpecSettings() { return m_SvgfDiSpecSettings; }
         const SvgfSettings& GetSvgfDiSpecSettings() const { return m_SvgfDiSpecSettings; }
 
         PathTraceSettings& GetPathTraceSettings() { return m_PathTraceSettings; }
         const PathTraceSettings& GetPathTraceSettings() const { return m_PathTraceSettings; }
 
-        // RT specular reflections (rt-renderer D.1). ReflectionsSubsystem::IsEnabled reads .enabled;
+        // RT specular reflections. ReflectionsSubsystem::IsEnabled reads .enabled;
         // GlobalSubsystem packs the fade band into reflParams (pbr.frag composite gate). Editor "Reflections".
         ReflectionsSettings& GetReflectionsSettings() { return m_ReflectionsSettings; }
         const ReflectionsSettings& GetReflectionsSettings() const { return m_ReflectionsSettings; }
@@ -267,23 +263,20 @@ namespace Luth
         ShadeMode GetShadeMode() const { return m_ShadeMode; }
         void SetShadeMode(ShadeMode mode) { m_ShadeMode = mode; }
 
-        // Accessors used by PickingSystem (readback reads the EntityID target
-        // and maps the sampled index back to an entity via the Pipeline) and
-        // GamePanel (which owns its own FrameTargets but shares the Pipeline).
+        // Accessors used by PickingSystem (readback reads the EntityID target and maps the sampled index
+        // back to an entity via the Pipeline) and GamePanel (owns its own FrameTargets, shares the Pipeline).
         FrameTargets&   GetSceneTargets() { return m_SceneTargets; }
         RenderPipeline& GetPipeline()     { return *m_Pipeline; }
 
-        // Renderer-side accessors. The render path reads these per frame
-        // (passes consume DrawList + CameraParams; debugger captures via
-        // FrameDebugger; RG allocators come from FrameAllocator).
+        // Renderer-side accessors. The render path reads these per frame (passes consume DrawList +
+        // CameraParams; debugger captures via FrameDebugger; RG allocators come from FrameAllocator).
         FrameDebugger&             GetFrameDebugger()       { return m_FrameDebugger; }
         const FrameDebugger&       GetFrameDebugger() const { return m_FrameDebugger; }
         Memory::LinearAllocator&   GetFrameAllocator()      { return *m_FrameAllocator; }
         const DrawList&            GetDrawList() const      { return m_DrawList; }
         const CameraParams&        GetCameraParams() const  { return m_CameraParams; }
 
-        // Selection outline + editor grid params now flow through CameraParams
-        // (populated in App.cpp from EditorViewportState each frame).
+        // Selection outline + editor grid params flow through CameraParams (populated in App.cpp from EditorViewportState each frame).
 
         // Skybox / IBL
         void ReloadSkybox(const std::filesystem::path& hdrPath);
@@ -295,9 +288,8 @@ namespace Luth
         // Camera / editor state (set by App each frame before Update)
         void SetCameraParams(const CameraParams& params) { m_CameraParams = params; }
 
-        // Snapshot the renderer reads this frame. Set by Update before passes
-        // record; consumed by passes (Frame Debugger tag lookups, etc.) via the
-        // RenderPipeline friend access. Lifetime is one frame.
+        // Snapshot the renderer reads this frame. Set by Update before passes record; consumed by passes
+        // (Frame Debugger tag lookups, etc.) via the RenderPipeline friend access. Lifetime is one frame.
         const RenderSnapshot& GetActiveSnapshot() const { return *m_ActiveSnapshot; }
 
         // Frame debugger capture
@@ -307,10 +299,9 @@ namespace Luth
         const RG::CapturedFrame& GetCapturedFrame() const { return m_FrameDebugger.capturedFrame; }
         VkSampler GetDebugSampler() const { return m_FrameDebugger.sampler; }
 
-        // Capture source — Scene (editor camera) or Game (hierarchy camera).
-        // Mutating only changes the *next* capture; Frozen overlays use
-        // capturedSource so a mid-capture toggle doesn't redirect the overlay
-        // to a viewport whose camera never produced these archives.
+        // Capture source: Scene (editor camera) or Game (hierarchy camera). Mutating only changes the
+        // *next* capture; Frozen overlays use capturedSource so a mid-capture toggle doesn't redirect
+        // the overlay to a viewport whose camera never produced these archives.
         void          SetCaptureSource(CaptureSource s) { m_FrameDebugger.requestedSource = s; }
         CaptureSource GetCaptureSource() const          { return m_FrameDebugger.requestedSource; }
         CaptureSource GetCapturedSource() const         { return m_FrameDebugger.capturedSource; }
@@ -334,7 +325,7 @@ namespace Luth
 
     private:
         // Run the per-view prep chain (lighting fit, PrepareForTargets, UBO uploads) and record the subgraph
-        // into the view's QueueRecorders triplet. Returns true iff the graph routed any pass to async-compute —
+        // into the view's QueueRecorders triplet. Returns true iff the graph routed any pass to async-compute;
         // forwarded to Renderer::EndPrimaryCmdAndSubmit so SubmitView knows whether to issue the compute submit.
         // Cross-view RAW sync for shared resources (m_ShadowMap) is enforced by the per-view 3-submit topology's
         // timeline waits at submit boundaries. See arch/multi-queue.md.
@@ -368,11 +359,11 @@ namespace Luth
         RestirGiSettings     m_RestirGiSettings;
         SlangParitySettings   m_SlangParitySettings;
         SvgfSettings         m_SvgfSettings;
-        // GI denoiser defaults: lower history cap + shorter temporal alpha + one more à-trous level.
+        // GI denoiser defaults: lower history cap + shorter temporal alpha + one more a-trous level.
         SvgfSettings         m_SvgfGiSettings{ .alphaColor = 0.3f, .alphaMoments = 0.3f, .historyCap = 16u, .atrousIterations = 6u };
-        // Specular denoiser: fewer à-trous levels (preserve mirror sharpness), moderate temporal alpha.
+        // Specular denoiser: fewer a-trous levels (preserve mirror sharpness), moderate temporal alpha.
         SvgfSettings         m_SvgfSpecSettings{ .alphaColor = 0.15f, .alphaMoments = 0.15f, .historyCap = 24u, .atrousIterations = 3u };
-        SvgfSettings         m_SvgfDiSpecSettings{ .alphaColor = 0.15f, .alphaMoments = 0.15f, .historyCap = 24u, .atrousIterations = 3u };  // #154 ReSTIR-DI specular
+        SvgfSettings         m_SvgfDiSpecSettings{ .alphaColor = 0.15f, .alphaMoments = 0.15f, .historyCap = 24u, .atrousIterations = 3u };  // ReSTIR-DI specular
         PathTraceSettings    m_PathTraceSettings;
         ReflectionsSettings  m_ReflectionsSettings;
         WindSettings         m_WindSettings;

@@ -31,21 +31,21 @@ namespace Luth
         if (filename.empty())
             return {};
 
-        // Strategy 1 — Direct path as Assimp reported it
+        // Strategy 1: direct path as Assimp reported it
         {
             fs::path candidate = modelDir / assimpPath;
             if (fs::exists(candidate))
                 return { candidate, "direct" };
         }
 
-        // Strategy 2 — Filename only, in model directory
+        // Strategy 2: filename only, in model directory
         {
             fs::path candidate = modelDir / filename;
             if (fs::exists(candidate))
                 return { candidate, "filename_in_parent" };
         }
 
-        // Strategy 3 — Common sibling texture directories
+        // Strategy 3: common sibling texture directories
         for (const char* dir : s_CommonTextureDirs)
         {
             fs::path candidate = modelDir / dir / filename;
@@ -53,7 +53,7 @@ namespace Luth
                 return { candidate, "sibling_dir" };
         }
 
-        // Strategy 4 — Recursive search within modelDir (depth-limited)
+        // Strategy 4: recursive search within modelDir (depth-limited)
         if (fs::exists(modelDir))
         {
             fs::path modelDirAbs = fs::absolute(modelDir);

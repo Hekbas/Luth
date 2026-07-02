@@ -42,7 +42,7 @@ namespace Luth
                 desc.height = vkRenderer->GetSwapchain().GetExtent().height;
                 desc.format = RG::TextureFormat::BGRA8_Unorm;
 
-                // finalState=Present → RG appends the present-barrier on this pass.
+                // finalState=Present -> RG appends the present-barrier on this pass.
                 data.backbuffer = rg.ImportResource(desc,
                     (void*)swapchainImage, (void*)swapchainView,
                     RG::ResourceState::Undefined, RG::ResourceState::Present);

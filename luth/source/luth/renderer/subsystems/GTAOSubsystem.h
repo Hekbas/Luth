@@ -14,9 +14,9 @@ namespace Luth
     class RenderPipeline;
     struct ViewResources;
 
-    // Owns the 3 GTAO compute layouts/pipelines/SPVs + linear-clamp sampler.
-    // Per-frame: rebinds Set 0 binding 5 + GTAO main set binding 2 to the same
-    // tagged-heap region in one batched write — both must stay atomic.
+    // Owns the 3 GTAO compute layouts/pipelines/SPVs + linear-clamp sampler. Per-frame: rebinds
+    // Set 0 binding 5 + GTAO main set binding 2 to the same tagged-heap region in one batched write;
+    // both must stay atomic.
     class GTAOSubsystem
     {
     public:

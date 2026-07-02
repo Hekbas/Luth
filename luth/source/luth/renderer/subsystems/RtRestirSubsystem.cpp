@@ -16,7 +16,7 @@
 namespace Luth
 {
     namespace {
-        // Sizes the reservoir allocation only — the GPU layout lives in restir_common.glsl's
+        // Sizes the reservoir allocation only; the GPU layout lives in restir_common.glsl's
         // Reservoir struct; any field change must update both. see arch/rendering-pipeline.md
         struct GPUReservoir {
             u32 lightIndex;
@@ -93,7 +93,7 @@ namespace Luth
         m_Pipeline = &pipeline;
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // Linear clamp-to-edge — same shape as RtSubsystem's pass sampler for SceneDepth/SlimNormal.
+        // Linear clamp-to-edge; same shape as RtSubsystem's pass sampler for SceneDepth/SlimNormal.
         VkSamplerCreateInfo sampCI{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
         sampCI.magFilter    = VK_FILTER_LINEAR;
         sampCI.minFilter    = VK_FILTER_LINEAR;
@@ -136,18 +136,18 @@ namespace Luth
         bindings[6].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         bindings[6].descriptorCount = 1;
         bindings[6].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
-        bindings[7].binding         = 7;   // slimRoughness sampler (#154 combined target + spec shade)
+        bindings[7].binding         = 7;   // slimRoughness sampler (combined diffuse+spec target + spec shade)
         bindings[7].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[7].descriptorCount = 1;
         bindings[7].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
-        bindings[8].binding         = 8;   // restirDISpec storage image (#154 demodulated specular out)
+        bindings[8].binding         = 8;   // restirDISpec storage image (demodulated specular out)
         bindings[8].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         bindings[8].descriptorCount = 1;
         bindings[8].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
 
         // b2/b4 (curr/prev reservoirs) are rewritten per-frame by WriteReservoirBindings while other
         // cycled slots may still be pending on the GPU. UAB satisfies VUID-vkUpdateDescriptorSets-
-        // None-03047 — mirrors LightingSubsystem's Set 3 b0-b2 UAB protocol. b0/b1/b3/b5/b6 are stable
+        // None-03047; mirrors LightingSubsystem's Set 3 b0-b2 UAB protocol. b0/b1/b3/b5/b6 are stable
         // per-view, written once at WriteView time, so they stay flag-less (b6's buffer is per-view).
         VkDescriptorBindingFlags bindingFlags[9] = {
             0,                                            // b0 depth sampler
@@ -369,15 +369,15 @@ namespace Luth
         roughInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         VkDescriptorImageInfo specInfo{};
-        specInfo.imageView   = specView;   // restirDISpec — GENERAL (storage write from shade)
+        specInfo.imageView   = specView;   // restirDISpec: GENERAL (storage write from shade)
         specInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-        // b6 spatial-output reservoir — single per-view buffer, stable like b0/b1/b3/b5.
+        // b6 spatial-output reservoir: single per-view buffer, stable like b0/b1/b3/b5.
         VkDescriptorBufferInfo spatialInfo{
             vr.restirSpatial.buffer, vr.restirSpatial.offset, vr.restirSpatial.size };
 
         // Stable per-view bindings only: b0 depth, b1 normal, b3 DI, b5 motion, b6 spatial out. b2/b4
-        // (reservoirs) swap each frame — WriteReservoirBindings owns them.
+        // (reservoirs) swap each frame; WriteReservoirBindings owns them.
         VkWriteDescriptorSet writes[7 * MAX_FRAMES_IN_FLIGHT]{};
         u32 n = 0;
         for (u32 slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot)
@@ -501,7 +501,7 @@ namespace Luth
         WriteReservoirBindings(*preflightVr);
 
         // Parity picks curr; prev is last frame's curr. Must match WriteReservoirBindings. The spatial
-        // output is a single per-view buffer (no ping-pong) — fully overwritten + consumed each frame.
+        // output is a single per-view buffer (no ping-pong); fully overwritten + consumed each frame.
         const u32 currIdx = (frameAbs & 1u);
         const u32 prevIdx = currIdx ^ 1u;
         const Memory::GPUSubRegion currRes    = preflightVr->restirReservoir[currIdx];
@@ -512,8 +512,8 @@ namespace Luth
         // use their own PC (same 80 B footprint, different field meanings).
         const Mat4 invVP = Math::Inverse(m_Pipeline->GetGlobal().GetCachedViewProj());
 
-        // DI working resolution (half when RestirSettings::halfResolution) — derive from restirDI's extent
-        // (the Commit-DI-2 sizing source of truth). G-buffer reads remap to full res in-shader.
+        // DI working resolution (half when RestirSettings::halfResolution): derived from restirDI's extent,
+        // the sizing source of truth. G-buffer reads remap to full res in-shader.
         auto diTex0 = std::static_pointer_cast<VKTexture>(preflightVr->restirDI);
         const i32 diW2    = diTex0 ? static_cast<i32>(diTex0->GetWidth())  : static_cast<i32>(preflightVr->width);
         const i32 diH2    = diTex0 ? static_cast<i32>(diTex0->GetHeight()) : static_cast<i32>(preflightVr->height);
@@ -548,7 +548,7 @@ namespace Luth
         spc.dispatchW      = diW2;
         spc.dispatchH      = diH2;
 
-        // Initial pass — RIS over point lights + one visibility ray, writes the CURR reservoir.
+        // Initial pass: RIS over point lights + one visibility ray, writes the CURR reservoir.
         // The curr buffer is imported ONCE here; its handle threads through temporal (read+write)
         // and shade (read) so the RG chains the barriers across all three (re-importing would
         // alias distinct nodes).
@@ -577,7 +577,7 @@ namespace Luth
                 ViewResources*  vr  = m_Pipeline->GetCurrentViewResources();
                 if (!vr || vr->restirDescSet[0] == VK_NULL_HANDLE) return;
 
-                // AS-build → AS-read barrier. dstStageMask is COMPUTE_SHADER (NOT RAY_TRACING) —
+                // AS-build -> AS-read barrier. dstStageMask is COMPUTE_SHADER (NOT RAY_TRACING):
                 // rayQuery executes in the compute stage; a RAY_TRACING dst here is a TDR trap.
                 VkMemoryBarrier2 asBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
                 asBarrier.srcStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
@@ -608,11 +608,11 @@ namespace Luth
                 vkCmdDispatch(cmd, groupX, groupY, 1);
             });
 
-        // Temporal pass — reprojects via motion + merges last frame's PREV reservoir into the CURR
-        // RIS candidate in-place. No AS barrier (traces no rays — visibility stays in initial). PREV
-        // is a SEPARATE read-only ImportBuffer (last frame's curr, no within-frame producer — same
+        // Temporal pass: reprojects via motion + merges last frame's PREV reservoir into the CURR
+        // RIS candidate in-place. No AS barrier (traces no rays; visibility stays in initial). PREV
+        // is a SEPARATE read-only ImportBuffer (last frame's curr, no within-frame producer; same
         // cross-frame shape as taaHistory). CURR threads through reservoirHandle as read+write so the
-        // RG inserts the initial→temporal RAW barrier on the same node.
+        // RG inserts the initial->temporal RAW barrier on the same node.
         struct RestirTemporalData {
             RG::ResourceHandle depth;
             RG::ResourceHandle normal;
@@ -631,8 +631,8 @@ namespace Luth
                 if (slimRoughness.IsValid()) data.rough  = builder.ReadStorageImage(slimRoughness);
 
                 RG::BufferDesc prevBd{ "RestirReservoirPrev", prevRes.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
-                // Import in its true last-left state (StorageBufferWrite), NOT Undefined: Undefined → srcAccess=0
-                // → no cross-frame availability → stale temporal read (mirrors the GI prev import). see arch/rendering-pipeline.md
+                // Import in its true last-left state (StorageBufferWrite), NOT Undefined: Undefined -> srcAccess=0
+                // -> no cross-frame availability -> stale temporal read (mirrors the GI prev import). see arch/rendering-pipeline.md
                 data.reservoirPrev = rg.ImportBuffer(prevBd, (void*)prevRes.buffer, RG::ResourceState::StorageBufferWrite);
                 data.reservoirPrev = builder.ReadBuffer(data.reservoirPrev);
 
@@ -662,11 +662,11 @@ namespace Luth
                 vkCmdDispatch(cmd, groupX, groupY, 1);
             });
 
-        // Spatial pass — merges each pixel's temporal-output reservoir (b2) with a few random disk
+        // Spatial pass: merges each pixel's temporal-output reservoir (b2) with a few random disk
         // neighbours, rejecting dissimilar geometry, into a SEPARATE single output (b6). Reads b2
-        // read-only (neighbour reads must see un-modified values — never in-place) and writes b6, so
+        // read-only (neighbour reads must see un-modified values; never in-place) and writes b6, so
         // the temporal ping-pong stays intact as next frame's history. The curr handle ends here:
-        // ReadBuffer(reservoirHandle) is its last consumer (temporal→spatial RAW barrier). The spatial
+        // ReadBuffer(reservoirHandle) is its last consumer (temporal->spatial RAW barrier). The spatial
         // buffer is imported ONCE; its handle (spatialHandle) threads into shade's ReadBuffer.
         struct RestirSpatialData {
             RG::ResourceHandle depth;
@@ -713,8 +713,8 @@ namespace Luth
                 vkCmdDispatch(cmd, groupX, groupY, 1);
             });
 
-        // Shade pass — reads the SPATIAL-output reservoir (b6) + depth/normal, writes demodulated DI
-        // image. Reads spatialHandle (not the temporal output) — the shader's b6 is the spatial result.
+        // Shade pass: reads the SPATIAL-output reservoir (b6) + depth/normal, writes demodulated DI
+        // image. Reads spatialHandle (not the temporal output); the shader's b6 is the spatial result.
         struct RestirShadeData {
             RG::ResourceHandle depth;
             RG::ResourceHandle normal;
@@ -748,7 +748,7 @@ namespace Luth
                 data.di  = builder.WriteStorageImage(data.di);
                 diHandle = data.di;
 
-                // #154 — second output: demodulated specular (b8). Imported once here; its handle feeds
+                // Second output: demodulated specular (b8). Imported once here; its handle feeds
                 // the DiSpecular SVGF denoiser. Mirrors the DI import above (same shape, GENERAL storage).
                 RG::TextureDesc specDesc;
                 specDesc.name   = "RestirDISpec";

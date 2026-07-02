@@ -1,6 +1,6 @@
 #pragma once
 
-// Jolt's umbrella header sets up the JPH:: namespace and config macros — must be included before any
+// Jolt's umbrella header sets up the JPH:: namespace and config macros; must be included before any
 // other Jolt header.
 #include <Jolt/Jolt.h>
 
@@ -17,7 +17,7 @@ namespace Luth::Physics
     // conversions are bitwise-cheap. Vec3 differs in size (GLM 12 B / 3 floats vs Jolt 16 B / 4-wide SSE),
     // so vector conversions go through accessors.
 
-    // ── Vec3 ──
+    // ---- Vec3 ----
     inline JPH::Vec3 ToJolt(const Vec3& v)
     {
         return JPH::Vec3(v.x, v.y, v.z);
@@ -28,7 +28,7 @@ namespace Luth::Physics
         return Vec3(v.GetX(), v.GetY(), v.GetZ());
     }
 
-    // ── Quat ──
+    // ---- Quat ----
     inline JPH::Quat ToJolt(const Quat& q)
     {
         // glm::quat ctor is (w, x, y, z); accessors (.x .y .z .w) match component names. Jolt's Quat ctor
@@ -41,11 +41,11 @@ namespace Luth::Physics
         return Quat(q.GetW(), q.GetX(), q.GetY(), q.GetZ());
     }
 
-    // ── Mat4 ──
+    // ---- Mat4 ----
     inline JPH::Mat44 ToJolt(const Mat4& m)
     {
         // GLM stores 16 floats contiguously, column-major. Float4 is a 4-float POD; sLoadFloat4x4 is the
-        // non-aligned variant — safe regardless of GLM's SIMD alignment configuration.
+        // non-aligned variant, safe regardless of GLM's SIMD alignment configuration.
         return JPH::Mat44::sLoadFloat4x4(reinterpret_cast<const JPH::Float4*>(glm::value_ptr(m)));
     }
 

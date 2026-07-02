@@ -27,7 +27,7 @@ namespace Luth
         for (u32 i = 0; i < MAX_MATERIALS; ++i)
             m_FreeIndices.push_back(i);
 
-        // Loud init-time guard: GPUMaterialData must stay byte-identical to material.slang's std430 mirror —
+        // Loud init-time guard: GPUMaterialData must stay byte-identical to material.slang's std430 mirror;
         // a silent stride drift corrupts every material index > 0. Field names match the Slang struct.
         static constexpr MaterialLayoutGuard::CppField kFields[] = {
             { "color",           offsetof(GPUMaterialData, color) },
@@ -65,8 +65,7 @@ namespace Luth
     u32 MaterialSystem::RegisterMaterial(std::shared_ptr<Material> material)
     {
         LH_PROFILE_FUNCTION();
-        // Slot mutation must run on the game stage; concurrent Render(N-1)
-        // reads the slot map without locking.
+        // Slot mutation must run on the game stage; concurrent Render(N-1) reads the slot map without locking.
         assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
             "MaterialSystem::RegisterMaterial must run on the game stage");
         SpinLockGuard lock(m_Lock);
@@ -103,8 +102,8 @@ namespace Luth
         assert(JobSystem::GetCurrentStage() == JobSystem::Stage::Game &&
             "MaterialSystem::Update must run on the game stage");
 
-        // Allocate a fresh region for this frame; tag is the absolute frame index so
-        // FreeTag(N-2) reclaims it once the GPU has retired the consuming frame.
+        // Allocate a fresh region for this frame; tag is the absolute frame index so FreeTag(N-2) reclaims it
+        // once the GPU has retired the consuming frame.
         auto* jobCtx = JobSystem::GetCurrentJobContext();
         if (!jobCtx) return;
         const u64 gameFrame = Renderer::GetFrameData()->GetFrameIndex();
@@ -117,10 +116,9 @@ namespace Luth
         Memory::GPUSubRegion paramRegion = heap.Allocate(jobCtx->GpuCache, paramBytes, 16);
         if (!region.buffer || !paramRegion.buffer) return;
 
-        // Lock spans slot iteration (~25us at MAX_MATERIALS=16384). Borderline for V1
-        // strictly, but contention is zero today: Register/Unregister also assert game
-        // stage and serialize through RenderSnapshot::Capture. Future parallel-register
-        // would justify shrinking to slot-alloc-only via an atomic free list.
+        // Lock spans slot iteration (~25us at MAX_MATERIALS=16384). Borderline for V1 strictly, but contention is
+        // zero today: Register/Unregister also assert game stage and serialize through RenderSnapshot::Capture.
+        // Future parallel-register would justify shrinking to slot-alloc-only via an atomic free list.
         {
             SpinLockGuard lock(m_Lock);
             for (u32 i = 0; i < MAX_MATERIALS; ++i)
@@ -149,7 +147,7 @@ namespace Luth
         heap.FlushRegion(paramRegion);
 
         // Write the GAME-frame's slot (binding 0 = material SSBO, binding 1 = param buffer). Render stage K-1
-        // reads slot (K-1)%N — distinct slots, race-free. Both written every frame (binding 1 never unbound).
+        // reads slot (K-1)%N; distinct slots, race-free. Both written every frame (binding 1 never unbound).
         const u32 slot = static_cast<u32>(gameFrame) % MAX_FRAMES_IN_FLIGHT;
 
         VkDescriptorBufferInfo bi[2]{};
@@ -186,7 +184,7 @@ namespace Luth
         VkDevice device = VulkanContext::Get().GetDevice();
 
         // binding 0 = material SSBO, binding 1 = graph-param buffer (gMatParams), both rewritten per game stage.
-        // invariant: UAB even though slots cycle — the K%N write can fire while render-stage K's cmd buffer (same
+        // invariant: UAB even though slots cycle; the K%N write can fire while render-stage K's cmd buffer (same
         // slot) is still pending. The one set binds at Set 2 (raster) and Set 3 (RT megakernels).
         VkDescriptorSetLayoutBinding bindings[2]{};
         for (u32 b = 0; b < 2; ++b)

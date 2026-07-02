@@ -20,11 +20,11 @@
 #pragma comment(lib, "Synchronization.lib") // WaitOnAddress / WakeByAddress
 #endif
 
-// V<n> markers refer to JobSystem hazards — see docs/development/arch/version-glossary.md
+// V<n> markers refer to JobSystem hazards; see docs/development/arch/version-glossary.md
 
 namespace Luth::JobSystem
 {
-    // ── Constants ──
+    // ---- Constants ----
 
     static constexpr u32 MAX_FIBERS         = 512;
     static constexpr u32 HIGH_QUEUE_SIZE    = 4096;  // Must be power of 2
@@ -35,7 +35,7 @@ namespace Luth::JobSystem
     static char s_FiberNames[MAX_FIBERS][16];
     static char s_SchedulerNames[MAX_WORKER_THREADS][16];
 
-    // ── Internal Job Struct ──
+    // ---- Internal Job Struct ----
 
     struct Job
     {
@@ -59,7 +59,7 @@ namespace Luth::JobSystem
     // Forward-declare; body needs s_Data which is defined below.
     static const char* GetMyTracyName();
 
-    // ── Per-Worker Data (indexed by thread ID, not per-fiber) ──
+    // ---- Per-Worker Data (indexed by thread ID, not per-fiber) ----
 
     struct WorkerData
     {
@@ -73,7 +73,7 @@ namespace Luth::JobSystem
         WorkerData() : LocalDeque(std::make_unique<WorkStealingDeque<Job>>(LOCAL_DEQUE_SIZE)) {}
     };
 
-    // ── Global Scheduler Data ──
+    // ---- Global Scheduler Data ----
 
     struct SchedulerData
     {
@@ -108,20 +108,19 @@ namespace Luth::JobSystem
         // SetWorkerState to bank time into the state being left.
         std::atomic<WorkerState> WorkerStates[MAX_WORKER_THREADS]{};
 
-        // Per-frame stats counters (reset by ResetFrameStats). Read by ProfilerPanel
-        // only — relaxed loads/stores throughout; no synchronization with workers.
+        // Per-frame stats counters (reset by ResetFrameStats). Read by ProfilerPanel only;
+        // relaxed loads/stores throughout, no synchronization with workers.
         std::atomic<u32> FrameJobsExecuted = 0;
         std::atomic<u32> FrameStealAttempts = 0;
         std::atomic<u32> FrameStealSuccesses = 0;
         std::atomic<u32> FrameFiberYields = 0;
 
-        // Sticky (not reset per frame) so ProfilerPanel still shows the
-        // last value on iterations where a stage was gated off.
+        // Sticky (not reset per frame) so ProfilerPanel still shows the last value on iterations where a stage was gated off.
         std::atomic<f32> LastGameStageMs = 0.0f;
         std::atomic<f32> LastRenderStageMs = 0.0f;
 
         // Per-worker occupancy + counters. StateNanos bank the time spent in the state a worker is LEAVING
-        // on each SetWorkerState transition — written only by the owning worker, so no contention; monotonic
+        // on each SetWorkerState transition. Written only by the owning worker, so no contention; monotonic
         // (the profiler diffs successive snapshots for a window). Jobs/Steals reset per frame.
         std::atomic<u64> WorkerStateNanos[MAX_WORKER_THREADS][4]{};
         u64              WorkerLastTransitionNs[MAX_WORKER_THREADS]{};
@@ -149,7 +148,7 @@ namespace Luth::JobSystem
             std::chrono::steady_clock::now().time_since_epoch()).count();
     }
 
-    // Worker state observed by the profiler — relaxed throughout. Banks time spent in the state being LEFT
+    // Worker state observed by the profiler; relaxed throughout. Banks time spent in the state being LEFT
     // into this worker's occupancy bin (owner-only write; the first transition is skipped via last==0).
     static void SetWorkerState(u32 index, WorkerState state)
     {
@@ -164,14 +163,13 @@ namespace Luth::JobSystem
         s_Data.WorkerStates[index].store(state, std::memory_order_relaxed);
     }
 
-    // ── Worker Thread ID ──
-    // thread_local is safe here: per-OS-thread, not per-fiber. Worker index
-    // doesn't change when fibers switch on the same OS thread.
+    // ---- Worker Thread ID ----
+    // thread_local is safe here: per-OS-thread, not per-fiber. Worker index doesn't change when fibers switch on the same OS thread.
 
     static thread_local u32 t_WorkerIndex = 0;
     static thread_local bool t_IsMainThread = false;
 
-    // ── Fiber Pool Management ──
+    // ---- Fiber Pool Management ----
 
     static Fiber* AllocateFiber()
     {
@@ -206,7 +204,7 @@ namespace Luth::JobSystem
         return &s_Data.FiberContexts[index];
     }
 
-    // ── Counter Decrement Logic ──
+    // ---- Counter Decrement Logic ----
 
     static void DecrementCounter(Counter* counter)
     {
@@ -240,8 +238,7 @@ namespace Luth::JobSystem
 
         if (old == 2)
         {
-            // Counter reached zero — wake waiting fibers
-            // Acquire spinlock on the wait list
+            // Counter reached zero: wake waiting fibers.
             while (counter->Lock.test_and_set(std::memory_order_acquire))
                 _mm_pause();
 
@@ -261,8 +258,7 @@ namespace Luth::JobSystem
                     s_Data.ReadyFibers[s_Data.ReadyFiberCount++] = waitingFiber;
                 }
 
-                // V4: wake a sleeping worker. WakeByAddressSingle pairs with
-                // the WaitOnAddress in WorkerThreadLoop's idle path.
+                // V4: wake a sleeping worker. WakeByAddressSingle pairs with the WaitOnAddress in WorkerThreadLoop's idle path.
                 s_Data.HighQueue.GetGeneration();
                 u32 gen = s_Data.HighQueue.GetGeneration();
 #ifdef _WIN32
@@ -277,7 +273,7 @@ namespace Luth::JobSystem
         }
     }
 
-    // ── Public counter primitives (declared in AtomicCounter.h) ──
+    // ---- Public counter primitives (declared in AtomicCounter.h) ----
 
     void AtomicCounter::Increment(u32 n)
     {
@@ -290,7 +286,7 @@ namespace Luth::JobSystem
             DecrementCounter(this);
     }
 
-    // ── Fiber Entry Point ──
+    // ---- Fiber Entry Point ----
 
     static void WINAPI FiberEntryPoint(void* args)
     {
@@ -300,9 +296,8 @@ namespace Luth::JobSystem
         Fiber* self = s_Data.Workers[t_WorkerIndex].CurrentFiber;
         JobContext* ctx = GetFiberContext(self);
 
-        // Propagate global state. GlobalCommandPool is set once per frame by the
-        // main thread before any worker dispatch — relaxed is safe; the frame
-        // fence orders the publish.
+        // Propagate global state. GlobalCommandPool is set once per frame by the main thread before
+        // any worker dispatch; relaxed is safe, the frame fence orders the publish.
         ctx->CommandPool = s_Data.GlobalCommandPool.load(std::memory_order_relaxed);
         ctx->ThreadIndex = t_WorkerIndex;
         ctx->FiberID = (u32)(self - s_Data.FiberPool);
@@ -314,7 +309,7 @@ namespace Luth::JobSystem
         ctx->GpuCache = {};
         SetCurrentContext(ctx);
 
-        // Pin yielded resumes to this worker — see WorkerThreadLoop ready-pickup.
+        // Pin yielded resumes to this worker; see WorkerThreadLoop ready-pickup.
         self->PinnedThreadIndex = t_WorkerIndex;
 
         LH_PROFILE_FIBER_ENTER(s_FiberNames[ctx->FiberID]);
@@ -338,7 +333,7 @@ namespace Luth::JobSystem
         Fiber::SwitchTo(*self, s_Data.Workers[t_WorkerIndex].SchedulerFiber);
     }
 
-    // ── Worker Thread Loop ──
+    // ---- Worker Thread Loop ----
 
     static void WorkerThreadLoop(u32 workerIndex)
     {
@@ -350,7 +345,7 @@ namespace Luth::JobSystem
         WorkerData& worker = s_Data.Workers[workerIndex];
         worker.ThreadIndex = workerIndex;
 
-        // Wrap OS thread as a Fiber (so we can switch away). Seeds gs:[0x28] / FLS
+        // Wrap OS thread as a Fiber so the scheduler can switch away. Seeds gs:[0x28] / FLS
         // with worker.Context on the custom / Win32 backends respectively.
         worker.SchedulerFiber = Fiber::CaptureCurrentThreadAsFiber(&worker.Context);
         worker.CurrentFiber = &worker.SchedulerFiber;
@@ -363,9 +358,8 @@ namespace Luth::JobSystem
 
         while (s_Data.Running.load(std::memory_order_relaxed))
         {
-            // Priority 1: resume ready fibers pinned to this worker.
-            // Yielded fibers may carry per-thread state (Tracy zones, etc.)
-            // that must end on the OS thread it began on. Sub-jobs never yield,
+            // Priority 1: resume ready fibers pinned to this worker. Yielded fibers may carry per-thread
+            // state (Tracy zones, etc.) that must end on the OS thread it began on. Sub-jobs never yield,
             // so work-stealing still distributes them freely.
             Fiber* readyFiber = nullptr;
             {
@@ -412,12 +406,12 @@ namespace Luth::JobSystem
             {
                 foundJob = true;
             }
-            // Priority 3: local deque (LIFO — cache locality)
+            // Priority 3: local deque (LIFO for cache locality)
             else if (worker.LocalDeque->TryPop(job))
             {
                 foundJob = true;
             }
-            // Priority 4: steal from other workers (FIFO — load balance)
+            // Priority 4: steal from other workers (FIFO for load balance)
             else
             {
                 s_Data.FrameStealAttempts.fetch_add(1, std::memory_order_relaxed);
@@ -441,11 +435,10 @@ namespace Luth::JobSystem
             if (foundJob)
             {
                 SetWorkerState(workerIndex, WorkerState::Running);
-                // Get a fiber from the pool
                 Fiber* fiber = AllocateFiber();
                 if (!fiber)
                 {
-                    // Pool exhausted — push job back and spin
+                    // Pool exhausted: push job back and spin
                     s_Data.HighQueue.TryPush(job);
                     _mm_pause();
                     continue;
@@ -454,17 +447,15 @@ namespace Luth::JobSystem
                 // Destroy old fiber + reset stack. Destroy is idempotent on both backends.
                 Fiber::Destroy(*fiber);
 
-                // Store job in per-fiber storage (NOT thread_local — survives fiber yield)
+                // Store job in per-fiber storage (NOT thread_local; survives fiber yield)
                 u32 fiberIndex = (u32)(fiber - s_Data.FiberPool);
                 s_Data.FiberJobs[fiberIndex] = job;
 
-                // Pre-compute fiber's owning JobContext so Create can patch gs:[0x28]
-                // save slot — first resume of this fiber restores it into TIB.
+                // Pre-compute fiber's owning JobContext so Create can patch the gs:[0x28] save slot; first resume restores it into TIB.
                 JobContext* fiberCtx = GetFiberContext(fiber);
                 *fiber = Fiber::Create(FiberEntryPoint, &s_Data.FiberJobs[fiberIndex],
                                         fiberCtx);
 
-                // Reset fiber context
                 *fiberCtx = {};
                 fiberCtx->ThreadIndex = workerIndex;
                 SetCurrentContext(fiberCtx);
@@ -484,7 +475,7 @@ namespace Luth::JobSystem
                 continue;
             }
 
-            // Priority 5: idle — wait for work (V4)
+            // Priority 5: idle, wait for work (V4)
 #ifdef _WIN32
             {
                 // V4: Compare-and-wait pattern to prevent lost wakeups
@@ -517,7 +508,7 @@ namespace Luth::JobSystem
         LH_PROFILE_FIBER_LEAVE;
     }
 
-    // ── API Implementation ──
+    // ---- API Implementation ----
 
     void Init(u32 numThreads)
     {
@@ -527,7 +518,7 @@ namespace Luth::JobSystem
         s_Data.ThreadCount = numThreads + 1; // +1 for main thread (index 0)
         s_Data.Running = true;
 
-        // Tracy fiber names — must be ready before any FiberEnter.
+        // Tracy fiber names; must be ready before any FiberEnter.
         for (u32 i = 0; i < MAX_FIBERS; ++i)
             std::snprintf(s_FiberNames[i], sizeof(s_FiberNames[i]), "Fiber_%u", i);
         for (u32 i = 0; i < MAX_WORKER_THREADS; ++i)
@@ -541,9 +532,8 @@ namespace Luth::JobSystem
         // Initialize Workers (index 0 is reserved for main thread)
         s_Data.Workers.resize(s_Data.ThreadCount);
 
-        // Pre-wire the global TaggedPageAllocator pointer onto every scheduler context
-        // and every fiber-pool context. The pointer is stable for engine lifetime
-        // (function-local singleton); FiberEntryPoint resets CpuCache per-job.
+        // Pre-wire the global TaggedPageAllocator pointer onto every scheduler context and every fiber-pool context.
+        // The pointer is stable for engine lifetime (function-local singleton); FiberEntryPoint resets CpuCache per-job.
         Memory::TaggedPageAllocator& tpa = Memory::TaggedPageAllocator::Get();
         for (u32 i = 0; i < s_Data.ThreadCount; ++i)
             s_Data.Workers[i].Context.Allocator = &tpa;
@@ -604,7 +594,7 @@ namespace Luth::JobSystem
         s_Data.FrameStealSuccesses = 0;
         s_Data.FrameFiberYields = 0;
 
-        // Per-worker per-frame counters (occupancy nanos are monotonic — not reset here).
+        // Per-worker per-frame counters (occupancy nanos are monotonic, not reset here).
         for (u32 i = 0; i < s_Data.ThreadCount && i < MAX_WORKER_THREADS; ++i) {
             s_Data.WorkerJobs[i].store(0, std::memory_order_relaxed);
             s_Data.WorkerSteals[i].store(0, std::memory_order_relaxed);
@@ -615,8 +605,7 @@ namespace Luth::JobSystem
     {
         if (counter) counter->Value.fetch_add(2); // Add 1 count (shifted by 1 for busy bit)
 
-        // Capture parent's stage for child inheritance. Main thread has no
-        // JobContext, so its dispatches default to Stage::Main.
+        // Capture parent's stage for child inheritance. Main thread has no JobContext, so its dispatches default to Stage::Main.
         JobContext* parentCtx = GetCurrentJobContext();
         Stage parentStage = parentCtx ? parentCtx->CurrentStage : Stage::Main;
 
@@ -631,12 +620,12 @@ namespace Luth::JobSystem
 
         if (priority == Priority::Normal && !t_IsMainThread)
         {
-            // Push to local deque (if we're on a worker thread)
+            // Push to local deque (worker-thread path)
             s_Data.Workers[t_WorkerIndex].LocalDeque->Push(job);
         }
         else
         {
-            // High/Low priority — global queue. Spin-retry if full.
+            // High/Low priority: global queue. Spin-retry if full.
             while (!s_Data.HighQueue.TryPush(job))
                 _mm_pause(); // Workers are consuming, space will free up
         }
@@ -684,8 +673,7 @@ namespace Luth::JobSystem
 
         if (t_IsMainThread)
         {
-            // V2: Main thread is ISOLATED — no job stealing.
-            // Busy-spin with _mm_pause until counter reaches target.
+            // V2: Main thread is ISOLATED, no job stealing. Busy-spin with _mm_pause until counter reaches target.
             while (true)
             {
                 u32 v = counter->Value.load(std::memory_order_acquire);
@@ -694,7 +682,7 @@ namespace Luth::JobSystem
             }
         }
 
-        // Worker fiber path — yield to scheduler
+        // Worker fiber path: yield to scheduler
         while (true)
         {
             u32 v = counter->Value.load(std::memory_order_acquire);
@@ -723,9 +711,8 @@ namespace Luth::JobSystem
                 if (found)
                 {
                     ctx->InlineDepth++;
-                    // Run inline job under its own stage tag so its
-                    // assertions fire correctly and SetCurrentStage calls
-                    // inside don't leak into the calling fiber.
+                    // Run inline job under its own stage tag so its assertions fire correctly
+                    // and SetCurrentStage calls inside don't leak into the calling fiber.
                     Stage savedStage = ctx->CurrentStage;
                     ctx->CurrentStage = inlineJob.StageTag;
                     {
@@ -737,12 +724,11 @@ namespace Luth::JobSystem
                     }
                     ctx->CurrentStage = savedStage;
                     ctx->InlineDepth--;
-                    continue; // Re-check our counter
+                    continue; // Re-check the wait counter
                 }
             }
 
-            // No inline work available or depth exceeded — yield to scheduler
-            // Add ourselves to the counter's wait list
+            // No inline work available or depth exceeded: yield to scheduler via the counter's wait list.
             while (counter->Lock.test_and_set(std::memory_order_acquire))
                 _mm_pause();
 
@@ -768,7 +754,6 @@ namespace Luth::JobSystem
 
             counter->Lock.clear(std::memory_order_release);
 
-            // Set wait state
             currentFiber->WaitCounter = counter;
             currentFiber->WaitTarget = targetValue;
 
@@ -860,7 +845,7 @@ namespace Luth::JobSystem
         s_Data.GlobalCommandPool.store(pool, std::memory_order_relaxed);
     }
 
-    // ── Stage tag accessors ──
+    // ---- Stage tag accessors ----
 
     Stage GetCurrentStage()
     {

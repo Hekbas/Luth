@@ -36,7 +36,7 @@ namespace Luth
                 { ShaderDataType::Float3, "a_Tangent"   }
             };
         }
-        // Position-only attribute with full PBR vertex stride — depth-prepass and shadow
+        // Position-only attribute with full PBR vertex stride; depth-prepass and shadow
         // pipelines reuse the PBR vertex buffer but only consume a_Position.
         std::pair<std::vector<VkVertexInputBindingDescription>, std::vector<VkVertexInputAttributeDescription>>
         MakePositionOnlyWithFullStride() {
@@ -88,13 +88,13 @@ namespace Luth
         auto it = m_GraphFragSpv.find(fragShaderUUID);
         if (it != m_GraphFragSpv.end()) return it->second;
 
-        // Generated graph shaders register in ShaderLibrary (keyed by name) — match on the asset Handle.
+        // Generated graph shaders register in ShaderLibrary (keyed by name); match on the asset Handle.
         for (const auto& [name, sh] : ShaderLibrary::GetAll())
         {
             if (sh && sh->Handle == fragShaderUUID && !sh->GetSpirV().empty())
                 return m_GraphFragSpv.emplace(fragShaderUUID, sh->GetSpirV()).first->second;
         }
-        return m_PBRFragSpv;  // not yet registered/loaded — stock this frame, retried next
+        return m_PBRFragSpv;  // not yet registered/loaded: stock this frame, retried next
     }
 
     void GeometrySubsystem::InitObjectSSBO()
@@ -103,7 +103,7 @@ namespace Luth
         VkDevice device = VulkanContext::Get().GetDevice();
 
         // Set 5 layout: binding 0 = ObjectSSBO. BuildGPUObjectBuffer rewrites binding 0
-        // each render stage against a per-frame slot — UAB no longer required.
+        // each render stage against a per-frame slot; UAB no longer required.
         VkDescriptorSetLayoutBinding binding{};
         binding.binding         = 0;
         binding.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -253,7 +253,7 @@ namespace Luth
                 return config;
             });
 
-        // Skinned variant: empty vertex input — the deformable VS fetch pos/normal/tangent/uv from the
+        // Skinned variant: empty vertex input; the deformable VS fetch pos/normal/tangent/uv from the
         // deformed buffer by gl_VertexIndex, so no VB is bound. see arch/rendering-pipeline.md
         m_GeoSkinnedPipelineManager.Init(geoLayouts,
             [](Material::RenderMode mode, Material::CullMode cullMode, VkPolygonMode polygonMode) -> PipelineConfig
@@ -345,7 +345,7 @@ namespace Luth
 
         if (!m_DepthPrepassSkinnedVertSpv.empty() && !shadowFragSpv.empty())
         {
-            // Empty vertex input — deformable VS fetch the deformed buffer by gl_VertexIndex.
+            // Empty vertex input; deformable VS fetch the deformed buffer by gl_VertexIndex.
             PipelineConfig cfg;
             cfg.colorFormats = {};
             cfg.depthFormat  = VK_FORMAT_D32_SFLOAT;
@@ -365,7 +365,7 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
         // 4 color attachments mirror SlimGBufferOutput. depthFormat lets the pipeline test against
-        // prepass depth via EQUAL — no depth writes (DepthPrepass owns the buffer for this frame).
+        // prepass depth via EQUAL; no depth writes (DepthPrepass owns the buffer for this frame).
         auto makeConfig = [&](auto bindings, auto attribs) {
             PipelineConfig cfg;
             cfg.colorFormats = {
@@ -377,7 +377,7 @@ namespace Luth
             cfg.depthFormat   = VK_FORMAT_D32_SFLOAT;
             cfg.depthTest     = true;
             cfg.depthWrite    = false;                       // DepthPrepass already wrote this depth
-            cfg.depthCompareOp= VK_COMPARE_OP_EQUAL;         // exact prepass match — no overdraw
+            cfg.depthCompareOp= VK_COMPARE_OP_EQUAL;         // exact prepass match; no overdraw
             cfg.blendEnabled  = false;
             cfg.cullMode      = VK_CULL_MODE_BACK_BIT;       // CullMode::None / Wireframe deferred
             cfg.frontFace     = VK_FRONT_FACE_COUNTER_CLOCKWISE;
@@ -388,13 +388,13 @@ namespace Luth
         };
 
         // Cutout variant: same shaders, but writes its own depth (LESS_OR_EQUAL) because the opaque-only
-        // prepass omits cutout — the EQUAL opaque config would reject every cutout fragment (prepass cleared
+        // prepass omits cutout; the EQUAL opaque config would reject every cutout fragment (prepass cleared
         // those pixels to 1.0 or holds the surface behind). slim_gbuffer.slang alpha-tests the holes away.
         auto makeCutoutConfig = [&](auto bindings, auto attribs) {
             auto cfg = makeConfig(bindings, attribs);
             cfg.depthWrite     = true;
             cfg.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-            cfg.cullMode       = VK_CULL_MODE_NONE;   // cutout foliage is two-sided — back faces must reach
+            cfg.cullMode       = VK_CULL_MODE_NONE;   // cutout foliage is two-sided; back faces must reach
             return cfg;                               // the slim G-buffer (slim_gbuffer.slang flips the normal),
         };                                            // else RT shadows/reflections read the geometry behind it
 
@@ -412,7 +412,7 @@ namespace Luth
         }
         if (!m_SlimGBufferSkinnedVertSpv.empty() && !m_SlimGBufferFragSpv.empty())
         {
-            // Empty vertex input — deformable VS fetch the deformed buffer by gl_VertexIndex.
+            // Empty vertex input; deformable VS fetch the deformed buffer by gl_VertexIndex.
             std::vector<VkVertexInputBindingDescription>   noBindings;
             std::vector<VkVertexInputAttributeDescription> noAttribs;
             m_SlimGBufferSkinnedPipeline = std::make_unique<VKPipeline>(
@@ -494,7 +494,7 @@ namespace Luth
         }
         else
         {
-            // pbr.* — invalidate the pipeline manager cache, rebuild the manager.
+            // pbr.*: invalidate the pipeline manager cache, rebuild the manager.
             const bool isPBR = (name == "pbr_vert.slang" || name == "pbr.slang");
             if (isPBR) {
                 UUID pbrKey = ShaderLibrary::Get("pbr_vert.slang")->Handle;
@@ -573,7 +573,7 @@ namespace Luth
             auto mesh = model->GetMesh(meshSnap.meshIndex);
             if (!mesh) continue;
 
-            // Skinned raster now fetches its deformed buffer by BDA — skip the draw until the skinned
+            // Skinned raster fetches its deformed buffer by BDA; skip the draw until the skinned
             // BLAS (+ deformed buffer) is ready, else the deformable VS derefs a null address and
             // faults the device. Transient (one frame) for a still-loading model.
             auto blas = mesh->GetBlas();
@@ -584,7 +584,7 @@ namespace Luth
             obj.model = meshSnap.worldMatrix;
 
             // Resolve previous-frame model from the render-side cache. Newly-spawned entities
-            // (cache miss) fall back to current model → zero motion for one frame.
+            // (cache miss) fall back to current model -> zero motion for one frame.
             entt::entity entity = static_cast<entt::entity>(meshSnap.entity);
             auto pmIt = m_PrevModelByEntity.find(entity);
             const bool firstFrame = (pmIt == m_PrevModelByEntity.end());
@@ -615,13 +615,13 @@ namespace Luth
             obj.prevBoneOffset = meshSnap.boneOffset + BoneMatrixBuffer::PREV_BLOCK_OFFSET;
 
             // Deformed-vertex buffer BDAs for the deformable raster path (skinned only). CURR holds
-            // this frame's skin; PREV is last frame's, for motion vectors. Rigid meshes get 0 — their
+            // this frame's skin; PREV is last frame's, for motion vectors. Rigid meshes get 0; their
             // VS reads the bound vertex buffer instead. (Skinned-but-unready meshes were skipped above.)
             if (blas && blas->IsDeformable())
             {
                 obj.deformedBdaCurr = blas->GetDeformedBdaCurr(frameAbs);
                 // Seed prev=curr on the entity's first frame (prev region still zero-filled) so motion
-                // is zero — matches the prevModel cache-miss fallback above.
+                // is zero; matches the prevModel cache-miss fallback above.
                 obj.deformedBdaPrev = firstFrame ? obj.deformedBdaCurr : blas->GetDeformedBdaPrev(frameAbs);
             }
             else
@@ -720,7 +720,7 @@ namespace Luth
         struct CullPushConstants {
             Vec4 frustumPlanes[6]; // 96B
             u32  objectCount;      // 4B
-            u32  destOffset;       // 4B — index offset into commands[] (per-view-cascade region)
+            u32  destOffset;       // 4B; index offset into commands[] (per-view-cascade region)
         };
 
         std::string name = passName ? passName : "FrustumCull";
@@ -741,7 +741,7 @@ namespace Luth
                     debugger->BeginCapturePass(ctx.passIndex, name, "", false,
                         { "gpu_cull", 0, 0, VK_POLYGON_MODE_FILL, false, false, false, false });
 
-                // Recompute slot at executor time — capturing m_CullDescSet by value
+                // Recompute slot at executor time; capturing m_CullDescSet by value
                 // would freeze slot 0 only (cycling refactor invariant).
                 const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 pipeline->Bind(cmd);
@@ -844,7 +844,7 @@ namespace Luth
                     auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
                     auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
                     if (!vb || !ib) continue;
-                    // Deformed draws need the empty-input pipeline; skip if absent — static binds no VB.
+                    // Deformed draws need the empty-input pipeline; skip if absent (static binds no VB).
                     if (dc.isDeformed && !m_DepthPrepassSkinnedPipeline) continue;
 
                     if (dc.isDeformed != currentSkinned)
@@ -864,7 +864,7 @@ namespace Luth
                         }
                     }
 
-                    // Deformable draws bind no VB — the VS fetches the deformed buffer by gl_VertexIndex.
+                    // Deformable draws bind no VB; the VS fetches the deformed buffer by gl_VertexIndex.
                     if (!dc.isDeformed)
                     {
                         VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
@@ -951,7 +951,7 @@ namespace Luth
                 data.materialIDTex = builder.Write(data.materialIDTex, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, materialIDClear);
 
                 // Depth: LOAD prepass depth, keep storing (downstream GTAO/Geometry passes still
-                // need it). EQUAL test in the pipeline; depthWrite=false → SceneDepth contents
+                // need it). EQUAL test in the pipeline; depthWrite=false -> SceneDepth contents
                 // are preserved bit-for-bit.
                 data.depthTex    = builder.WriteDepth(sceneDepth, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, {});
                 data.indirectBuf = builder.ReadIndirectBuffer(indirectBufferHandle);
@@ -999,7 +999,7 @@ namespace Luth
 
                 bool currentSkinned = false;
 
-                // Opaque pass — EQUAL against prepass depth, no depth write. Cutout follows in its own
+                // Opaque pass: EQUAL against prepass depth, no depth write. Cutout follows in its own
                 // loop below (writes depth + alpha-tests). See arch/rendering-pipeline.md.
                 for (const auto& dc : sys.GetDrawList().opaque)
                 {
@@ -1007,7 +1007,7 @@ namespace Luth
                     auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
                     auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
                     if (!vb || !ib) continue;
-                    // Deformed draws need the empty-input pipeline; skip if absent — static binds no VB.
+                    // Deformed draws need the empty-input pipeline; skip if absent (static binds no VB).
                     if (dc.isDeformed && !m_SlimGBufferSkinnedPipeline) continue;
 
                     if (dc.isDeformed != currentSkinned)
@@ -1027,7 +1027,7 @@ namespace Luth
                         }
                     }
 
-                    // Deformable draws bind no VB — the VS fetches the deformed buffer by gl_VertexIndex.
+                    // Deformable draws bind no VB; the VS fetches the deformed buffer by gl_VertexIndex.
                     if (!dc.isDeformed)
                     {
                         VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
@@ -1057,7 +1057,7 @@ namespace Luth
                     }
                 }
 
-                // Cutout — alpha-tested into the slim G-buffer as alpha-tested-opaque. Writes its own
+                // Cutout: alpha-tested into the slim G-buffer as alpha-tested-opaque. Writes its own
                 // depth (LESS_OR_EQUAL) so SceneDepth + SlimNormal carry the holed surface; RT sun shadows /
                 // reflections + GTAO then reconstruct from it instead of the geometry behind the holes.
                 if (m_SlimGBufferCutoutPipeline && !sys.GetDrawList().cutout.empty())
@@ -1073,7 +1073,7 @@ namespace Luth
                         auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
                         auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
                         if (!vb || !ib) continue;
-                        // Deformed draws need the empty-input pipeline; skip if absent — static binds no VB.
+                        // Deformed draws need the empty-input pipeline; skip if absent (static binds no VB).
                         if (dc.isDeformed && !m_SlimGBufferCutoutSkinnedPipeline) continue;
 
                         if (dc.isDeformed != currentSkinned)
@@ -1087,7 +1087,7 @@ namespace Luth
                                 p->GetLayout(), 0, 6, sets, 0, nullptr);
                         }
 
-                        // Deformable draws bind no VB — the VS fetches the deformed buffer by gl_VertexIndex.
+                        // Deformable draws bind no VB; the VS fetches the deformed buffer by gl_VertexIndex.
                         if (!dc.isDeformed)
                         {
                             VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
@@ -1180,7 +1180,7 @@ namespace Luth
                     (void*)vkID->GetImageView(),
                     RG::ResourceState::Undefined);
 
-                // SceneDepth is produced by DepthPrepass — load + keep writing (cutouts
+                // SceneDepth is produced by DepthPrepass; load + keep writing (cutouts
                 // still write their own depth; opaques pass LESS_EQUAL against prepass).
                 data.depthTex  = builder.WriteDepth(sceneDepth,
                     VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, {});
@@ -1191,42 +1191,42 @@ namespace Luth
                 data.entityIDTex = builder.Write(data.entityIDTex,
                     VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, idClear);
 
-                // Per-cascade Read triggers DEPTH→SHADER_READ barriers (baseArrayLayer=i, layerCount=1).
+                // Per-cascade Read triggers DEPTH->SHADER_READ barriers (baseArrayLayer=i, layerCount=1).
                 for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
                     if (shadowHandles[i].IsValid())
                         data.shadowCascades[i] = builder.Read(shadowHandles[i]);
 
-                // pbr.frag samples gtaoFinal via Set 0 binding 4 — explicit Read triggers
-                // GENERAL → SHADER_READ_ONLY transition from GTAODenoise.
+                // pbr.frag samples gtaoFinal via Set 0 binding 4; explicit Read triggers
+                // GENERAL -> SHADER_READ_ONLY transition from GTAODenoise.
                 if (gtaoFinalAO.IsValid())
                     data.gtaoFinalAO = builder.Read(gtaoFinalAO);
 
-                // RT sun-shadow mask. Read triggers GENERAL (RT raygen storage write) →
+                // RT sun-shadow mask. Read triggers GENERAL (RT raygen storage write) ->
                 // SHADER_READ_ONLY transition. Handle is invalid in CSM mode (RtSubsystem
-                // returns {} when the pass is gated off) — pbr.frag's CSM branch doesn't
+                // returns {} when the pass is gated off); pbr.frag's CSM branch doesn't
                 // dynamically access binding 4, so the descriptor's layout is irrelevant.
                 if (rtShadowMask.IsValid())
                     data.rtShadowMask = builder.Read(rtShadowMask);
 
-                // ReSTIR DI image — Read triggers GENERAL (RestirShade storage write) →
+                // ReSTIR DI image: Read triggers GENERAL (RestirShade storage write) ->
                 // SHADER_READ_ONLY transition before pbr.frag samples it at Set 3 b5. Invalid
                 // handle when ReSTIR is off / no TLAS; pbr.frag's restirParams.x gate then keeps the
                 // descriptor untouched and runs the point loop instead.
                 if (diHandle.IsValid())
                     data.diHandle = builder.Read(diHandle);
 
-                // ReSTIR GI image — same GENERAL → SHADER_READ_ONLY transition as the DI handle,
+                // ReSTIR GI image: same GENERAL -> SHADER_READ_ONLY transition as the DI handle,
                 // before pbr.frag samples it at Set 3 b6. Invalid when GI is off / no TLAS; the
                 // restirParams.y gate then keeps the descriptor untouched.
                 if (giDIHandle.IsValid())
                     data.giDIHandle = builder.Read(giDIHandle);
 
-                // Denoised RT reflection radiance (D.1) — keeps the reflection trace + specular denoiser
-                // alive (no pbr.frag sampler until the Set 3 b7 composite, S4). Read-only dependency.
+                // Denoised RT reflection radiance: barrier-only read keeping the reflection trace +
+                // specular denoiser alive (no pbr.frag sampler until the Set 3 b7 composite lands).
                 if (reflHandle.IsValid())
                     data.reflHandle = builder.Read(reflHandle);
 
-                // Denoised ReSTIR-DI specular (#154) — barrier-only read; pbr.frag samples it at Set 3 b8
+                // Denoised ReSTIR-DI specular: barrier-only read; pbr.frag samples it at Set 3 b8
                 // under the restirParams.z gate. Invalid when DI / specular off.
                 if (diSpecHandle.IsValid())
                     data.diSpecHandle = builder.Read(diSpecHandle);
@@ -1311,7 +1311,7 @@ namespace Luth
                         auto ib = std::static_pointer_cast<VKIndexBuffer >(mesh->GetIndexBuffer ());
                         if (!vb || !ib) continue;
 
-                        // Deformable draws bind no VB — the VS fetches the deformed buffer by gl_VertexIndex.
+                        // Deformable draws bind no VB; the VS fetches the deformed buffer by gl_VertexIndex.
                         if (!dc.isDeformed)
                         {
                             VkBuffer vbuf[] = { vb->GetVulkanBuffer() };

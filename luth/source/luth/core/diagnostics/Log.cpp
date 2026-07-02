@@ -32,9 +32,8 @@ namespace Luth
             }
         }
 
-        // Reverse of LogCategoryName: each per-category logger is named after its category,
-        // so the forwarding sink recovers the channel from msg.logger_name. O(Count) compare —
-        // negligible at log frequency.
+        // Reverse of LogCategoryName: each per-category logger is named after its category, so the
+        // forwarding sink recovers the channel from msg.logger_name. O(Count) compare; negligible at log frequency.
         LogCategory CategoryFromName(std::string_view name)
         {
             for (size_t i = 0; i < static_cast<size_t>(LogCategory::Count); ++i)
@@ -58,8 +57,8 @@ namespace Luth
                 entry.category  = CategoryFromName(std::string_view(msg.logger_name.data(), msg.logger_name.size()));
                 entry.timestamp = msg.time;
 
-                // Snapshot the list under the spinlock so observer callbacks can safely
-                // call AddSink/RemoveSink (their lock acquisition won't recurse on us).
+                // Snapshot the list under the spinlock so observer callbacks can safely call
+                // AddSink/RemoveSink (their lock acquisition won't recurse on the held lock).
                 std::vector<ILogSink*> snapshot;
                 {
                     SpinLockGuard guard(s_SinkLock);

@@ -61,7 +61,7 @@ namespace Luth
         return true;
     }
 
-    // --- Skeleton/Animation binary helpers ---
+    // ---- Skeleton/Animation binary helpers ----
 
     static void WriteString(std::ofstream& out, const std::string& str)
     {
@@ -187,7 +187,7 @@ namespace Luth
         for (u32 ci = 0; ci < clipCount; ++ci) ReadAnimationClip(in, clips[ci]);
     }
 
-    // --- Scene-graph binary helpers (V4) ---
+    // ---- Scene-graph binary helpers (V4) ----
 
     static void WriteSceneGraph(std::ofstream& out, const ModelAssetData& data)
     {
@@ -232,7 +232,7 @@ namespace Luth
         for (u32 i = 0; i < lightCount; ++i)  in.read((char*)&data.Lights[i], sizeof(ModelLight));
     }
 
-    // --- Model Serialization ---
+    // ---- Model Serialization ----
 
     bool AssetSerializer::SerializeModel(const fs::path& path, const ModelAssetData& data)
     {
@@ -294,7 +294,7 @@ namespace Luth
                 modelHeader.AnimationCount * sizeof(UUID));
         }
 
-        // V4: scene graph (nodes + cameras + lights) — appended last
+        // V4: scene graph (nodes + cameras + lights), appended last
         WriteSceneGraph(out, data);
 
         return true;
@@ -475,8 +475,8 @@ namespace Luth
         in.read((char*)&header, sizeof(AssetHeader));
         if (header.Type != AssetType::Shader) return false;
 
-        // V2 schema: single-stage shader. V1 artifacts (paired vert+frag) are
-        // rejected so they get re-imported under the new schema on first load.
+        // V2 schema: single-stage shader. V1 artifacts (paired vert+frag) are rejected so they get re-imported
+        // under the new schema on first load.
         if (header.Version != 2) return false;
 
         ShaderHeader shaderHeader;

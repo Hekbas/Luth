@@ -4,13 +4,13 @@
 
 namespace Luth
 {
-    // Sorted = classic per-view back-to-front alpha blend (per-mesh order — overlap/interpenetration
+    // Sorted = classic per-view back-to-front alpha blend (per-mesh order; overlap/interpenetration
     // can still misorder per-pixel). OIT = per-pixel linked-list store + sorted resolve (exact up to
     // the node budget). Both run in the same pass slot after the volumetric composite.
     enum class TransparencyMode : i32 { Sorted = 0, OIT = 1 };
 
     // Read each frame by TransparencySubsystem. avgLayersBudget sizes the per-view OIT node pool
-    // (W × H × budget × 16 B — a VRAM knob, overflow drops fragments); maxResolveK caps how many
+    // (W x H x budget x 16 B; a VRAM knob, overflow drops fragments); maxResolveK caps how many
     // nearest fragments the resolve exact-sorts per pixel (extras tail-merge into the farthest slot).
     struct TransparencySettings
     {

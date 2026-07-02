@@ -55,7 +55,7 @@ namespace Luth
 
         VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd)
         {
-            // EntityID ends every frame in COLOR_ATTACHMENT_OPTIMAL — its last writer is a color
+            // EntityID ends every frame in COLOR_ATTACHMENT_OPTIMAL: its last writer is a color
             // attachment (GeometryPass, or TransparentPass when glass draws) with no RG reader after.
             VkImageMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
             barrier.srcStageMask  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;

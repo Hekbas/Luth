@@ -9,9 +9,7 @@
 
 namespace Luth
 {
-    // -------------------------------------------------------------------------
-    // Format helpers
-    // -------------------------------------------------------------------------
+    // ---- Format helpers ----
 
     static VkFormat ToVkFormat(TextureFormat fmt)
     {
@@ -63,9 +61,7 @@ namespace Luth
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Constructors
-    // -------------------------------------------------------------------------
+    // ---- Constructors ----
 
     VKTexture::VKTexture(u32 width, u32 height, TextureFormat format, const void* data)
         : m_Width(width), m_Height(height), m_Format(format)
@@ -123,9 +119,7 @@ namespace Luth
         // No-op for bindless
     }
 
-    // -------------------------------------------------------------------------
-    // CreateImage
-    // -------------------------------------------------------------------------
+    // ---- CreateImage ----
 
     void VKTexture::CreateImage(const void* data)
     {
@@ -183,7 +177,7 @@ namespace Luth
         }
         else if (isVolume)
         {
-            // 3D atlases never render-target — only compute writes + shader reads.
+            // 3D atlases never render-target; only compute writes + shader reads.
             // Caller-supplied extraUsage carries STORAGE_BIT.
             imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT
                             | VK_IMAGE_USAGE_TRANSFER_SRC_BIT
@@ -199,10 +193,10 @@ namespace Luth
         imageInfo.usage |= m_ExtraUsage;
 
         // Cross-queue CONCURRENT opt-in by usage:
-        //   * STORAGE_BIT — typical compute outputs (GTAO chain, future cluster textures) read on graphics-B.
-        //   * DEPTH_STENCIL_ATTACHMENT_BIT + SAMPLED_BIT — depth textures sampled by compute (SceneDepth →
+        //   * STORAGE_BIT: typical compute outputs (GTAO chain, future cluster textures) read on graphics-B.
+        //   * DEPTH_STENCIL_ATTACHMENT_BIT + SAMPLED_BIT: depth textures sampled by compute (SceneDepth ->
         //     GTAODepthPrefilter). Depth has no DCC so CONCURRENT is overhead-free.
-        // Color-only RTs (RGBA16F SceneColor, LDR output) stay EXCLUSIVE — they preserve AMD DCC. Compute never
+        // Color-only RTs (RGBA16F SceneColor, LDR output) stay EXCLUSIVE to preserve AMD DCC. Compute never
         // reads them; only graphics post-process samples them.
         const bool isStorage  = (imageInfo.usage & VK_IMAGE_USAGE_STORAGE_BIT) != 0;
         const bool isSampledDepth = (imageInfo.usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0
@@ -215,7 +209,7 @@ namespace Luth
         // Upload pixel data (color textures only; depth textures are never CPU-uploaded directly)
         if (data && !isDepth)
         {
-            u32 bytesPerPixel = 4; // RGBA8, R8, etc. — stb always gives RGBA
+            u32 bytesPerPixel = 4; // RGBA8, R8, etc.; stb always gives RGBA
             VkDeviceSize imageSize = (VkDeviceSize)m_Width * m_Height * bytesPerPixel;
 
             m_LastUploadFence = UploadContext::Get().UploadImageMipped(
@@ -227,8 +221,8 @@ namespace Luth
         else
         {
             // No data (render target / shadow map): transition to a suitable initial layout.
-            // Color render targets → SHADER_READ_ONLY_OPTIMAL (will be transitioned by RG as needed)
-            // Depth textures → DEPTH_STENCIL_READ_ONLY_OPTIMAL (will be transitioned by RG as needed)
+            // Color render targets -> SHADER_READ_ONLY_OPTIMAL (will be transitioned by RG as needed)
+            // Depth textures -> DEPTH_STENCIL_READ_ONLY_OPTIMAL (will be transitioned by RG as needed)
             VkImageAspectFlags aspect = isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
             VkImageLayout newLayout = isDepth
                 ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
@@ -262,9 +256,7 @@ namespace Luth
         }
     }
 
-    // -------------------------------------------------------------------------
-    // CreateViewAndSampler
-    // -------------------------------------------------------------------------
+    // ---- CreateViewAndSampler ----
 
     void VKTexture::CreateViewAndSampler()
     {
@@ -311,7 +303,7 @@ namespace Luth
             return;
         }
 
-        // 3D atlases (volumetric in-scatter / density / history) carry no internal sampler —
+        // 3D atlases (volumetric in-scatter / density / history) carry no internal sampler;
         // the owning subsystem supplies a linear-clamp sampler at descriptor-write time.
         if (isVolume)
         {
@@ -399,7 +391,7 @@ namespace Luth
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image = m_Image;
-        // Compute shaders use image2DArray (Dim=2D, Arrayed=1) → need VK_IMAGE_VIEW_TYPE_2D_ARRAY
+        // Compute shaders use image2DArray (Dim=2D, Arrayed=1) -> need VK_IMAGE_VIEW_TYPE_2D_ARRAY
         if (isCubemap && forStorage)
             viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
         else if (isCubemap)

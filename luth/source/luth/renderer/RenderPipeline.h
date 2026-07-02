@@ -53,13 +53,12 @@ namespace Luth
     struct RenderSnapshot;
     namespace fs = std::filesystem;
 
-    // Per-view input to RenderPipeline::Execute. One RenderView per visible
-    // viewport. targets is non-owning.
+    // Per-view input to RenderPipeline::Execute. One RenderView per visible viewport. targets is non-owning.
     //
     // viewIndex selects the view's slice of the shared indirect buffer:
     // regions [viewIndex * k_IndirectRegionsPerView, +k_IndirectRegionsPerView).
-    // emitImGuiPass: only the primary view records the ImGui pass (backbuffer
-    // write + ImGui::GetDrawData — once per frame, after ImGui::Render).
+    // emitImGuiPass: only the primary view records the ImGui pass (backbuffer write + ImGui::GetDrawData,
+    // once per frame, after ImGui::Render).
     struct RenderView
     {
         FrameTargets* targets              = nullptr;
@@ -69,35 +68,30 @@ namespace Luth
         bool          drawSelectionOutline = true;
         bool          drawDebugShapes      = false;  // off by default; scene view enables explicitly
         bool          emitImGuiPass        = true;
-        // Set by the view's owner when the user has requested a Frame Debugger
-        // capture and selected this view (Scene or Game) as the source. Drives
-        // the BeginCapture / archive-sink wiring in RenderPipeline::Execute.
-        // Decoupled from emitImGuiPass so capture can target the game view.
+        // Set by the view's owner when the user has requested a Frame Debugger capture and selected this
+        // view (Scene or Game) as the source. Drives the BeginCapture / archive-sink wiring in
+        // RenderPipeline::Execute. Decoupled from emitImGuiPass so capture can target the game view.
         bool          captureRequested     = false;
     };
 
-    // GPU resources bound to a specific FrameTargets. Keyed by targets
-    // pointer in RenderPipeline::m_ViewResources, allocated on first use
-    // by EnsureViewResources, recreated on size change, destroyed on
-    // ReleaseViewResources or pipeline shutdown. Having a distinct set
-    // per view lets multiple subgraphs share one primary command buffer
-    // without mid-frame vkUpdateDescriptorSets aliasing.
+    // GPU resources bound to a specific FrameTargets. Keyed by targets pointer in
+    // RenderPipeline::m_ViewResources, allocated on first use by EnsureViewResources, recreated on size
+    // change, destroyed on ReleaseViewResources or pipeline shutdown. Having a distinct set per view lets
+    // multiple subgraphs share one primary command buffer without mid-frame vkUpdateDescriptorSets aliasing.
     struct ViewResources
     {
-        // Identity token minted at creation; survives resize, dies with
-        // ReleaseViewResources. invariant: replay validates against this
-        // to catch FrameTargets-pointer reuse after panel close.
+        // Identity token minted at creation; survives resize, dies with ReleaseViewResources.
+        // invariant: replay validates against this to catch FrameTargets-pointer reuse after panel close.
         u64 id     = 0;
         u32 width  = 0;
         u32 height = 0;
 
-        // Owns every descriptor set below — one vkDestroyDescriptorPool frees them all on release.
+        // Owns every descriptor set below; one vkDestroyDescriptorPool frees them all on release.
         VkDescriptorPool descPool = VK_NULL_HANDLE;
 
-        // Set 0 descriptor: bindings 0 (Global UBO) + 5 (GTAO UBO) are rebound per
-        // render-stage to fresh GPUTaggedPageAllocator regions in UpdateGlobalUniforms /
-        // UpdateGTAOUBO against per-frame slot. IBL samplers (1-3) and GTAO final
-        // sampler (4) are stable — replicated across all slots at WriteView time.
+        // Set 0 descriptor: bindings 0 (Global UBO) + 5 (GTAO UBO) are rebound per render-stage to fresh
+        // GPUTaggedPageAllocator regions in UpdateGlobalUniforms / UpdateGTAOUBO against per-frame slot.
+        // IBL samplers (1-3) and GTAO final sampler (4) are stable, replicated across all slots at WriteView time.
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> globalDescriptorSet{};
 
         // Bloom pyramid mips (RGBA16F STORAGE+SAMPLED). mip[0] is half-res, each subsequent mip
@@ -114,10 +108,10 @@ namespace Luth
 
         // Volumetric fog atlases (RGBA16F). View-frustum-aligned; persistent across frames so the
         // resolve pass can reproject + blend with prev frame's resolved output. Allocated via the
-        // 3D VKTexture ctor (STORAGE + SAMPLED, null internal sampler — VolumetricSubsystem owns
+        // 3D VKTexture ctor (STORAGE + SAMPLED, null internal sampler; VolumetricSubsystem owns
         // the shared linear-clamp sampler). Dims pulled from VolumetricSettings::quality preset.
         //
-        // volInScatter is the scratch atlas — inject writes pre-integrate per-voxel scatter, then
+        // volInScatter is the scratch atlas: inject writes pre-integrate per-voxel scatter, then
         // integrate reads + writes the post-integrate cumulative in-place. volInScatterHistA/B
         // ping-pong as the temporal-resolve I/O pair: each frame the resolve pass reads one as
         // "prev resolved" and writes the other as "current resolved". Composite + viz sample the
@@ -127,7 +121,7 @@ namespace Luth
         std::shared_ptr<Texture> volInScatterHistA;
         std::shared_ptr<Texture> volInScatterHistB;
 
-        // Bloom pyramid descriptor sets. Prefilter is cycled — binding 0 (scene/TAA source) is
+        // Bloom pyramid descriptor sets. Prefilter is cycled: binding 0 (scene/TAA source) is
         // rebound per frame by UpdateBloomCompositeInput (UAB). Down/up sets are single: they
         // reference only stable per-view mip textures, written once per resize. Composite stays
         // cycled (UpdateUBO writes its UBO binding 2 against the per-frame slot).
@@ -141,8 +135,8 @@ namespace Luth
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> gtaoMainDescSet{};
         VkDescriptorSet gtaoDenoiseDescSet   = VK_NULL_HANDLE;
 
-        // Editor overlays — allocated for every view, bound only by the
-        // scene view (game view's subgraph skips both passes via flags).
+        // Editor overlays: allocated for every view, bound only by the scene view
+        // (game view's subgraph skips both passes via flags).
         VkDescriptorSet outlineDescSet = VK_NULL_HANDLE;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> gridDescSet{};
 
@@ -150,16 +144,16 @@ namespace Luth
         // time pointing at the 4 slim FrameTargets. Bindings: 0=normal, 1=roughness, 2=motion, 3=matID.
         VkDescriptorSet slimVizDescSet = VK_NULL_HANDLE;
 
-        // Forward+ cluster compute descriptor sets. Cycled — each frame the cluster AABB + grid
+        // Forward+ cluster compute descriptor sets. Cycled: each frame the cluster AABB + grid
         // tagged-heap regions get rewritten into the slot's bindings before dispatch.
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> clusterBuildDescSet{};
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> lightAssignDescSet{};
 
-        // Volumetric inject density pass. Cycled — b1 (FogVolume SSBO) rewrites per frame against
+        // Volumetric inject density pass. Cycled: b1 (FogVolume SSBO) rewrites per frame against
         // a fresh tagged-heap region; b0 + b2 are stable per-view.
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volInjectDensityDescSet{};
 
-        // Volumetric inject scatter pass. Cycled — b2-b4 (Light, ClusterGrid, LightIndex SSBOs)
+        // Volumetric inject scatter pass. Cycled: b2-b4 (Light, ClusterGrid, LightIndex SSBOs)
         // rewrite per frame; b0/b1/b5 stable. Reads volDensity written by the density pass via the
         // shared ResourceNode (RG inserts the barrier).
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volInjectScatterDescSet{};
@@ -171,11 +165,11 @@ namespace Luth
         // history (parity). Temporal accumulation happens here, post-integrate.
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volResolveDescSet{};
 
-        // Volumetric composite. Cycled — b1 (in-scatter sampler) parity-picks the resolved history
+        // Volumetric composite. Cycled: b1 (in-scatter sampler) parity-picks the resolved history
         // atlas (HistA or HistB). b0 (sceneDepth sampler) is stable across slots.
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volCompositeDescSet{};
 
-        // Volumetric debug viz. Cycled — b2 follows the same ping-pong parity as composite.
+        // Volumetric debug viz. Cycled: b2 follows the same ping-pong parity as composite.
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> volVizDescSet{};
 
         // Set 3 (Lighting). Per-view because cluster grid + light index are per-view; LightSSBO
@@ -183,13 +177,13 @@ namespace Luth
         // alloc time, propagates to all slots. b0/b1/b2 rebound each frame by UploadLightingResources.
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> lightDescSet{};
 
-        // Set 6 (transparent pass-local). Cycled — b0 (fog atlas sampler3D) parity-rewrites per
+        // Set 6 (transparent pass-local). Cycled: b0 (fog atlas sampler3D) parity-rewrites per
         // frame like volCompositeDescSet's b1; b1/b2 (OIT heads + nodes) written when the PPLL lands.
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> transparentDescSet{};
 
-        // PPLL OIT — heads: R32_Uint storage image (per-pixel list head; cleared per frame by
+        // PPLL OIT. heads: R32_Uint storage image (per-pixel list head; cleared per frame by
         // OITClear, so no bootstrap clear). nodes: Garlic device-local large-tagged buffer
-        // `{count, pad[3], OITNode[W*H*budget]}` — ReSTIR-reservoir lifecycle (reserved tag, freed
+        // `{count, pad[3], OITNode[W*H*budget]}` with ReSTIR-reservoir lifecycle (reserved tag, freed
         // only on resize / budget change / release). oitLayersCached mirrors volQualityCached so a
         // runtime budget change reallocates. Resolve set: b0 heads + b1 nodes (single, stable).
         std::shared_ptr<Texture> oitHeads;
@@ -202,13 +196,13 @@ namespace Luth
         // by WriteClusterVizView at AllocateViewResources time.
         VkDescriptorSet clusterVizDescSet = VK_NULL_HANDLE;
 
-        // Per-view previous-frame view-projection — feeds ubo.prevViewProjection for motion vectors.
+        // Per-view previous-frame view-projection; feeds ubo.prevViewProjection for motion vectors.
         // GlobalSubsystem::m_CachedViewProj is shared across views, so multi-view rendering (Scene +
         // Game panel) cross-contaminates the prev-VP. Per-view storage keeps each view's prev-VP
-        // independent. Identity-initialized → frame 0 has nonsense motion, settles by frame 1.
+        // independent. Identity-initialized, so frame 0 has nonsense motion; settles by frame 1.
         Mat4 prevViewProj{ 1.0f };
 
-        // Prev-frame near/far for the resolve pass's reprojection slice math — needed because the
+        // Prev-frame near/far for the resolve pass's reprojection slice math; needed because the
         // current frame's nearZ/farZ may differ if camera FOV/clip planes animate.
         f32 prevNearZ = 0.0f;
         f32 prevFarZ  = 0.0f;
@@ -229,37 +223,37 @@ namespace Luth
         std::shared_ptr<Texture> taaHistoryB;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> taaResolveDescSet{};
 
-        // RT sun-shadow mask (Phase B.3). Viewport-sized R8 storage image, written by raygen on
+        // RT sun-shadow mask: viewport-sized R8 storage image, written by raygen on
         // AsyncCompute and sampled by pbr.frag (Set 3 binding 4) when ShadowingMode::RtShadows is
-        // active. Lifetime mirrors taaHistoryA/B — persistent, recreated on resize. The cycled
+        // active. Lifetime mirrors taaHistoryA/B: persistent, recreated on resize. The cycled
         // descriptor set carries the pass-local bindings (SceneDepth + slimNormal + mask storage).
         std::shared_ptr<Texture> sunShadowMask;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> rtShadowPassDescSet{};
 
         // ReSTIR DI (Bitterli 2020). restirReservoir[2] is a ping-pong pair of Garlic device-local
-        // large-tagged buffers (w*h*32 B each) reused across frames — destroyed on resize via
+        // large-tagged buffers (w*h*32 B each) reused across frames; destroyed on resize via
         // FreeTagAndDestroy. Tags stay in NextReservoirTag's reserved high range, disjoint from the per-frame
         // FreeTag(N-2) sweep. Temporal reuse reads last frame's reservoir (prev) while writing this
-        // frame's (curr); parity = frameAbs & 1u picks which slot is curr — Set 2 b2/b4 rebound
+        // frame's (curr); parity = frameAbs & 1u picks which slot is curr, with Set 2 b2/b4 rebound
         // per frame to swap. restirDI is viewport-sized rgba16f STORAGE+SAMPLED (demodulated diffuse
         // irradiance, consumed by pbr.frag Set 3 b5). The cycled set carries Set 2's depth/normal +
         // motion samplers + reservoir SSBOs + DI storage image.
         Memory::GPUSubRegion restirReservoir[2]{};
         u32 restirReservoirTag[2] = { 0, 0 };
-        // Spatial-reuse output — a SINGLE Garlic device-local buffer (not ping-pong): fully
+        // Spatial-reuse output: a SINGLE Garlic device-local buffer (not ping-pong), fully
         // overwritten then consumed each frame. The spatial pass reads b2 (temporal output) for
         // self+neighbours and writes here (Set 2 b6); shade reads it. Reserved high tag, freed only
         // on resize/destroy. The temporal ping-pong (b2) stays intact as next frame's history.
         Memory::GPUSubRegion restirSpatial{};
         u32 restirSpatialTag = 0;
         std::shared_ptr<Texture> restirDI;
-        // Demodulated specular DI (#154) — rgb = Li·[D·G/(4·NoL·NoV)]·NdotL·W (F0-free, remodulated by
+        // Demodulated specular DI: rgb = Li*[D*G/(4*NoL*NoV)]*NdotL*W (F0-free, remodulated by
         // pbr.frag's split-sum envBRDF at Set 3 b8). Shade writes it at Set 2 b8; the DiSpecular SVGF
         // channel denoises it. Same shape as restirDI; written every frame so no bootstrap clear.
         std::shared_ptr<Texture> restirDISpec;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> restirDescSet{};
 
-        // ReSTIR GI (Ouyang 2021) — sibling of the DI reservoirs above, w*h*64 B each (GIReservoir is
+        // ReSTIR GI (Ouyang 2021): sibling of the DI reservoirs above, w*h*64 B each (GIReservoir is
         // a world-space path vertex, not a light index). Same ping-pong + single spatial-output shape;
         // tags mint from RtRestirGiSubsystem's disjoint 0xFFFF8000 reserved range. restirGiDI is the
         // viewport-sized rgba16f STORAGE+SAMPLED demodulated indirect-diffuse image (pbr.frag Set 3 b6).
@@ -271,7 +265,7 @@ namespace Luth
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> restirGiDescSet{};
         VkDescriptorSet giReservoirVizDescSet = VK_NULL_HANDLE;  // ShadeMode::RestirGiReservoir debug viz (b0 depth, b1 spatial reservoir)
 
-        // SVGF denoiser output — viewport-sized RGBA16F STORAGE+SAMPLED, same shape as restirDI. The
+        // SVGF denoiser output: viewport-sized RGBA16F STORAGE+SAMPLED, same shape as restirDI. The
         // denoiser reads restirDI (noisy demodulated DI) and writes the denoised result here; pbr.frag
         // Set 3 b5 samples THIS (not restirDI), so the denoiser owns the slot whenever ReSTIR is on and
         // the A/B is denoise-vs-raw with no binding swap. History + per-pass sets grow as the SVGF
@@ -279,24 +273,24 @@ namespace Luth
         std::shared_ptr<Texture> svgfDenoised;
         VkDescriptorSet svgfPassthroughDescSet = VK_NULL_HANDLE;
 
-        // SVGF temporal history — RGBA16F storage images kept in GENERAL, ping-pong by frame parity
+        // SVGF temporal history: RGBA16F storage images kept in GENERAL, ping-pong by frame parity
         // (curr = [p], prev = [p^1]). colorHist = integrated color (rgb) + variance (a); moments =
-        // (mu1, mu2, histLen); geom = (linearZ, octN.x, octN.y) for the disocclusion test. Bootstrap-
-        // cleared so frame 0's prev read is well-defined. The two reproject sets are pre-built per
-        // parity (set[p] reads [p^1], writes [p]); AddPasses binds svgfReprojectDescSet[frameAbs & 1].
+        // (mu1, mu2, histLen); geom = (linearZ, octN.x, octN.y) for the disocclusion test.
+        // Bootstrap-cleared so frame 0's prev read is well-defined. The two reproject sets are pre-built
+        // per parity (set[p] reads [p^1], writes [p]); AddPasses binds svgfReprojectDescSet[frameAbs & 1].
         std::shared_ptr<Texture> svgfColorHist[2];
         std::shared_ptr<Texture> svgfMoments[2];
         std::shared_ptr<Texture> svgfGeom[2];
         VkDescriptorSet svgfReprojectDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
 
-        // À-trous ping-pong (RGBA16F storage, GENERAL). Moments writes svgfAtrous[0] (à-trous level-0
+        // A-trous ping-pong (RGBA16F storage, GENERAL). Moments writes svgfAtrous[0] (a-trous level-0
         // input); the wavelet levels ping-pong [0]/[1] by iteration parity, the final level also writes
-        // svgfDenoised. Moments/à-trous sets are pre-built per parity, bound by index — no UAB rewrite.
+        // svgfDenoised. Moments/a-trous sets are pre-built per parity, bound by index; no UAB rewrite.
         std::shared_ptr<Texture> svgfAtrous[2];
         VkDescriptorSet svgfMomentsDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
         VkDescriptorSet svgfAtrousDescSet[2]  = { VK_NULL_HANDLE, VK_NULL_HANDLE };
 
-        // ReSTIR GI SVGF — flat parallel set to the DI fields above (mirroring restirDI/restirGiDI).
+        // ReSTIR GI SVGF: flat parallel set to the DI fields above (mirroring restirDI/restirGiDI).
         // A second SvgfDenoiser instance (DenoiserChannel::Gi) drives these; svgfGiDenoised feeds Set 3
         // b6. Same shapes/clears as DI. see arch/rendering-pipeline.md
         std::shared_ptr<Texture> svgfGiDenoised;
@@ -308,13 +302,13 @@ namespace Luth
         std::shared_ptr<Texture> svgfGiAtrous[2];
         VkDescriptorSet svgfGiMomentsDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
         VkDescriptorSet svgfGiAtrousDescSet[2]  = { VK_NULL_HANDLE, VK_NULL_HANDLE };
-        // Half-res GI: svgfGi* history + reservoirs allocate at half extent; the à-trous final writes
+        // Half-res GI: svgfGi* history + reservoirs allocate at half extent; the a-trous final writes
         // svgfGiHalf, a bilateral upscale resolves it into the full-res svgfGiDenoised. giHalfCached
         // drives EnsureViewResources realloc on a runtime toggle.
         std::shared_ptr<Texture> svgfGiHalf;
         u32 giHalfCached = ~0u;
         VkDescriptorSet giUpscaleDescSet = VK_NULL_HANDLE;   // half-res GI bilateral-upscale set (Set 1)
-        // Half-res DI (both channels): à-trous finals write svgfDiHalf / svgfDiSpecHalf; bilateral upscales
+        // Half-res DI (both channels): a-trous finals write svgfDiHalf / svgfDiSpecHalf; bilateral upscales
         // resolve them into the full-res svgfDenoised / svgfDiSpecDenoised. diHalfCached drives realloc.
         std::shared_ptr<Texture> svgfDiHalf;
         std::shared_ptr<Texture> svgfDiSpecHalf;
@@ -322,9 +316,9 @@ namespace Luth
         VkDescriptorSet diUpscaleDescSet     = VK_NULL_HANDLE;   // half-res DI diffuse upscale set
         VkDescriptorSet diSpecUpscaleDescSet = VK_NULL_HANDLE;   // half-res DI specular upscale set
 
-        // RT-reflection specular SVGF (rt-renderer D.1) — flat parallel to the GI SVGF fields. A third
-        // SvgfDenoiser instance (DenoiserChannel::Reflections) denoises reflRadiance via the hit-distance
-        // virtual-reprojection spec reproject; svgfSpecDenoised feeds pbr.frag Set 3 b7 (the composite, S4).
+        // RT-reflection specular SVGF: flat parallel to the GI SVGF fields. A third SvgfDenoiser
+        // instance (DenoiserChannel::Reflections) denoises reflRadiance via the hit-distance
+        // virtual-reprojection spec reproject; svgfSpecDenoised feeds pbr.frag Set 3 b7 (the reflection composite).
         // The geom-history's spare channel carries hitDist for reflected-depth disocclusion (vs the diffuse
         // geom's unused .a). Same shapes/clears as the GI SVGF.
         std::shared_ptr<Texture> svgfSpecDenoised;
@@ -336,13 +330,13 @@ namespace Luth
         std::shared_ptr<Texture> svgfSpecAtrous[2];
         VkDescriptorSet svgfSpecMomentsDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
         VkDescriptorSet svgfSpecAtrousDescSet[2]  = { VK_NULL_HANDLE, VK_NULL_HANDLE };
-        // Half-res reflections: the à-trous final writes svgfSpecHalf; a bilateral upscale resolves it into
+        // Half-res reflections: the a-trous final writes svgfSpecHalf; a bilateral upscale resolves it into
         // the full-res svgfSpecDenoised. reflHalfCached drives realloc. Mirrors the svgfDiSpecHalf trio.
         std::shared_ptr<Texture> svgfSpecHalf;
 
-        // ReSTIR-DI specular SVGF (#154) — flat parallel to the spec fields above. A 4th SvgfDenoiser
+        // ReSTIR-DI specular SVGF: flat parallel to the spec fields above. A 4th SvgfDenoiser
         // instance (DenoiserChannel::DiSpecular) denoises restirDISpec via the SURFACE-MOTION reproject
-        // (direct point-light specular is surface-attached, not a reflection's virtual image — so it reuses
+        // (direct point-light specular is surface-attached, not a reflection's virtual image, so it reuses
         // svgf_reproject.slang, not the hit-distance spec variant); svgfDiSpecDenoised feeds pbr.frag Set 3
         // b8. Same shapes/clears as the GI SVGF. see arch/rendering-pipeline.md
         std::shared_ptr<Texture> svgfDiSpecDenoised;
@@ -355,26 +349,26 @@ namespace Luth
         VkDescriptorSet svgfDiSpecMomentsDescSet[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
         VkDescriptorSet svgfDiSpecAtrousDescSet[2]  = { VK_NULL_HANDLE, VK_NULL_HANDLE };
 
-        // Path-traced reference mode (rt-renderer C.5). ptAccum = viewport-sized RGBA32F STORAGE — the
+        // Path-traced reference mode. ptAccum = viewport-sized RGBA32F STORAGE, the
         // in-place fp32 progressive running mean, kept GENERAL, only ever touched by the PT megakernel
         // (never sampled, so fp32 precision survives thousands of samples). ptColor = RGBA16F
         // STORAGE+SAMPLED display copy the post chain (bloom/tonemap) samples; written fresh each frame.
         // ptSampleCount is the CPU-side accumulated path count (running-mean weight); reset on
-        // camera/scene change. ptDescSet binds b0=ptAccum, b1=ptColor — stable, single (not cycled).
+        // camera/scene change. ptDescSet binds b0=ptAccum, b1=ptColor; stable, single (not cycled).
         std::shared_ptr<Texture> ptAccum;
         std::shared_ptr<Texture> ptColor;
         VkDescriptorSet          ptDescSet = VK_NULL_HANDLE;
         u32                      ptSampleCount = 0;
         // FNV hash of the reset inputs (camera VP + scene instances + lights + settings + manual salt)
-        // at the last accumulating frame. A mismatch this frame zeroes the accumulation. 0 → frame 0 resets.
+        // at the last accumulating frame. A mismatch this frame zeroes the accumulation. 0 means frame 0 resets.
         u64                      ptResetHash = 0;
 
-        // RT specular reflections (rt-renderer D.1). reflRadiance = viewport-sized RGBA16F STORAGE+SAMPLED
-        // — rgb = demodulated specular radiance (Li·F·G1 / Fenv), a = hitDist. The trace writes every
-        // pixel each frame (reflection or env fallback), so no cross-frame read → no bootstrap clear.
+        // RT specular reflections. reflRadiance = viewport-sized RGBA16F STORAGE+SAMPLED;
+        // rgb = demodulated specular radiance (Li*F*G1 / Fenv), a = hitDist. The trace writes every
+        // pixel each frame (reflection or env fallback), so no cross-frame read and no bootstrap clear.
         // reflDescSet binds Set 2 b0 = reflRadiance (GENERAL) + b1-b3 = depth/slimNormal/slimRoughness
-        // samplers — stable per-view (single, not cycled). The specular denoiser's svgfSpec* history
-        // (D.1 S3) lands beside the GI SVGF fields above.
+        // samplers; stable per-view (single, not cycled). The specular denoiser's svgfSpec* history
+        // lands beside the GI SVGF fields above.
         std::shared_ptr<Texture> reflRadiance;
         VkDescriptorSet          reflDescSet = VK_NULL_HANDLE;
         VkDescriptorSet          reflUpscaleDescSet = VK_NULL_HANDLE;   // half-res reflection bilateral-upscale set
@@ -382,9 +376,9 @@ namespace Luth
     };
 
     // Orchestrates per-frame render-graph assembly and execution. Created by RenderingSystem and
-    // invoked once per frame after the DrawList and GPUObjectBuffer have been populated. Owns six
-    // per-domain subsystems (Global, Lighting, Geometry, GTAO, PostProcess, EditorOverlays); each
-    // subsystem contributes its render-graph passes and manages the descriptor lifecycle for the
+    // invoked once per frame after the DrawList and GPUObjectBuffer have been populated. Owns the
+    // per-domain subsystems; each subsystem contributes its render-graph passes and manages the
+    // descriptor lifecycle for the
     // Sets it owns. See arch/rendering-pipeline.md.
     class RenderPipeline
     {
@@ -392,9 +386,8 @@ namespace Luth
         explicit RenderPipeline(RenderingSystem& system);
         ~RenderPipeline();
 
-        // One-time init: allocates all Vulkan pipeline resources (UBOs,
-        // descriptor sets, samplers, SPIR-V, IBL maps, pipelines). Runs
-        // when the Vulkan backend is active; no-op otherwise. Called from
+        // One-time init: allocates all Vulkan pipeline resources (UBOs, descriptor sets, samplers, SPIR-V,
+        // IBL maps, pipelines). Runs when the Vulkan backend is active; no-op otherwise. Called from
         // RenderingSystem::ctor after FrameTargets has been allocated.
         void Initialize(u32 viewportWidth, u32 viewportHeight);
 
@@ -402,43 +395,38 @@ namespace Luth
         void Shutdown();
 
         // Build and record the render graph for one view into the per-view QueueRecorders triplet (gA / compute /
-        // gB primary command buffers). Begin/end/submit is owned by RenderingSystem::Update — all visible views
+        // gB primary command buffers). Begin/end/submit is owned by RenderingSystem::Update; all visible views
         // share the per-frame ring of recorders. Caches the active RenderView + ViewResources on the pipeline so
         // passes can read them without a per-pass parameter. Returns true iff any pass routed to async-compute,
         // for the backend's per-view submit topology to decide whether to issue the compute submit at all.
         bool Execute(const RenderView& view, QueueRecorders recorders);
 
-        // Minimal graph (ImGui only). Used by the Frame Debugger Frozen state
-        // when the camera hasn't moved — the LDR output still holds the last
-        // captured image, so redrawing just the UI is enough to keep Dear ImGui
-        // responsive without rebuilding the full graph.
+        // Minimal graph (ImGui only). Used by the Frame Debugger Frozen state when the camera hasn't moved:
+        // the LDR output still holds the last captured image, so redrawing just the UI is enough to keep
+        // Dear ImGui responsive without rebuilding the full graph.
         void ExecuteMinimal();
 
-        // Post-resize hook — rebuilds the scene view's ViewResources entry
-        // at the new size. Game panel resizes route through its own
-        // FrameTargets and hit EnsureViewResources directly.
+        // Post-resize hook: rebuilds the scene view's ViewResources entry at the new size. Game panel
+        // resizes route through its own FrameTargets and hit EnsureViewResources directly.
         void OnResize(u32 width, u32 height);
 
-        // Cache m_CurrentViewResources before the per-view UBO writes in
-        // RenderingSystem::RecordView run (they read it). Safe to call
-        // every frame — only re-allocates on target-size change.
+        // Cache m_CurrentViewResources before the per-view UBO writes in RenderingSystem::RecordView run
+        // (they read it). Safe to call every frame; only re-allocates on target-size change.
         void PrepareForTargets(FrameTargets& targets);
 
-        // Reload the environment HDR → irradiance + prefiltered cubemaps + BRDF LUT.
+        // Reload the environment HDR -> irradiance + prefiltered cubemaps + BRDF LUT.
         void ReloadSkybox(const fs::path& hdrPath);
 
-        // Per-frame CPU-side GPU state prep. Called from RenderingSystem::
-        // RenderToView before the graph executes. The CascadeData +
-        // DirectionalLightShadowParams are produced by LightingSystem and
-        // cached on this Pipeline for the remainder of the view (Execute +
-        // CaptureSnapshot read them through m_FrameCascades / m_FrameShadowParams).
+        // Per-frame CPU-side GPU state prep. Called from RenderingSystem::RenderToView before the graph
+        // executes. The CascadeData + DirectionalLightShadowParams are produced by LightingSystem and cached
+        // on this Pipeline for the remainder of the view (Execute + CaptureSnapshot read them through
+        // m_FrameCascades / m_FrameShadowParams).
         void UpdateGlobalUniforms(const CameraParams& camera, const CascadeData& cascades, const DirectionalLightShadowParams& shadowParams);
         void UpdatePostProcessUBO();
         void UpdateGTAOUBO();
-        // Allocates this frame's Object + Indirect regions from GPUTaggedPageAllocator,
-        // populates them from snapshot, and rewrites Set 5 + cull descriptors. Tagged
-        // with the absolute render-frame index so FreeTag(N-2) reclaims them once the
-        // GPU has retired the consuming frame.
+        // Allocates this frame's Object + Indirect regions from GPUTaggedPageAllocator, populates them from
+        // snapshot, and rewrites Set 5 + cull descriptors. Tagged with the absolute render-frame index so
+        // FreeTag(N-2) reclaims them once the GPU has retired the consuming frame.
         void BuildGPUObjectBuffer(const RenderSnapshot& snapshot);
         u32  EnsureMaterialRegistered(std::shared_ptr<Material> material);
 
@@ -452,17 +440,16 @@ namespace Luth
         const std::unordered_map<UUID, u32, UUIDHash>& GetMaterialSlotMap() const { return m_Geometry.GetMaterialSlotMap(); }
         const std::unordered_map<entt::entity, u32>& GetEntityToSSBOIndex() const { return m_Geometry.GetEntityToSSBOIndex(); }
 
-        // Entity lookup table for mouse picking (index 0 = null sentinel;
-        // valid entities start at 1). Populated by BuildGPUObjectBuffer.
+        // Entity lookup table for mouse picking (index 0 = null sentinel; valid entities start at 1).
+        // Populated by BuildGPUObjectBuffer.
         const std::vector<entt::entity>& GetEntityLookup() const { return m_Geometry.GetEntityLookup(); }
 
-        // Engine-side hot-reload service for .vert/.frag/.comp files. Project
-        // shader dirs register via RenderingSystem::OnProjectLoaded, which
-        // forwards to this getter.
+        // Engine-side hot-reload service for .slang files. Project shader dirs register via
+        // RenderingSystem::OnProjectLoaded, which forwards to this getter.
         ShaderWatcher& GetShaderWatcher() { return m_ShaderWatcher; }
 
-        // Owning RenderingSystem (set by ctor). FrameDebuggerContext + future
-        // subsystems read scene state through this accessor.
+        // Owning RenderingSystem (set by ctor). FrameDebuggerContext + future subsystems read scene state
+        // through this accessor.
         RenderingSystem&       GetSystem()       { return m_System; }
         const RenderingSystem& GetSystem() const { return m_System; }
 
@@ -471,7 +458,7 @@ namespace Luth
         ViewResources*       GetCurrentViewResources()       { return m_CurrentViewResources; }
         const ViewResources* GetCurrentViewResources() const { return m_CurrentViewResources; }
 
-        // Subsystem accessors — preferred path for cross-subsystem reads.
+        // Subsystem accessors: preferred path for cross-subsystem reads.
         GlobalSubsystem&         GetGlobal()         { return m_Global; }
         const GlobalSubsystem&   GetGlobal()   const { return m_Global; }
         LightingSubsystem&       GetLighting()       { return m_Lighting; }
@@ -490,7 +477,7 @@ namespace Luth
     private:
         void RegisterNamedTextures();
 
-        // ImGui pass — single-view residual on the orchestrator.
+        // ImGui pass: single-view residual on the orchestrator.
         void AddImGuiPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor);
 
         RG::RenderGraphSnapshot CaptureSnapshot(const RG::RenderGraph& rg);
@@ -514,21 +501,19 @@ namespace Luth
         static constexpr u32 k_IndirectRegionCount    = k_MaxViews * k_IndirectRegionsPerView;
         static constexpr u32 k_IndirectRegionStride   = k_MaxGPUObjects;
 
-        // Return the cached ViewResources for targets, allocating on first
-        // use and rebuilding textures/descriptors on size change. Release*
-        // is called from the owning panel's dtor. Host-only — safe to call
-        // outside a frame.
+        // Return the cached ViewResources for targets, allocating on first use and rebuilding
+        // textures/descriptors on size change. Release* is called from the owning panel's dtor.
+        // Host-only; safe to call outside a frame.
         ViewResources& EnsureViewResources(FrameTargets& targets);
         void           ReleaseViewResources(FrameTargets& targets);
 
-        // True iff `targets` has a cached ViewResources whose identity token
-        // matches `expectedId`. Replay path uses this to validate that the
-        // captured FrameTargets is still the same instance — pointer reuse
-        // after panel close + reopen would mint a different id.
+        // True iff `targets` has a cached ViewResources whose identity token matches `expectedId`.
+        // Replay path uses this to validate that the captured FrameTargets is still the same instance;
+        // pointer reuse after panel close + reopen would mint a different id.
         bool HasViewResources(FrameTargets* targets, u64 expectedId) const;
 
-        // Lookup without minting — returns nullptr if `targets` isn't in the
-        // map. Used by replay to fetch the captured view's resources.
+        // Lookup without minting: returns nullptr if `targets` isn't in the map.
+        // Used by replay to fetch the captured view's resources.
         ViewResources*       GetViewResources(FrameTargets* targets);
         const ViewResources* GetViewResources(FrameTargets* targets) const;
 
@@ -556,9 +541,9 @@ namespace Luth
         ReflectionsSubsystem    m_Reflections;
         SkinningSubsystem       m_Skinning;
         std::unique_ptr<IDenoiser> m_Denoise;     // DI SVGF; swappable to NRD/RELAX via the settings toggle
-        std::unique_ptr<IDenoiser> m_DenoiseGi;   // GI SVGF — second instance (DenoiserChannel::Gi)
-        std::unique_ptr<IDenoiser> m_DenoiseRefl; // specular SVGF — third instance (DenoiserChannel::Reflections)
-        std::unique_ptr<IDenoiser> m_DenoiseDiSpec; // ReSTIR-DI specular SVGF — 4th instance (DenoiserChannel::DiSpecular)
+        std::unique_ptr<IDenoiser> m_DenoiseGi;   // GI SVGF: second instance (DenoiserChannel::Gi)
+        std::unique_ptr<IDenoiser> m_DenoiseRefl; // specular SVGF: third instance (DenoiserChannel::Reflections)
+        std::unique_ptr<IDenoiser> m_DenoiseDiSpec; // ReSTIR-DI specular SVGF: 4th instance (DenoiserChannel::DiSpecular)
 
     public:
         EditorOverlaysSubsystem&       GetEditorOverlays()       { return m_EditorOverlays; }
@@ -594,9 +579,8 @@ namespace Luth
         ShaderWatcher m_ShaderWatcher;
 
     public:
-        // Accessors forwarded to the frame-debugger context so editor panels
-        // can sample preview textures and invalidate caches without needing
-        // access to the context class directly.
+        // Accessors forwarded to the frame-debugger context so editor panels can sample preview textures
+        // and invalidate caches without needing access to the context class directly.
         VkImageView GetPerDrawPreviewView()  const;
         u64         GetPerDrawPreviewKey()   const;
         u32         GetPerDrawPreviewWidth() const;
@@ -609,7 +593,7 @@ namespace Luth
         u32         GetSlimPreviewHeight()   const;
         const RG::RenderGraphSnapshot& GetGraphSnapshot() const { return m_GraphSnapshot; }
 
-        // Resets the per-draw preview cache key — called from RS::ExitCapture.
+        // Resets the per-draw preview cache key; called from RS::ExitCapture.
         void ResetPreviewCacheKeys();
     };
 }

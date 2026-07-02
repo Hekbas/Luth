@@ -41,7 +41,7 @@ namespace Luth
     void FrameDebuggerContext::InitDebugBlitResources()
     {
         auto& fd = m_Pipeline.GetSystem().GetFrameDebugger();
-        if (fd.blitPipeline) return; // Already initialized
+        if (fd.blitPipeline) return;
 
         if (auto sh = ShaderLibrary::LoadEngine("shaders/debugBlit.slang"))
             fd.blitFragSpv = sh->GetSpirV();
@@ -62,7 +62,6 @@ namespace Luth
 
         auto device = VulkanContext::Get().GetDevice();
 
-        // Create sampler
         VkSamplerCreateInfo samplerCI{};
         samplerCI.sType     = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
         samplerCI.magFilter = VK_FILTER_LINEAR;
@@ -72,7 +71,7 @@ namespace Luth
         samplerCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         vkCreateSampler(device, &samplerCI, nullptr, &fd.sampler);
 
-        // Nearest sampler for sampling integer slim G-buffer matID archives (R16_UINT) —
+        // Nearest sampler for sampling integer slim G-buffer matID archives (R16_UINT);
         // integer formats lack SAMPLED_IMAGE_FILTER_LINEAR_BIT (VUID 04553).
         VkSamplerCreateInfo nearestCI = samplerCI;
         nearestCI.magFilter = VK_FILTER_NEAREST;
@@ -80,9 +79,8 @@ namespace Luth
         vkCreateSampler(device, &nearestCI, nullptr, &fd.samplerNearest);
 
         // Descriptor set layout: binding 0 = combined image sampler.
-        // invariant: UAB flags so BlitArchivedDepthToPreview / Replay* can rewrite
-        // binding 0 between back-to-back ImmediateSubmits without racing a still-
-        // pending cmd buffer that bound the prior view.
+        // invariant: UAB flags so BlitArchivedDepthToPreview / Replay* can rewrite binding 0 between
+        // back-to-back ImmediateSubmits without racing a still-pending cmd buffer that bound the prior view.
         VkDescriptorSetLayoutBinding binding{};
         binding.binding         = 0;
         binding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -102,7 +100,7 @@ namespace Luth
         layoutCI.pBindings    = &binding;
         vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &fd.descSetLayout);
 
-        // Descriptor pool — UPDATE_AFTER_BIND_BIT pairs with the layout flag.
+        // Descriptor pool: UPDATE_AFTER_BIND_BIT pairs with the layout flag.
         VkDescriptorPoolSize poolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1 };
         VkDescriptorPoolCreateInfo poolCI{};
         poolCI.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -113,7 +111,6 @@ namespace Luth
                              | VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
         vkCreateDescriptorPool(device, &poolCI, nullptr, &fd.descPool);
 
-        // Allocate descriptor set
         VkDescriptorSetAllocateInfo allocCI{};
         allocCI.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         allocCI.descriptorPool     = fd.descPool;
@@ -122,7 +119,6 @@ namespace Luth
         vkAllocateDescriptorSets(device, &allocCI, &fd.descSet);
         VulkanContext::SetDebugName(fd.descSet, "FrameDebugger.DebugBlit");
 
-        // Create blit pipeline (color)
         std::vector<VkDescriptorSetLayout> layouts = { fd.descSetLayout };
         PipelineConfig blitConfig;
         blitConfig.depthTest  = false;
@@ -148,7 +144,7 @@ namespace Luth
         fd.depthPipeline = std::make_unique<VKPipeline>(
             depthConfig, m_Pipeline.GetPostProcess().GetFullscreenVertSpv(), fd.depthFragSpv, layouts);
 
-        // Slim G-buffer decoder pipeline (oct-normal / motion / roughness — float-sampled).
+        // Slim G-buffer decoder pipeline (oct-normal / motion / roughness, float-sampled).
         // Push constants: uint mode + float scale = 8B.
         VkPushConstantRange slimPC{};
         slimPC.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -247,8 +243,8 @@ namespace Luth
             && m_PerDrawPreviewWidth == width
             && m_PerDrawPreviewHeight == height) return;
 
-        // Tear down any prior preview at a different size first. Deferred so
-        // an in-flight ImGui frame can finish sampling the old view safely.
+        // Tear down any prior preview at a different size first. Deferred so an in-flight ImGui frame
+        // can finish sampling the old view safely.
         if (m_PerDrawPreviewImage != VK_NULL_HANDLE)
         {
             VkImage       img   = m_PerDrawPreviewImage;
@@ -288,7 +284,7 @@ namespace Luth
 
         m_PerDrawPreviewWidth  = width;
         m_PerDrawPreviewHeight = height;
-        m_PerDrawPreviewKey    = UINT64_MAX;  // dimensions changed → invalidate cache
+        m_PerDrawPreviewKey    = UINT64_MAX;  // dimensions changed -> invalidate cache
     }
 
     void FrameDebuggerContext::DestroyPerDrawPreviewTexture()
@@ -333,9 +329,8 @@ namespace Luth
         if (m_Pipeline.HasViewResources(cf.capturedView.targets, cf.capturedView.viewResourcesId))
             return true;
 
-        // Captured view's panel was closed mid-Freeze — clear the capture so
-        // the panel returns to live mode rather than serving stale archives
-        // against a missing view.
+        // Captured view's panel was closed mid-Freeze; clear the capture so the panel
+        // returns to live mode rather than serving stale archives against a missing view.
         sys.ExitCapture();
         if (auto* hooks = EditorHooks::Get())
             hooks->OnFrameDebuggerNotice("Captured view closed; capture cleared.");
@@ -353,9 +348,8 @@ namespace Luth
 
         const auto& pass = sys.GetFrameDebugger().capturedFrame.passes[passIdx];
 
-        // Dispatch by pass type. Unsupported pass names leave
-        // m_PerDrawPreviewKey untouched so the caller (panel / viewport
-        // overlay) detects the mismatch and falls back to the pass archive.
+        // Dispatch by pass type. Unsupported pass names leave m_PerDrawPreviewKey untouched
+        // so the caller (panel / viewport overlay) detects the mismatch and falls back to the pass archive.
         if (pass.name == "GeometryPass")
         {
             ReplayGeometry(passIdx, localDrawIdx);
@@ -376,9 +370,8 @@ namespace Luth
 
     void FrameDebuggerContext::ReplayGeometry(u32 passIdx, u32 localDrawIdx)
     {
-        // invariant: ReplayPassUpToDraw already validated cf.capturedView via
-        // ValidateCapturedView — replay must render against THIS view's targets,
-        // not m_CurrentViewResources (which points at whichever view ran last).
+        // invariant: ReplayPassUpToDraw already validated cf.capturedView via ValidateCapturedView; replay
+        // must render against THIS view's targets, not m_CurrentViewResources (which points at whichever view ran last).
         auto& sys = m_Pipeline.GetSystem();
         auto& cf  = sys.GetFrameDebugger().capturedFrame;
         FrameTargets* targets = cf.capturedView.targets;
@@ -387,7 +380,7 @@ namespace Luth
         ViewResources* capturedVr = m_Pipeline.GetViewResources(targets);
         if (!capturedVr) return;
 
-        // Cache hit — same selection as last replay, nothing to do.
+        // Cache hit: same selection as last replay, nothing to do.
         const u64 key = ((u64)passIdx << 32) | (u64)localDrawIdx;
         if (key == m_PerDrawPreviewKey) return;
 
@@ -406,13 +399,11 @@ namespace Luth
         VkImage     entityIDImg    = vkEntityID->GetImage();
         VkImageView entityIDView   = vkEntityID->GetImageView();
 
-        // Total draws to issue (1-based count). Original GeometryPass emits
-        // draws in opaque → cutout → transparent order, which matches the
-        // capture-time CapturedDrawCall ordering.
+        // Total draws to issue (1-based count). Original GeometryPass emits draws in opaque -> cutout ->
+        // transparent order, matching the capture-time CapturedDrawCall ordering.
         const u32 maxDraws = localDrawIdx + 1;
 
-        // Capture the CPU-side data we need by value (the lambda runs inside
-        // ImmediateSubmit and must be self-contained).
+        // Capture the CPU-side data by value (the lambda runs inside ImmediateSubmit and must be self-contained).
         VkPolygonMode polyMode = (sys.GetShadeMode() == ShadeMode::Wireframe) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
         UUID pbrUUID = ShaderLibrary::Get("pbr_vert.slang")->Handle;
 
@@ -421,10 +412,9 @@ namespace Luth
             auto& sys = m_Pipeline.GetSystem();
             auto& rp  = m_Pipeline;
 
-            // ---- Phase 1: prep all attachments + preview ----
-            // We use UNDEFINED → ATTACHMENT to ignore the prior contents (the
-            // graph CLEARs anyway) and avoid relying on whatever layout the
-            // last live frame left them in.
+            // ---- Prep all attachments + preview ----
+            // UNDEFINED -> ATTACHMENT ignores prior contents (the graph CLEARs anyway) and avoids
+            // relying on whatever layout the last live frame left them in.
             VkImageMemoryBarrier2 prep[4]{};
             auto fillAtt = [](VkImageMemoryBarrier2& b, VkImage img,
                               VkImageAspectFlags aspect, VkImageLayout newLayout,
@@ -460,7 +450,7 @@ namespace Luth
             depPrep.pImageMemoryBarriers    = prep;
             vkCmdPipelineBarrier2(cmd, &depPrep);
 
-            // ---- Phase 2: BeginRendering with cleared attachments ----
+            // ---- BeginRendering with cleared attachments ----
             AttachmentInfo colorAtt[2]{};
             colorAtt[0].ImageView  = sceneColorView;
             colorAtt[0].Format     = VK_FORMAT_R16G16B16A16_SFLOAT;
@@ -491,9 +481,9 @@ namespace Luth
 
             DynamicRendering::BeginRendering(cmd, rpInfo);
 
-            // ---- Phase 3: bind pipelines + descriptors, replay draws ----
-            // Same descriptor sets as the live GeometryPass — the underlying
-            // UBOs/SSBOs are byte-stable in Frozen state (no live writers).
+            // ---- Bind pipelines + descriptors, replay draws ----
+            // Same descriptor sets as the live GeometryPass; the underlying UBOs/SSBOs are byte-stable
+            // in Frozen state (no live writers).
             auto* opaquePipeline = rp.GetGeometry().GetGeoPipelineManager().GetOrCreate(
                 pbrUUID, Material::RenderMode::Opaque, Material::CullMode::Back,
                 polyMode, rp.GetGeometry().GetPBRVertSpv(), rp.GetGeometry().GetPBRFragSpv());
@@ -504,12 +494,11 @@ namespace Luth
             }
             VkPipelineLayout pipelineLayout = opaquePipeline->GetLayout();
 
-            // Use captured slot — Frozen state pins descriptor data; live
-            // GetRenderFrameIndex() would index a slot the live loop has rotated past.
-            // invariant: do NOT rewrite Set 0 binding 0 here — the set may be in
-            // use by a still-pending cmd buffer from before Frozen engaged (no
-            // UAB flag set on Set 0). Captured-time region stays alive across
-            // Frozen because the live RG isn't running to advance FreeTag.
+            // Use captured slot: Frozen state pins descriptor data; live GetRenderFrameIndex() would index
+            // a slot the live loop has rotated past.
+            // invariant: do NOT rewrite Set 0 binding 0 here; the set may be in use by a still-pending cmd
+            // buffer from before Frozen engaged (no UAB flag set on Set 0). Captured-time region stays alive
+            // across Frozen because the live RG isn't running to advance FreeTag.
             const u32 slot = cf.capturedRenderFrameIndex % MAX_FRAMES_IN_FLIGHT;
 
             VkDescriptorSet bindlessSet = VulkanContext::Get().GetBindlessSet().GetSet();
@@ -574,13 +563,13 @@ namespace Luth
                 }
             };
 
-            // No transparent batch — the live GeometryPass draws opaque + cutout only.
+            // No transparent batch; the live GeometryPass draws opaque + cutout only.
             ReplayBatch(sys.GetDrawList().opaque, Material::RenderMode::Opaque);
             ReplayBatch(sys.GetDrawList().cutout, Material::RenderMode::Cutout);
 
             DynamicRendering::EndRendering(cmd);
 
-            // ---- Phase 4: copy SceneColor → preview ----
+            // ---- Copy SceneColor -> preview ----
             VkImageMemoryBarrier2 toCopy[2]{};
             toCopy[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
             toCopy[0].srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -599,10 +588,9 @@ namespace Luth
             toCopy[1].srcAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
             toCopy[1].dstStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
             toCopy[1].dstAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            // First-ever replay is UNDEFINED, subsequent replays come from
-            // SHADER_READ_ONLY_OPTIMAL after the panel sampled the previous
-            // preview. Treat both uniformly via UNDEFINED — discards content
-            // (which we'd overwrite anyway).
+            // First-ever replay is UNDEFINED, subsequent replays come from SHADER_READ_ONLY_OPTIMAL
+            // after the panel sampled the previous preview. Treat both uniformly via UNDEFINED;
+            // discards content that gets overwritten anyway.
             toCopy[1].oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
             toCopy[1].newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
             toCopy[1].image               = m_PerDrawPreviewImage;
@@ -624,11 +612,10 @@ namespace Luth
                 m_PerDrawPreviewImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                 1, &copy);
 
-            // ---- Phase 5: restore layouts for next consumer ----
-            // SceneColor → SHADER_READ_ONLY (matches what the live pipeline
-            // expects after PostProcessPass; next live frame's barriers will
-            // re-transition as needed).
-            // Preview → SHADER_READ_ONLY for ImGui sampling.
+            // ---- Restore layouts for next consumer ----
+            // SceneColor -> SHADER_READ_ONLY (matches what the live pipeline expects after
+            // PostProcessPass; next live frame's barriers will re-transition as needed).
+            // Preview -> SHADER_READ_ONLY for ImGui sampling.
             VkImageMemoryBarrier2 fin[2]{};
             fin[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
             fin[0].srcStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
@@ -684,9 +671,8 @@ namespace Luth
 
         VkImage shadowImg = vkShadowMap->GetImage();
 
-        // invariant: live RG halts in Frozen, so writing through the cascade-layer
-        // view into m_ShadowMap doesn't race the renderer. Next ExitCapture → live
-        // frame fully clears+rewrites this cascade.
+        // invariant: live RG halts in Frozen, so writing through the cascade-layer view into m_ShadowMap
+        // doesn't race the renderer. Next ExitCapture -> live frame fully clears+rewrites this cascade.
         InitDebugBlitResources();
         if (!sys.GetFrameDebugger().depthPipeline) return;
 
@@ -715,7 +701,7 @@ namespace Luth
         {
             auto& rp = m_Pipeline;
 
-            // Shadow cascade slice → DEPTH_ATTACHMENT (UNDEFINED to discard prior).
+            // Shadow cascade slice -> DEPTH_ATTACHMENT (UNDEFINED to discard prior).
             VkImageMemoryBarrier2 prep{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
             prep.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
             prep.dstStageMask        = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
@@ -808,13 +794,13 @@ namespace Luth
                 }
             };
 
-            // No transparent batch — the live ShadowPass excludes it (RT-excluded tier).
+            // No transparent batch; the live ShadowPass excludes it (RT-excluded tier).
             ReplayBatch(sys.GetDrawList().opaque);
             ReplayBatch(sys.GetDrawList().cutout);
 
             DynamicRendering::EndRendering(cmd);
 
-            // Cascade slice DEPTH_WRITE → SHADER_READ for the tonemap pass.
+            // Cascade slice DEPTH_WRITE -> SHADER_READ for the tonemap pass.
             VkImageMemoryBarrier2 toRead{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
             toRead.srcStageMask        = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
             toRead.srcAccessMask       = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
@@ -827,7 +813,7 @@ namespace Luth
             toRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             toRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 
-            // m_DepthPreviewImage UNDEFINED → COLOR_ATTACHMENT for tonemap output.
+            // m_DepthPreviewImage UNDEFINED -> COLOR_ATTACHMENT for tonemap output.
             VkImageMemoryBarrier2 dpPrep{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
             dpPrep.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
             dpPrep.dstStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -845,7 +831,7 @@ namespace Luth
             depMid.pImageMemoryBarriers    = mid;
             vkCmdPipelineBarrier2(cmd, &depMid);
 
-            // Tonemap shadow depth → m_DepthPreviewImage (RGBA8).
+            // Tonemap shadow depth -> m_DepthPreviewImage (RGBA8).
             AttachmentInfo dpAtt{};
             dpAtt.ImageView  = m_DepthPreviewView;
             dpAtt.Format     = VK_FORMAT_R8G8B8A8_UNORM;
@@ -877,7 +863,7 @@ namespace Luth
             vkCmdDraw(cmd, 3, 1, 0, 0);
             DynamicRendering::EndRendering(cmd);
 
-            // Blit m_DepthPreviewImage (RGBA8) → m_PerDrawPreviewImage (RGBA16F)
+            // Blit m_DepthPreviewImage (RGBA8) -> m_PerDrawPreviewImage (RGBA16F)
             // so the panel reads progressive shadow depth via GetPerDrawPreviewView.
             VkImageMemoryBarrier2 toBlit[2]{};
             toBlit[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
@@ -927,7 +913,7 @@ namespace Luth
             blitInfo.filter         = VK_FILTER_LINEAR;
             vkCmdBlitImage2(cmd, &blitInfo);
 
-            // Final transitions: previews → SHADER_READ; shadow stays SHADER_READ
+            // Final transitions: previews -> SHADER_READ; shadow stays SHADER_READ
             // (next live frame's ShadowPass clear-load resets it).
             VkImageMemoryBarrier2 fin[2]{};
             fin[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
@@ -1065,7 +1051,7 @@ namespace Luth
             u32 drawsRemaining = maxDraws;
             bool currentSkinned = false;
 
-            // Opaque-only — mirrors live DepthPrepass (cutouts/transparents skip prepass).
+            // Opaque-only: mirrors live DepthPrepass (cutouts/transparents skip prepass).
             for (const auto& dc : sys.GetDrawList().opaque)
             {
                 if (drawsRemaining == 0) break;
@@ -1099,7 +1085,7 @@ namespace Luth
 
             DynamicRendering::EndRendering(cmd);
 
-            // SceneDepth → SHADER_READ for tonemap; m_DepthPreviewImage UNDEFINED → COLOR.
+            // SceneDepth -> SHADER_READ for tonemap; m_DepthPreviewImage UNDEFINED -> COLOR.
             VkImageMemoryBarrier2 mid[2]{};
             mid[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
             mid[0].srcStageMask        = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
@@ -1129,7 +1115,7 @@ namespace Luth
             depMid.pImageMemoryBarriers    = mid;
             vkCmdPipelineBarrier2(cmd, &depMid);
 
-            // Tonemap depth → m_DepthPreviewImage.
+            // Tonemap depth -> m_DepthPreviewImage.
             AttachmentInfo dpAtt{};
             dpAtt.ImageView  = m_DepthPreviewView;
             dpAtt.Format     = VK_FORMAT_R8G8B8A8_UNORM;
@@ -1158,7 +1144,7 @@ namespace Luth
             vkCmdDraw(cmd, 3, 1, 0, 0);
             DynamicRendering::EndRendering(cmd);
 
-            // Blit RGBA8 depth preview → RGBA16F per-draw preview.
+            // Blit RGBA8 depth preview -> RGBA16F per-draw preview.
             VkImageMemoryBarrier2 toBlit[2]{};
             toBlit[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
             toBlit[0].srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -1259,8 +1245,8 @@ namespace Luth
         VKPipeline* maskSkinned     = m_Pipeline.GetEditorOverlays().GetSelectionMaskSkinnedPipeline();
         if (!maskPipeline) return;
 
-        // Resolved-at-capture selection set — m_CurrentView's RenderView is
-        // stack-allocated and gone by the time the user scrubs in Frozen.
+        // Resolved-at-capture selection set; m_CurrentView's RenderView is stack-allocated and gone
+        // by the time the user scrubs in Frozen.
         std::unordered_set<entt::entity> selectedSet(
             cf.capturedSelectionHandles.begin(), cf.capturedSelectionHandles.end());
         if (selectedSet.empty()) return;
@@ -1407,7 +1393,7 @@ namespace Luth
 
             DynamicRendering::EndRendering(cmd);
 
-            // Mask → TRANSFER_SRC, preview → TRANSFER_DST for the format-converting blit.
+            // Mask -> TRANSFER_SRC, preview -> TRANSFER_DST for the format-converting blit.
             VkImageMemoryBarrier2 toBlit[2]{};
             toBlit[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
             toBlit[0].srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -1453,10 +1439,10 @@ namespace Luth
             blitInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
             blitInfo.regionCount    = 1;
             blitInfo.pRegions       = &blit;
-            blitInfo.filter         = VK_FILTER_NEAREST;  // mask is opaque — preserve hard edges
+            blitInfo.filter         = VK_FILTER_NEAREST;  // mask is opaque: preserve hard edges
             vkCmdBlitImage2(cmd, &blitInfo);
 
-            // Mask → SHADER_READ for next live frame's OutlinePass; preview → SHADER_READ for ImGui.
+            // Mask -> SHADER_READ for next live frame's OutlinePass; preview -> SHADER_READ for ImGui.
             VkImageMemoryBarrier2 fin[2]{};
             fin[0].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
             fin[0].srcStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
@@ -1517,10 +1503,9 @@ namespace Luth
         ci.extent        = { width, height, 1 };
         ci.mipLevels     = 1;
         ci.arrayLayers   = 1;
-        // RGBA8 — depth blit shader writes a tonemapped grayscale that ImGui
-        // can sample directly without HDR clipping concerns. TRANSFER_SRC for
-        // ReplayShadow / ReplayDepthPrepass: tonemap here then blit to the
-        // shared RGBA16F per-draw preview with format conversion.
+        // RGBA8: depth blit shader writes a tonemapped grayscale that ImGui can sample directly
+        // without HDR clipping concerns. TRANSFER_SRC for ReplayShadow / ReplayDepthPrepass:
+        // tonemap here then blit to the shared RGBA16F per-draw preview with format conversion.
         ci.format        = VK_FORMAT_R8G8B8A8_UNORM;
         ci.tiling        = VK_IMAGE_TILING_OPTIMAL;
         ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -1569,7 +1554,7 @@ namespace Luth
         auto& archive = sys.GetFrameDebugger().capturedFrame.archivedImages[archiveIdx];
         if (!archive.isDepth || archive.image == VK_NULL_HANDLE) return;
 
-        InitDebugBlitResources();  // idempotent — needed for sampler + depthPipeline + descSet
+        InitDebugBlitResources();  // idempotent; needed for sampler + depthPipeline + descSet
         if (!sys.GetFrameDebugger().depthPipeline || sys.GetFrameDebugger().descSet == VK_NULL_HANDLE) return;
 
         // Cache short-circuit (use layer+1 in the low bits so layer == -1 maps to 0).
@@ -1581,26 +1566,21 @@ namespace Luth
         if (m_DepthPreviewImage == VK_NULL_HANDLE) return;
 
         // Resolve the source view.
-        //
-        // - Multi-layer archive + layer in range → per-layer view (sampled as 2D).
-        // - Single-layer archive (e.g. cascade "ShadowMap.C<i>" — each cascade
-        //   pass owns its own single-layer archive backed by the layer-i view of
-        //   the shared 4-layer image) → archive.view, which is already 2D.
-        // - layer < 0 → whole image (only meaningful for non-array archives).
-        //
-        // Falling back to archive.view when (layer >= archive.layers) is what
-        // makes cascade slices renderable: the EventNode's archiveLayer holds
-        // the *cascade index* (0..3) for detail-panel lookups, even though
-        // the underlying archive only has 1 layer.
+        // - Multi-layer archive + layer in range -> per-layer view (sampled as 2D).
+        // - Single-layer archive (e.g. cascade "ShadowMap.C<i>": each cascade pass owns its own single-layer
+        //   archive backed by the layer-i view of the shared 4-layer image) -> archive.view, already 2D.
+        // - layer < 0 -> whole image (only meaningful for non-array archives).
+        // Falling back to archive.view when (layer >= archive.layers) is what makes cascade slices
+        // renderable: the EventNode's archiveLayer holds the *cascade index* (0..3) for detail-panel
+        // lookups, even though the underlying archive only has 1 layer.
         VkDevice device = VulkanContext::Get().GetDevice();
         VkImageView srcView = (layer < 0 || archive.layers <= 1 || (u32)layer >= archive.layers)
             ? archive.view
             : archive.GetOrCreateLayerView(device, (u32)layer);
         if (srcView == VK_NULL_HANDLE) return;
 
-        // Update the shared debug descriptor to point at this view. Safe to do
-        // synchronously: ImmediateSubmit below blocks on a fence so the
-        // descriptor isn't in flight while we're rewriting it.
+        // Update the shared debug descriptor to point at this view. Safe to do synchronously:
+        // ImmediateSubmit below blocks on a fence so the descriptor isn't in flight during the rewrite.
         VkDescriptorImageInfo imgInfo{};
         imgInfo.sampler     = sys.GetFrameDebugger().sampler;
         imgInfo.imageView   = srcView;
@@ -1623,7 +1603,7 @@ namespace Luth
         {
             auto& sys = m_Pipeline.GetSystem();
 
-            // Preview UNDEFINED → COLOR_ATTACHMENT_OPTIMAL (clear-on-load).
+            // Preview UNDEFINED -> COLOR_ATTACHMENT_OPTIMAL (clear-on-load).
             VkImageMemoryBarrier2 prep{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
             prep.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
             prep.srcAccessMask       = 0;
@@ -1673,7 +1653,7 @@ namespace Luth
 
             DynamicRendering::EndRendering(cmd);
 
-            // Preview → SHADER_READ_ONLY for ImGui sampling.
+            // Preview -> SHADER_READ_ONLY for ImGui sampling.
             VkImageMemoryBarrier2 fin{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
             fin.srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
             fin.srcAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
@@ -1784,7 +1764,7 @@ namespace Luth
         VkImageView srcView = archive.view;
         if (srcView == VK_NULL_HANDLE) return;
 
-        // Mode 3 (matID) reads VK_FORMAT_R16_UINT — must use NEAREST sampler (VUID 04553).
+        // Mode 3 (matID) reads VK_FORMAT_R16_UINT; must use NEAREST sampler (VUID 04553).
         VkDescriptorImageInfo imgInfo{};
         imgInfo.sampler     = (mode == 3u) ? sys.GetFrameDebugger().samplerNearest
                                            : sys.GetFrameDebugger().sampler;

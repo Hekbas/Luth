@@ -45,7 +45,7 @@ namespace Luth
 
         void Update(Scene* scene) override;
 
-        // Collision queries. Safe to call between Update()s — NOT during Step() (Jolt's
+        // Collision queries. Safe to call between Update()s, NOT during Step() (Jolt's
         // NarrowPhaseQuery holds body locks while the broadphase mutates). Re-entry asserts.
         //
         // layerMask is a bitmask of (1u << Layers::X) values; pass 0 to skip layer filtering.
@@ -56,7 +56,7 @@ namespace Luth
         // Find every body whose shape overlaps the given primitive. Hits are written into outHits
         // up to its size; the return value is the actual count (so callers can detect "clamped"
         // by comparing return == span.size()). Order is broadphase-walk order, not sorted by
-        // distance. rot for Sphere is meaningless (still in the signature for symmetry — pass
+        // distance. rot for Sphere is meaningless (still in the signature for symmetry; pass
         // identity).
         u32 OverlapBox    (const Vec3& center, const Vec3& halfExtents, const Quat& rot,
                            u32 layerMask, std::span<Physics::OverlapHit> outHits) const;
@@ -71,8 +71,8 @@ namespace Luth
 
     private:
         // Shared core for the three overlap overloads. Caller hands over an already-built JPH
-        // shape (Ref so it lives until the call returns) plus the world COM transform; we wire
-        // up the layer-mask filters, run CollideShape, and write hits into outHits clamped.
+        // shape (Ref so it lives until the call returns) plus the world COM transform; this wires
+        // up the layer-mask filters, runs CollideShape, and writes hits into outHits clamped.
         u32 OverlapShape(const JPH::Shape* shape, const Vec3& center, const Quat& rot,
                          u32 layerMask, std::span<Physics::OverlapHit> outHits) const;
 
@@ -83,8 +83,8 @@ namespace Luth
         };
 
         // Character lifetime is owned here (heap-allocated JPH::CharacterVirtual) so the destroy queue
-        // carries the pointer directly — by the time we drain we may have lost the entity from the
-        // registry. Mirror of PendingDestroy for the character path.
+        // carries the pointer directly; the entity may already be gone from the registry by drain
+        // time. Mirror of PendingDestroy for the character path.
         struct PendingCharacterDestroy
         {
             entt::entity           entity;
@@ -92,7 +92,7 @@ namespace Luth
         };
 
         // Result of a single TryCreateBody attempt. RetryLater means a transient miss (asset not
-        // loaded yet) — DrainPendingBuilds collects these into a shadow vector and re-queues them
+        // loaded yet); DrainPendingBuilds collects these into a shadow vector and re-queues them
         // for next Update. Failed is permanent (missing components, invalid shape, opt-out): the
         // entity is dropped from the queue. Created is the success path.
         enum class BuildResult { Created, RetryLater, Failed };
@@ -104,7 +104,7 @@ namespace Luth
 
         // EnTT signal targets. on_construct + on_update on either Collider or RigidBody route to
         // OnComponentConstructed / OnComponentUpdated, both of which queue the entity for a deferred
-        // body (re)build drained at the start of the next Update — that way Inspector add-then-edit
+        // body (re)build drained at the start of the next Update, so Inspector add-then-edit
         // and shape changes during Play both produce a body that matches the latest fields. on_destroy
         // routes to DestroyBodyForEntity; either component leaving invalidates the pair.
         void OnComponentConstructed(entt::registry& reg, entt::entity entity);
@@ -137,12 +137,12 @@ namespace Luth
         void DrainDirtyAssets(Scene* scene);
 
         // Subscribe once to AssetDatabase::AddChangeCallback. The callback is bound to `this` and
-        // only pushes UUIDs into m_DirtyAssetsScratch — registry walks happen on the game-stage
+        // only pushes UUIDs into m_DirtyAssetsScratch; registry walks happen on the game-stage
         // fiber. PhysicsSystem outlives the App loop so unregister is unnecessary (and unsupported
         // by AssetDatabase today).
         void EnsureChangeCallbackRegistered();
 
-        // Fast-path field tuning when DrainPendingBuilds detects a fingerprint match — only
+        // Fast-path field tuning when DrainPendingBuilds detects a fingerprint match: only
         // damping / gravity factor / linear-angular velocity are applied here. Mass and structural
         // fields (motion, layer, sensor, motionQuality, shape) live in the fingerprint and force
         // a full rebuild when they change.
@@ -152,7 +152,7 @@ namespace Luth
         void SyncBodiesToTransforms(Scene* scene);
 
         // Substep character update. Runs inside the m_StepInFlight guard between body sync and the
-        // JPH world step. Integrates gravity into velocity (JPH does not — see CharacterVirtual.h:322),
+        // JPH world step. Integrates gravity into velocity (JPH does not; see CharacterVirtual.h:322),
         // consumes jumpQueued on grounded frames, calls ExtendedUpdate (default StickToFloor /
         // WalkStairs settings), then writes groundState + currentVelocity back to the component.
         void UpdateCharacters(Scene* scene, f32 dt);
@@ -171,8 +171,8 @@ namespace Luth
         void DrawDebugBodies(Scene* scene);
 
         // Order matters: m_TempAlloc and m_JobAdapter are referenced by m_System.Update() each step,
-        // and member destruction is reverse-declaration order. Putting m_System last ensures it tears
-        // down before its dependencies — and m_BodyMap before m_System so any leftover BodyID lookups
+        // and member destruction is reverse-declaration order. m_System declared last so it tears
+        // down before its dependencies, and m_BodyMap before m_System so any leftover BodyID lookups
         // during teardown stay valid.
         Physics::BPLayerInterfaceImpl              m_BPLayers;
         Physics::ObjectVsBroadPhaseLayerFilterImpl m_OvBpFilter;
@@ -210,7 +210,7 @@ namespace Luth
 
         // Body-index reverse table for OnContactRemoved (where Jolt forbids body access). Sized
         // kMaxBodies at ctor; entries set at TryCreateBody alongside SetUserData, cleared at body
-        // destroy. Slot reuse is safe across frames — BodyID's sequence number (8-bit) makes the
+        // destroy. Slot reuse is safe across frames: BodyID's sequence number (8-bit) makes the
         // packed cache key unique per allocation. The Listener reads this lock-free; main-thread
         // writes are paired with body lifecycle events that don't race against contact callbacks.
         std::vector<entt::entity>            m_EntityByBodyIndex;

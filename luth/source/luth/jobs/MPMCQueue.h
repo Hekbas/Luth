@@ -32,8 +32,7 @@ namespace Luth
             m_Generation.store(0, std::memory_order_relaxed);
         }
 
-        // Returns true if the item was enqueued.
-        // Returns false if the queue is full.
+        // Returns true if the item was enqueued, false if the queue is full.
         bool TryPush(const T& item)
         {
             Cell* cell;
@@ -47,7 +46,7 @@ namespace Luth
 
                 if (diff == 0)
                 {
-                    // Slot is available — try to claim it
+                    // Slot is available; try to claim it
                     if (m_EnqueuePos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed))
                         break;
                 }
@@ -75,8 +74,7 @@ namespace Luth
             return true;
         }
 
-        // Returns true if an item was dequeued into `out`.
-        // Returns false if the queue is empty.
+        // Returns true if an item was dequeued into `out`, false if the queue is empty.
         bool TryPop(T& out)
         {
             Cell* cell;
@@ -90,7 +88,7 @@ namespace Luth
 
                 if (diff == 0)
                 {
-                    // Data is ready — try to claim it
+                    // Data is ready; try to claim it
                     if (m_DequeuePos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed))
                         break;
                 }

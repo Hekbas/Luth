@@ -42,7 +42,7 @@ namespace Luth
             const bool attachment = (u & (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
                                         | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)) != 0;
             // Asset textures are uploaded (TRANSFER_DST) yet also carry COLOR_ATTACHMENT here; render-graph
-            // targets are rendered into, not uploaded — so TRANSFER_DST is the texture-vs-target discriminator.
+            // targets are rendered into, not uploaded, so TRANSFER_DST is the texture-vs-target discriminator.
             if (attachment && !(u & VK_IMAGE_USAGE_TRANSFER_DST_BIT)) return GpuResourceClass::RenderTarget;
             if (u & VK_IMAGE_USAGE_SAMPLED_BIT)                       return GpuResourceClass::Texture;
             if (attachment || (u & VK_IMAGE_USAGE_STORAGE_BIT))       return GpuResourceClass::RenderTarget;
@@ -145,8 +145,8 @@ namespace Luth
 
     void VulkanAllocator::FlushSlice(VmaAllocation allocation, VkDeviceSize offset, VkDeviceSize size)
     {
-        // No-op on HOST_COHERENT memory types (VMA inspects the alloc's memory
-        // properties internally), so callers don't need a coherence cache.
+        // No-op on HOST_COHERENT memory types (VMA inspects the alloc's memory properties internally),
+        // so callers don't need a coherence cache.
         vmaFlushAllocation(s_Data->allocator, allocation, offset, size);
     }
 

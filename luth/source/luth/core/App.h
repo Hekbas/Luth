@@ -16,7 +16,7 @@ namespace Luth
 {
     // The engine's top-level entry point. Owns Window, FrameData, and JobSystem lifecycles, and drives
     // the pipelined Game(N) / Render(N-1) / GPU(N-2) frame loop. The main thread stays V2-isolated:
-    // it pumps OS events, dispatches stage fibers, and presents — never enters the worker steal loop.
+    // it pumps OS events, dispatches stage fibers, and presents; never enters the worker steal loop.
     // Luthien subclasses this to hook OnInit/OnUpdate/OnUIRender for the editor runtime.
     // See arch/frame-pipeline.md.
     class App
@@ -45,7 +45,7 @@ namespace Luth
         void OnFileDrop(FileDropEvent& e);
 
         // Load or switch to a project. Wires FileSystem, AssetDatabase, asset import, and
-        // editor refresh in the right order — see LoadProject's body for the full sequence.
+        // editor refresh in the right order; see LoadProject's body for the full sequence.
         void LoadProject(const std::filesystem::path& luthprojPath);
 
         // Stage entry points dispatched onto worker fibers from Run().

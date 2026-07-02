@@ -13,7 +13,7 @@
 
 namespace Luth
 {
-    // ── Construction / Destruction ──
+    // ---- Construction / Destruction ----
 
     RenderingSystem::RenderingSystem(u32 viewportWidth, u32 viewportHeight)
     {
@@ -58,8 +58,8 @@ namespace Luth
         m_FrameDebugger.DestroyArchives();
         m_FrameDebugger.state = DebuggerState::Inactive;
         m_FrameDebugger.capturedFrame.Clear();
-        // Drop the per-draw replay cache key so the next capture starts clean —
-        // the preview texture itself is reused across captures.
+        // Drop the per-draw replay cache key so the next capture starts clean; the preview texture
+        // itself is reused across captures.
         m_Pipeline->ResetPreviewCacheKeys();
     }
 
@@ -79,7 +79,7 @@ namespace Luth
     u32         RenderingSystem::GetSlimPreviewWidth()     const { return m_Pipeline->GetSlimPreviewWidth(); }
     u32         RenderingSystem::GetSlimPreviewHeight()    const { return m_Pipeline->GetSlimPreviewHeight(); }
 
-    // ── Project lifecycle ──
+    // ---- Project lifecycle ----
 
     void RenderingSystem::OnProjectLoaded()
     {
@@ -92,7 +92,7 @@ namespace Luth
         m_Pipeline->GetShaderWatcher().RemoveProjectDir();
     }
 
-    // ── Per-frame dispatcher ──
+    // ---- Per-frame dispatcher ----
 
     void RenderingSystem::Update(Scene* scene)
     {
@@ -101,47 +101,42 @@ namespace Luth
 
         m_FrameAllocator->Reset();
 
-        // Drain pending shader reloads once per frame (FileWatcher detections from
-        // its bg thread). Pre-shader-reload-async this lived inside RenderPipeline::Execute
-        // and ran twice per frame when both Scene + Game viewports were open.
+        // Drain pending shader reloads once per frame (FileWatcher detections from its bg thread).
+        // Formerly lived inside RenderPipeline::Execute and ran twice per frame when both Scene + Game
+        // viewports were open.
         m_Pipeline->GetShaderWatcher().Poll();
 
-        // ── Frame Debugger: Frozen state ──
+        // ---- Frame Debugger: Frozen state ----
         // Strict snapshot model with auto-recapture on camera move.
         //
-        // While Frozen, the live render graph is NOT rebuilt or re-executed.
-        // The LDR output target retains the LAST CAPTURED image (no other code
-        // writes it in this state), so the editor's ScenePanel — which samples
-        // it through ImGui — keeps showing the GPU-true captured frame.
+        // While Frozen, the live render graph is NOT rebuilt or re-executed. The LDR output target
+        // retains the LAST CAPTURED image (no other code writes it in this state), so the editor's
+        // ScenePanel (which samples it through ImGui) keeps showing the GPU-true captured frame.
         //
-        // Each Frozen tick we cheaply recompute the camera viewProj (no GPU
-        // upload) and bit-compare against captureViewProj. If different, the
-        // user has moved the camera, so we flip the state machine back to
-        // CaptureRequested and fall through to the normal capture flow below;
-        // FrameDebugger::BeginCapture will tear down the prior archives.
+        // Each Frozen tick recomputes the camera viewProj cheaply (no GPU upload) and bit-compares
+        // against captureViewProj. A mismatch means the camera moved: flip the state machine back to
+        // CaptureRequested and fall through to the normal capture flow below; FrameDebugger::BeginCapture
+        // tears down the prior archives.
         if (m_FrameDebugger.state == DebuggerState::Frozen)
         {
             if (Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan) return;
 
-            // Auto-recapture-on-camera-move only meaningful for Scene captures
-            // — the comparison camera (m_CameraParams = editor) matches the
-            // source. For Game captures the captureViewProj came from the
-            // game camera, so this comparison would always report "moved"
-            // and loop the state machine every frame. Game captures stay
-            // Frozen until the user explicitly disables.
+            // Auto-recapture-on-camera-move is only meaningful for Scene captures: the comparison camera
+            // (m_CameraParams = editor) matches the source. For Game captures the captureViewProj came
+            // from the game camera, so this comparison would always report "moved" and loop the state
+            // machine every frame. Game captures stay Frozen until the user explicitly disables.
             bool cameraMoved = false;
             if (m_FrameDebugger.capturedSource == CaptureSource::Scene)
             {
-                // Mirror the Vulkan Y-flip from UpdateGlobalUniforms so the
-                // comparison matches the GPU's view at capture time.
+                // Mirror the Vulkan Y-flip from UpdateGlobalUniforms so the comparison matches the GPU's
+                // view at capture time.
                 Mat4 currentProj = m_CameraParams.projection;
                 currentProj[1][1] *= -1.0f;
                 Mat4 currentViewProj = currentProj * m_CameraParams.view;
 
-                // Pack viewProj + IBL intensities into one struct for a single
-                // memcmp. Catches user inspector tweaks to Sun/Sky settings
-                // mid-Freeze. Cascade splits / shadow bias would need the
-                // lighting system to recompute during Frozen — out of scope.
+                // Pack viewProj + IBL intensities into one struct for a single memcmp. Catches user
+                // inspector tweaks to Sun/Sky settings mid-Freeze. Cascade splits / shadow bias would
+                // need the lighting system to recompute during Frozen; out of scope.
                 struct CompareKey
                 {
                     Mat4  viewProj;
@@ -159,10 +154,9 @@ namespace Luth
                 captured.skyboxIntensity = m_FrameDebugger.capturedFrame.capturedSkyboxIntensity;
                 cameraMoved = std::memcmp(&live, &captured, sizeof(CompareKey)) != 0;
 
-                // Throttle to ~10 Hz at 60 fps. Per-recapture GPU work
-                // (~10 vkCmdCopyImage + barriers, mostly cascade depth)
-                // saturates mid-tier GPUs at frame rate; 6× less keeps
-                // the editor smooth without visibly stale overlays.
+                // Throttle to ~10 Hz at 60 fps. Per-recapture GPU work (~10 vkCmdCopyImage + barriers,
+                // mostly cascade depth) saturates mid-tier GPUs at frame rate; 6x less keeps the editor
+                // smooth without visibly stale overlays.
                 static constexpr u64 k_AutoRecaptureMinIntervalFrames = 6;
                 if (cameraMoved)
                 {
@@ -175,15 +169,14 @@ namespace Luth
 
             if (!cameraMoved)
             {
-                // Static or throttled — minimal graph: just blit ImGui to the
-                // swapchain. Drop queued views — letting the queue grow
-                // unbounded spikes the frame when the debugger exits.
+                // Static or throttled: minimal graph, just blit ImGui to the swapchain. Drop queued
+                // views; letting the queue grow unbounded spikes the frame when the debugger exits.
                 m_QueuedViews.clear();
                 m_Pipeline->ExecuteMinimal();
                 return;
             }
 
-            // Camera moved — re-trigger capture and fall through.
+            // Camera moved: re-trigger capture and fall through.
             m_FrameDebugger.state = DebuggerState::CaptureRequested;
             m_FrameDebugger.lastRecaptureFrameIndex = Renderer::GetFrameData()->GetFrameIndex();
         }
@@ -198,9 +191,8 @@ namespace Luth
         // Build GPU object buffer (after materials are registered)
         m_Pipeline->BuildGPUObjectBuffer(snapshot);
 
-        // Partition snapshot mesh rows into opaque/cutout/transparent buckets.
-        // Must follow BuildGPUObjectBuffer so gpuObjectIndex/entityIndex
-        // reference the freshly populated indirect buffer.
+        // Partition snapshot mesh rows into opaque/cutout/transparent buckets. Must follow
+        // BuildGPUObjectBuffer so gpuObjectIndex/entityIndex reference the freshly populated indirect buffer.
         m_DrawListBuilder.Build(snapshot, m_Pipeline->GetMaterialSlotMap(), m_Pipeline->GetEntityToSSBOIndex(), m_DrawList);
 
         // LightGatherer + CSM fit. Set 3 is per-view now (cluster grid + light index differ per
@@ -208,7 +200,7 @@ namespace Luth
         if (auto* lighting = SystemRegistry::GetSystem<LightingSystem>())
             lighting->UpdateFor(snapshot, m_CameraParams);
 
-        // Primary view — always rendered, emits the per-frame ImGui pass.
+        // Primary view: always rendered, emits the per-frame ImGui pass.
         RenderView sceneView;
         sceneView.targets              = &m_SceneTargets;
         sceneView.camera               = m_CameraParams;
@@ -217,9 +209,8 @@ namespace Luth
         sceneView.drawSelectionOutline = true;
         sceneView.drawDebugShapes      = true;
         sceneView.emitImGuiPass        = true;
-        // Capture-source gate: only the scene view installs the archive sink
-        // when the user has chosen Scene as the source. Game capture lives on
-        // GamePanel's queued view.
+        // Capture-source gate: only the scene view installs the archive sink when the user has chosen
+        // Scene as the source. Game capture lives on GamePanel's queued view.
         sceneView.captureRequested     = (m_FrameDebugger.state == DebuggerState::CaptureRequested
                                           && m_FrameDebugger.requestedSource == CaptureSource::Scene);
 
@@ -247,7 +238,7 @@ namespace Luth
         Renderer::EndPrimaryCmdAndSubmit(r, frameIndex, viewSlot, hasCompute, /*isLastView=*/true);
     }
 
-    // ── Per-view record ──
+    // ---- Per-view record ----
 
     bool RenderingSystem::RecordView(const RenderView& view, QueueRecorders recorders)
     {
@@ -256,21 +247,18 @@ namespace Luth
         if (!view.targets || Renderer::GetBackend()->GetAPI() != RenderBackend::API::Vulkan)
             return false;
 
-        // Cascade fit is camera-dependent so this refits per view
-        // (~1 ms GPU with game panel open; frustum-union fit is backlog).
-        // m_Lights was already gathered once in Update before this loop;
-        // UpdateFor here only needs the cascade rebuild for view.camera.
-        // (Re-gathering m_Lights from the same snapshot is idempotent — left as
-        // a no-cost guard against future signature drift.)
+        // Cascade fit is camera-dependent so this refits per view (~1 ms GPU with game panel open;
+        // frustum-union fit is backlog). m_Lights was already gathered once in Update before this loop;
+        // UpdateFor here only needs the cascade rebuild for view.camera. (Re-gathering m_Lights from
+        // the same snapshot is idempotent; left as a no-cost guard against future signature drift.)
         auto* lighting = SystemRegistry::GetSystem<LightingSystem>();
         lighting->UpdateFor(Renderer::GetFrameData()->RenderFrame().Snapshot, view.camera);
 
-        // Must precede the per-view UBO writes below — they read
-        // m_CurrentViewResources, which PrepareForTargets sets.
+        // Must precede the per-view UBO writes below; they read m_CurrentViewResources, which PrepareForTargets sets.
         m_Pipeline->PrepareForTargets(*view.targets);
 
-        // Light UBO (Set 3) is hoisted to Update — view-independent, single global Set 3
-        // would race across views otherwise.
+        // Light UBO (Set 3) is hoisted to Update: view-independent, and a single global Set 3 would
+        // race across views otherwise.
         m_Pipeline->UpdateGlobalUniforms(view.camera, lighting->GetCascades(), lighting->GetShadowParams());
         m_Pipeline->UpdatePostProcessUBO();
         m_Pipeline->UpdateGTAOUBO();
@@ -278,17 +266,17 @@ namespace Luth
         return m_Pipeline->Execute(view, recorders);
     }
 
-    // ── Resize ──
+    // ---- Resize ----
 
     void RenderingSystem::Resize(u32 width, u32 height)
     {
         LH_PROFILE_FUNCTION();
 
-        // Guard against unsigned underflow from negative float→u32 casts at startup
+        // Guard against unsigned underflow from negative float->u32 casts at startup
         if (m_SceneTargets.IsAllocated() && width > 0 && height > 0 && width <= 16384 && height <= 16384)
         {
-            // Drain GPU + drop ViewResources before swapping textures —
-            // see GamePanel::SetOnResize for the same hazard description.
+            // Drain GPU + drop ViewResources before swapping textures; see GamePanel::SetOnResize for
+            // the same hazard description.
             Renderer::WaitForGPU();
             m_Pipeline->ReleaseViewResources(m_SceneTargets);
 

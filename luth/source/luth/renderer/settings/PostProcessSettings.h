@@ -18,7 +18,7 @@ namespace Luth
         // Bloom
         float bloomThreshold  = 1.0f;
         float bloomStrength   = 0.5f;
-        float bloomRadius     = 1.0f;  // scatter — upsample tent spread (wider = softer, broader halo)
+        float bloomRadius     = 1.0f;  // scatter: upsample tent spread (wider = softer, broader halo)
 
         // Tone mapping
         TonemapOperator tonemapOp = TonemapOperator::ACES;
@@ -38,7 +38,7 @@ namespace Luth
         float sharpness           = 0.0f;
         float chromaticAberration = 0.0f;
 
-        // Specular antialiasing (Tokuyoshi 2019). Default-on — at sigma 0.5 it's a no-op on flat
+        // Specular antialiasing (Tokuyoshi 2019). Default-on; at sigma 0.5 it's a no-op on flat
         // surfaces and only kicks in where screen-space normal curvature would alias the BRDF.
         bool  specularAaEnabled = true;
         float specularAaSigma   = 0.5f;

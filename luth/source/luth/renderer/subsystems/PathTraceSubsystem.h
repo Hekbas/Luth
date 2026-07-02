@@ -13,16 +13,16 @@ namespace Luth
     class RenderPipeline;
     struct ViewResources;
 
-    // Path-traced reference mode (rt-renderer C.5). A rayQuery-in-compute MEGAKERNEL that reuses the
-    // Phase B TLAS + Phase C bindless material infra to brute-force a physically-correct image,
-    // progressively accumulated across frames (reset on camera/scene change). It is the ground-truth
-    // oracle that validates ReSTIR DI/GI convergence — the full image, not an overlay, so it bypasses
-    // raster + ReSTIR. The top-level RenderMode::PathTrace toggle gates it (GlobalSubsystem reads it for
-    // pathTraceParams + RenderPipeline::BuildGraph for the raster bypass).
+    // Path-traced reference mode. A rayQuery-in-compute MEGAKERNEL that reuses the RT TLAS + bindless
+    // material infra to brute-force a physically-correct image, progressively accumulated across frames
+    // (reset on camera/scene change). It is the ground-truth oracle that validates ReSTIR DI/GI
+    // convergence: the full image, not an overlay, so it bypasses raster + ReSTIR. The top-level
+    // RenderMode::PathTrace toggle gates it (GlobalSubsystem reads it for pathTraceParams +
+    // RenderPipeline::BuildGraph for the raster bypass).
     //
-    // S0 is the seam: one compute pipeline + the pass-local Set 2 (b0 fp32 accumulator, b1 fp16 display
-    // image) + the AddPasses dispatch that writes the display image the post chain samples. The shader
-    // is a test-pattern stub until S1 wires primary rays. see arch/rendering-pipeline.md
+    // The seam is one compute pipeline + the pass-local Set 2 (b0 fp32 accumulator, b1 fp16 display
+    // image) + the AddPasses dispatch that writes the display image the post chain samples.
+    // see arch/rendering-pipeline.md
     class PathTraceSubsystem
     {
     public:
@@ -35,7 +35,7 @@ namespace Luth
         // persistent (never cycled), so this is written once at view alloc / resize.
         void WriteView(ViewResources& vr);
 
-        // Megakernel dispatch → writes ptColor (the resolved HDR the post chain samples). Returns that
+        // Megakernel dispatch -> writes ptColor (the resolved HDR the post chain samples). Returns that
         // image's handle (invalid when disabled / no TLAS). AsyncCompute, after the TLAS build.
         RG::ResourceHandle AddPasses(RG::RenderGraph& rg);
 
@@ -45,11 +45,11 @@ namespace Luth
         // can't be pulled into this header (RenderPipeline include cycle).
         bool IsEnabled() const;
 
-        // Editor "Reset" button → forces the accumulation to restart next frame across all views (the
+        // Editor "Reset" button -> forces the accumulation to restart next frame across all views (the
         // salt folds into the per-view reset hash, so a multi-view setup resets coherently).
         void RequestReset() { ++m_ResetSalt; }
 
-        // Accumulated sample count of the last view dispatched this frame — the editor's convergence readout.
+        // Accumulated sample count of the last view dispatched this frame: the editor's convergence readout.
         u32 GetLastSampleCount() const { return m_LastSampleCount; }
 
     private:

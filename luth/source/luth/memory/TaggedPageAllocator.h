@@ -24,7 +24,7 @@ namespace Luth::Memory
             Page* Next = nullptr;
         };
 
-        // Per-fiber cache (lives on JobContext, not TLS — see arch/fiber-system.md).
+        // Per-fiber cache (lives on JobContext, not TLS; see arch/fiber-system.md).
         struct ThreadCache
         {
             Page* ActivePage = nullptr;
@@ -34,7 +34,7 @@ namespace Luth::Memory
         TaggedPageAllocator();
         ~TaggedPageAllocator();
 
-        // Singleton — App owns lifecycle (paired with MemoryTracker).
+        // Singleton; App owns lifecycle (paired with MemoryTracker).
         static TaggedPageAllocator& Get();
 
         void Init();
@@ -43,15 +43,15 @@ namespace Luth::Memory
         // Allocate from cache.ActivePage; claims a new page on overflow. Hot path holds no lock.
         void* Allocate(ThreadCache& cache, u64 size, u64 alignment = 8);
 
-        // Bulk-release all pages tagged `tag`. Driven from VulkanBackend::AcquireImage
-        // after the GPU N-2 timeline wait completes (V6 — see arch/fiber-system.md).
+        // Bulk-release all pages tagged `tag`. Driven from VulkanBackend::AcquireImage after the
+        // GPU N-2 timeline wait completes (V6; see arch/fiber-system.md).
         void FreeTag(u32 tag);
 
     private:
         Page* AllocatePage(u32 tag);
         void ReturnPage(Page* page);
 
-        // Held only on page-claim and FreeTag — < 100 cycles, V1-compliant.
+        // Held only on page-claim and FreeTag; < 100 cycles, V1-compliant.
         Luth::SpinLock m_Lock;
         std::vector<Page*> m_FreePages;
         std::vector<Page*> m_UsedPages; // ~10-20 pages per frame; linear scan in FreeTag is fine

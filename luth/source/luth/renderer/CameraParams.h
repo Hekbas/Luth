@@ -6,10 +6,9 @@
 
 namespace Luth
 {
-    // Camera + editor state needed by RenderingSystem each frame. Despite the
-    // name, this carries all per-frame editor inputs (IBL/skybox intensity,
-    // selection, outline + grid params) so the engine doesn't depend on luthien/.
-    // Populated by App before SystemRegistry::Update<RenderingSystem>().
+    // Camera + editor state needed by RenderingSystem each frame. Despite the name, this carries all per-frame
+    // editor inputs (IBL/skybox intensity, selection, outline + grid params) so the engine doesn't depend on
+    // luthien/. Populated by App before SystemRegistry::Update<RenderingSystem>().
     struct CameraParams
     {
         Mat4 view       = Mat4(1.0f);
@@ -22,8 +21,7 @@ namespace Luth
         bool  enableVolumetricFog = true;
         std::vector<Entity> selectedEntities;
 
-        // Selection-outline + editor-grid params, plumbed through EditorSettings.
-        // Runtime-only build leaves defaults intact.
+        // Selection-outline + editor-grid params, plumbed through EditorSettings. Runtime-only build leaves defaults intact.
         Vec4 outlineColor          = { 1.0f, 0.6f, 0.0f, 1.0f };
         float outlineWidth          = 1.5f;
         float outlineOccludedAlpha  = 0.65f;

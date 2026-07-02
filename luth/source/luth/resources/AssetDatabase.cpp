@@ -27,7 +27,7 @@ namespace Luth
     std::unordered_set<UUID, UUIDHash> AssetDatabase::s_SelfWrites;
     std::mutex AssetDatabase::s_SelfWriteMutex;
 
-    // ── Phase 1: Engine-only init (register shaders, fonts) ──
+    // ---- Phase 1: Engine-only init (register shaders, fonts) ----
 
     void AssetDatabase::InitEngine(const std::filesystem::path& engineAssetsRoot)
     {
@@ -57,7 +57,7 @@ namespace Luth
             if (type == AssetType::None) continue;
 
             // Slang modules under common/ + registry/ are pulled in via the compiler's search path, never as
-            // standalone shader assets — skip them so the scan never mints a meta + fails to compile an
+            // standalone shader assets; skip them so the scan never mints a meta + fails to compile an
             // entry-less module (e.g. mat_graph_registry, material_bindings_*).
             if (path.extension() == ".slang")
             {
@@ -108,7 +108,7 @@ namespace Luth
         LH_LOG(Assets, info, "AssetDatabase: Registered {} engine assets", engineAssetCount);
     }
 
-    // ── Phase 2: Load project assets (called when user selects a project) ──
+    // ---- Phase 2: Load project assets (called when user selects a project) ----
 
     void AssetDatabase::LoadProject(const std::filesystem::path& projectAssetsRoot)
     {
@@ -116,8 +116,8 @@ namespace Luth
         std::lock_guard<std::mutex> lock(s_Mutex);
 
         s_ProjectRoot = fs::absolute(projectAssetsRoot).parent_path();
-        // projectAssetsRoot IS the <project>/assets/ path, but s_ProjectRoot should be <project>/
-        // Actually, let's derive it from FileSystem which already has the project root
+        // projectAssetsRoot is <project>/assets/, but s_ProjectRoot must be <project>/; take it from
+        // FileSystem, which already tracks the project root.
         s_ProjectRoot = FileSystem::ProjectPath();
 
         s_DirtyAssets.clear();
@@ -152,7 +152,7 @@ namespace Luth
 
         u32 projectAssetCount = 0;
 
-        // Phase 2: Process asset files — create .meta if missing, register in DB
+        // Phase 2: Process asset files; create .meta if missing, register in DB.
         for (const auto& path : assetFiles)
         {
             AssetType type = FileSystem::ClassifyFileType(path);
@@ -212,7 +212,7 @@ namespace Luth
         SaveLibraryState_Unlocked();
     }
 
-    // ── Unload project assets (keeps engine assets intact) ──
+    // ---- Unload project assets (keeps engine assets intact) ----
 
     void AssetDatabase::UnloadProject()
     {
@@ -225,7 +225,6 @@ namespace Luth
         std::vector<UUID> toRemove;
         for (const auto& [uuid, meta] : s_Assets)
         {
-            // Keep assets whose path starts with the engine assets root
             std::string pathStr = meta.Path.string();
             std::string engineStr = s_EngineAssetsRoot.string();
             if (pathStr.rfind(engineStr, 0) != 0) // Not under engine root
@@ -245,7 +244,7 @@ namespace Luth
         LH_LOG(Assets, info, "AssetDatabase: Project unloaded, {} engine assets remain", s_Assets.size());
     }
 
-    // ── Shutdown ──
+    // ---- Shutdown ----
 
     void AssetDatabase::Shutdown()
     {
@@ -266,7 +265,7 @@ namespace Luth
         s_DirtyAssets.clear();
     }
 
-    // ── Queries & Registration ──
+    // ---- Queries & Registration ----
 
     const AssetMetadata& AssetDatabase::GetMetadata(UUID uuid)
     {
@@ -329,7 +328,7 @@ namespace Luth
         }
     }
 
-    // ── Library State Persistence ──
+    // ---- Library State Persistence ----
 
     void AssetDatabase::LoadLibraryState_Unlocked()  // caller must hold s_Mutex
     {
@@ -361,7 +360,7 @@ namespace Luth
 
     u64 AssetDatabase::CalculateAssetHash(const fs::path& source, const fs::path& meta)
     {
-        // FNV-1a over timestamps and file size — order-dependent, no information loss.
+        // FNV-1a over timestamps and file size; order-dependent, no information loss.
         u64 hash = 14695981039346656037ULL;  // FNV-1a offset basis
         auto mix = [&hash](u64 val) {
             const u8* bytes = reinterpret_cast<const u8*>(&val);
@@ -382,7 +381,7 @@ namespace Luth
         return hash;
     }
 
-    // ── File Ingestion (drag-and-drop, external import) ──
+    // ---- File Ingestion (drag-and-drop, external import) ----
 
     static bool IsImageExtension(const fs::path& ext)
     {
@@ -531,7 +530,7 @@ namespace Luth
         }
     }
 
-    // ── File System Watching ──
+    // ---- File System Watching ----
 
     void AssetDatabase::StartWatching()
     {
@@ -643,10 +642,9 @@ namespace Luth
                     fs::path artifact = GetArtifactPath(uuid);
                     if (fs::exists(artifact)) fs::remove(artifact);
 
-                    // Drop the in-memory asset so the next GetAsset/LoadAsync
-                    // picks up the freshly-cooked artifact. Anything still
-                    // holding a shared_ptr keeps the old data alive until
-                    // it lets go (no use-after-free).
+                    // Drop the in-memory asset so the next GetAsset/LoadAsync picks up the freshly-cooked
+                    // artifact. Anything still holding a shared_ptr keeps the old data alive until it
+                    // lets go (no use-after-free).
                     AssetManager::Evict(uuid);
 
                     s_DirtyAssets.push_back(uuid);

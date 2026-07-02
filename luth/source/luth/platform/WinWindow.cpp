@@ -95,15 +95,13 @@ namespace Luth
             EventBus::Enqueue<FileDropEvent>(BusType::MainThread, std::move(files));
         });
 
-        // ── Centralized Input Callbacks ──
+        // ---- Centralized Input Callbacks ----
 
         glfwSetKeyCallback(m_GLFWwindow, [](GLFWwindow* window, int key, int scancode, int action, int mods) {
-            // 1. Forward to ImGui
             ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
 
-            // 2. Dispatch to Engine (if not captured, or just dispatch anyway and let systems filter)
-            // Note: We dispatch even if ImGui captures, because some global hotkeys (F11, Alt+F4) might need to override UI.
-            // The Input system or Event handler should check ImGui::GetIO().WantCaptureKeyboard if needed.
+            // Dispatch to the engine even when ImGui captures: global hotkeys (F11, Alt+F4) must be able to
+            // override UI. Handlers filter with ImGui::GetIO().WantCaptureKeyboard where needed.
             
             switch (action) {
                 case GLFW_PRESS:    EventBus::Enqueue<KeyPressedEvent>(BusType::MainThread, key, 0); break;
@@ -187,7 +185,7 @@ namespace Luth
     {
         HWND hwnd = glfwGetWin32Window(m_GLFWwindow);
 
-        // Check if Windows version supports color attributes (Windows 10 build 1903+)
+        // DWM caption/border/text color attributes require Windows 10 build 1903+.
         if (WINVER >= 0x0A00)
         {
             COLORREF captionColor = RGB(caption.x, caption.y, caption.z);
@@ -201,19 +199,15 @@ namespace Luth
         }
         else
         {
-            // Older Windows version - fallback or do nothing
-            // I could implement basic color changes using:
-            // SetClassLongPtr(hwnd, GCLP_HBRBACKGROUND, (LONG_PTR)CreateSolidBrush(RGB(255,0,0)));
+            // Pre-1903 Windows: no DWM color attributes; leave system defaults.
         }
     }
 
     void WinWindow::SetWindowIcon(GLFWwindow* window, fs::path iconPath)
     {
-        // List of sizes
         std::vector<int> sizes = { 16, 24, 32, 48, 64, 96, 128, 256 };
         std::vector<GLFWimage> icons;
 
-        // Load all icons
         for (int size : sizes) {
             std::string fullPath = iconPath.string() + "Luth" + std::to_string(size) + ".png";
             GLFWimage icon;
@@ -223,12 +217,11 @@ namespace Luth
             }
         }
 
-        // Set window icons
         if (!icons.empty()) {
             glfwSetWindowIcon(window, icons.size(), icons.data());
         }
 
-        // Free memory
+        // GLFW copies the icon data, so the stb buffers can be freed immediately.
         for (auto& icon : icons) {
             stbi_image_free(icon.pixels);
         }

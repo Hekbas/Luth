@@ -23,8 +23,8 @@ namespace Luth::Physics
         f32          fraction    = 0.0f;
     };
 
-    // Result of PhysicsSystem::OverlapBox / OverlapSphere / OverlapCapsule. We surface only entity +
-    // bodyId for Tier 0 — gameplay queries the entity for full state if it needs more. Penetration
+    // Result of PhysicsSystem::OverlapBox / OverlapSphere / OverlapCapsule. Surfaces only entity +
+    // bodyId for Tier 0; gameplay queries the entity for full state if it needs more. Penetration
     // depth and contact normal are available from Jolt's CollideShapeResult but adding them inflates
     // the per-hit cost (vector reads) without a clear consumer; revisit when a query consumer asks.
     struct OverlapHit

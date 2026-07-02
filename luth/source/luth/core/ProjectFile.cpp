@@ -62,11 +62,11 @@ namespace Luth
 
     bool ProjectFile::Discover(const fs::path& hint)
     {
-        // 1. Direct file path
+        // Direct file path
         if (!hint.empty() && hint.extension() == ".luthproj")
             return Load(hint);
 
-        // 2. Search a directory
+        // Search a directory
         fs::path searchDir = hint.empty() ? fs::current_path() : hint;
         if (!fs::is_directory(searchDir))
             searchDir = searchDir.parent_path();

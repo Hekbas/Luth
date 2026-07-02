@@ -9,16 +9,16 @@ namespace Luth
     // Concrete Vulkan-backed Texture. Owns the VkImage / VkImageView / VkSampler trio plus the
     // VMA allocation and the bindless descriptor slot the texture is registered into. Three
     // constructors cover the common shapes: (data, default sampler), (data, custom sampler
-    // settings), and (storage / cubemap, no upload — filled by compute or blit later).
+    // settings), and (storage / cubemap, no upload; filled by compute or blit later).
     class VKTexture : public Texture
     {
     public:
         VKTexture(u32 width, u32 height, TextureFormat format, const void* data);
         VKTexture(u32 width, u32 height, TextureFormat format, const void* data, const TextureSettings& settings);
-        // Cubemap / storage image constructor (no data upload — filled via compute or blit)
+        // Cubemap / storage image constructor (no data upload; filled via compute or blit)
         VKTexture(u32 width, u32 height, TextureFormat format, u32 arrayLayers,
                   VkImageCreateFlags createFlags, u32 mipLevels, VkImageUsageFlags extraUsage = 0);
-        // 3D storage image (no data upload — filled via compute). Sampler is null; the consumer
+        // 3D storage image (no data upload; filled via compute). Sampler is null; the consumer
         // subsystem provides its own (volumetrics wants linear-clamp, not bindless anisotropic).
         VKTexture(u32 width, u32 height, u32 depth, TextureFormat format, VkImageUsageFlags extraUsage = 0);
         virtual ~VKTexture();

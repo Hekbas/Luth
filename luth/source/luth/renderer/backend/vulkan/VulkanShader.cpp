@@ -77,11 +77,10 @@ namespace Luth
 
     void VulkanShader::Reload()
     {
-        // VkShaderModule is consumed at pipeline-create time; previously-built
-        // pipelines hold no reference to the handle (Vulkan spec). Destroying the
-        // old module here without vkDeviceWaitIdle is safe -- in-flight pipelines
-        // that link to this module's bytecode are unaffected, and the reload
-        // callback in RenderPipeline defers their destruction via PushDeletion.
+        // VkShaderModule is consumed at pipeline-create time; previously-built pipelines hold no reference
+        // to the handle (Vulkan spec). Destroying the old module here without vkDeviceWaitIdle is safe:
+        // in-flight pipelines that link to this module's bytecode are unaffected, and the reload callback
+        // in RenderPipeline defers their destruction via PushDeletion.
         Destroy();
         m_SpirV.clear();
         m_Buffers.clear();

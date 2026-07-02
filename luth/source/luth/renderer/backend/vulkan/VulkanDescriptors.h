@@ -37,17 +37,16 @@ namespace Luth
     };
 
     // Manages the global bindless descriptor set (Set 1):
-    //   binding 0 — combined image-samplers (16384 slots; the per-texture sampler pattern)
-    //   binding 1 — pure samplers (32 slots; canonical samplers at the front, ad-hoc after)
+    //   binding 0: combined image-samplers (16384 slots; the per-texture sampler pattern)
+    //   binding 1: pure samplers (32 slots; canonical samplers at the front, ad-hoc after)
     // Supports VK_EXT_descriptor_indexing.
     class BindlessDescriptorSet
     {
     public:
-        // Sentinel for "texture is not registered in the bindless set" (depth, cubemap,
-        // R32_Uint entity-ID, or BindTexture overflow). Distinct from slot 0 — which is
-        // the reserved 1x1 white null-texture sampled on partially-bound misses.
-        // Must NEVER reach the GPU: binding 0 has MAX_BINDLESS_RESOURCES slots, sampling at
-        // UINT32_MAX is UB even with VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT (partial-bind
+        // Sentinel for "texture is not registered in the bindless set" (depth, cubemap, R32_Uint entity-ID,
+        // or BindTexture overflow). Distinct from slot 0, the reserved 1x1 white null-texture sampled on
+        // partially-bound misses. Must NEVER reach the GPU: binding 0 has MAX_BINDLESS_RESOURCES slots, and
+        // sampling at UINT32_MAX is UB even with VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT (partial-bind
         // permits unbound slots, not out-of-range indices). Coerce to 0 at every SSBO write.
         static constexpr u32 INVALID_BINDLESS_SLOT = UINT32_MAX;
 
@@ -108,7 +107,7 @@ namespace Luth
     };
 
     // Coerces a bindless index to a GPU-safe value. Use at every SSBO write that consumes
-    // VKTexture::GetBindlessIndex() — the sentinel must never be sampled by a shader.
+    // VKTexture::GetBindlessIndex(); the sentinel must never be sampled by a shader.
     inline u32 BindlessOrNull(u32 idx)
     {
         return idx == BindlessDescriptorSet::INVALID_BINDLESS_SLOT ? 0u : idx;

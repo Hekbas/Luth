@@ -117,7 +117,7 @@ namespace Luth
         s_Cache = VK_NULL_HANDLE;
     }
 
-    // ── Compile-time instrumentation ──
+    // ---- Compile-time instrumentation ----
     // Reset each frame by App's profiling plots (ConsumeFrameStats). Recorded from pipeline ctors
     // that may run on worker fibers during graph recording, so all access is atomic.
     static std::atomic<u32> s_CompileCount{ 0 };

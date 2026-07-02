@@ -8,7 +8,7 @@ namespace Luth::Physics
 {
     // The four events gameplay can react to. ContactAdded/Removed are emitted only for solid pairs
     // (neither body is a sensor); TriggerEnter/Exit are emitted when at least one body is a sensor.
-    // ContactPersisted is intentionally not exposed — it fires every step for every active contact
+    // ContactPersisted is intentionally not exposed: it fires every step for every active contact
     // (100s of fires per step for a stack) and gameplay rarely wants the noise. The listener still
     // processes Persisted internally so runtime sensor-flag flips and monitorable-state changes
     // produce the right Enter/Exit pair.
@@ -20,9 +20,9 @@ namespace Luth::Physics
         TriggerExit,
     };
 
-    // 40 bytes — fits in a cache line. Trigger and contact events share the same shape; the type
+    // 40 bytes; fits in a cache line. Trigger and contact events share the same shape; the type
     // enum disambiguates. *Removed and *Exit events carry zero point/normal/penetration because
-    // Jolt's OnContactRemoved callback doesn't provide manifold data — gameplay reads the entity
+    // Jolt's OnContactRemoved callback doesn't provide manifold data; gameplay reads the entity
     // for state if needed.
     struct PhysicsEvent
     {

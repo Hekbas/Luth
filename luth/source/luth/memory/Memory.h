@@ -1,6 +1,6 @@
 #pragma once
 
-// Convenience header — includes all memory subsystem headers
+// Convenience header: includes all memory subsystem headers
 
 #include "luth/core/types/LuthTypes.h"
 #include "luth/memory/LinearAllocator.h"

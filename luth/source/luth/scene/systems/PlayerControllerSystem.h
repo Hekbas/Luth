@@ -4,7 +4,7 @@
 
 namespace Luth
 {
-    // Drives CharacterController.desiredVelocity from raw WASD/Space input — stub stand-in until a scripting layer
+    // Drives CharacterController.desiredVelocity from raw WASD/Space input; stub stand-in until a scripting layer
     // lands. Walks every entity with a CharacterController, which is fine for Tier 1 single-player scenes;
     // multi-character filtering is a marker-component away when needed.
     //

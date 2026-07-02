@@ -12,7 +12,6 @@
 #include <string>
 #include <utility>
 
-// Forward declare VMA struct
 struct VmaAllocation_T;
 
 namespace Luth { class GPUTimerPool; }
@@ -23,7 +22,7 @@ namespace Luth::RG
     struct RenderGraphSnapshot;
     class IArchiveSink;
 
-    // ── Pass Builder — declares resource reads/writes during setup ──
+    // ---- Pass Builder: declares resource reads/writes during setup ----
 
     class RenderPassBuilder
     {
@@ -34,13 +33,13 @@ namespace Luth::RG
         // Image resources
         ResourceHandle Read(ResourceHandle resource);
         ResourceHandle ReadTransfer(ResourceHandle resource);
-        ResourceHandle ReadStorageImage(ResourceHandle resource);        // Compute read, SAMPLED → SHADER_READ_ONLY
-        ResourceHandle ReadStorageImageGeneral(ResourceHandle resource); // Compute read, STORAGE imageLoad → stays GENERAL
-        ResourceHandle WriteStorageImage(ResourceHandle resource);       // Compute write (storage) → GENERAL
-        // Fragment-stage storage variants — the Compute* states above emit COMPUTE-stage barriers,
+        ResourceHandle ReadStorageImage(ResourceHandle resource);        // Compute read, SAMPLED -> SHADER_READ_ONLY
+        ResourceHandle ReadStorageImageGeneral(ResourceHandle resource); // Compute read, STORAGE imageLoad -> stays GENERAL
+        ResourceHandle WriteStorageImage(ResourceHandle resource);       // Compute write (storage) -> GENERAL
+        // Fragment-stage storage variants: the Compute* states above emit COMPUTE-stage barriers,
         // which under-synchronize a fragment-shader producer/consumer (PPLL store/resolve).
-        ResourceHandle ReadStorageImageFragment(ResourceHandle resource);  // Fragment imageLoad → stays GENERAL
-        ResourceHandle WriteStorageImageFragment(ResourceHandle resource); // Fragment storage write (atomics) → GENERAL
+        ResourceHandle ReadStorageImageFragment(ResourceHandle resource);  // Fragment imageLoad -> stays GENERAL
+        ResourceHandle WriteStorageImageFragment(ResourceHandle resource); // Fragment storage write (atomics) -> GENERAL
 
         ResourceHandle Write(ResourceHandle resource,
                              VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
@@ -65,7 +64,7 @@ namespace Luth::RG
 
         // Mark this pass as having engine-side side effects (state mutations outside the RG).
         // Required for passes like TlasBuildPass that don't declare Write/Read on RG resources
-        // but produce values consumed later (m_LastResult.tlas → Set 0 binding 6 via UpdateUBO).
+        // but produce values consumed later (m_LastResult.tlas -> Set 0 binding 6 via UpdateUBO).
         void SetHasSideEffect();
 
     private:
@@ -73,26 +72,24 @@ namespace Luth::RG
         u32 m_PassIndex;
     };
 
-    // ── Pass Execution Context — passed to pass execute lambdas ──
+    // ---- Pass Execution Context: passed to pass execute lambdas ----
 
     class RenderPassContext
     {
     public:
         VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
-        // Graph index of the executing pass. FrameDebugger keys its sparse
-        // passArchives against this; lambdas pass it to BeginCapturePass so
-        // CapturedPass.graphPassIndex aligns with the archive sink's writes.
+        // Graph index of the executing pass. FrameDebugger keys its sparse passArchives against this; lambdas
+        // pass it to BeginCapturePass so CapturedPass.graphPassIndex aligns with the archive sink's writes.
         u32 passIndex = 0;
         std::function<void*(ResourceHandle)> GetResource;
         std::function<void*(BufferHandle)> GetBuffer;
     };
 
-    // ── Render Graph — DAG compile → barrier inject → execute ──
+    // ---- Render Graph: DAG compile -> barrier inject -> execute ----
     //
-    // Per pass: batched pre-barriers → BeginRendering → dispatch RenderPassJob
-    // (secondary cmd buffer) → WaitForCounter (V5 inline execute if depth allows)
-    // → ExecuteCommands → EndRendering. Parallelism is intra-pass (split draws
-    // across N jobs); inter-pass barriers run serially.
+    // Per pass: batched pre-barriers -> BeginRendering -> dispatch RenderPassJob (secondary cmd buffer)
+    // -> WaitForCounter (V5 inline execute if depth allows) -> ExecuteCommands -> EndRendering.
+    // Parallelism is intra-pass (split draws across N jobs); inter-pass barriers run serially.
 
     class RenderGraph
     {
@@ -110,7 +107,7 @@ namespace Luth::RG
             std::string name;
             std::function<void(RenderPassContext&)> execute;
             bool isCompute = false;  // Compute passes skip BeginRendering and secondary cmd
-            QueueFamily queueFamily = QueueFamily::Graphics;  // AsyncCompute routes to the compute primary in Phase 2.
+            QueueFamily queueFamily = QueueFamily::Graphics;  // AsyncCompute routes to the compute primary.
 
             // Image resource dependencies
             std::vector<ResourceHandle> reads;
@@ -132,7 +129,7 @@ namespace Luth::RG
 
             std::vector<Barrier>       preBarriers;        // Image barriers (before pass body)
             std::vector<BufferBarrier> bufferPreBarriers;  // Buffer barriers
-            std::vector<Barrier>       postBarriers;       // After pass body — drives external finalState transitions (e.g., swapchain → Present)
+            std::vector<Barrier>       postBarriers;       // After pass body; drives external finalState transitions (e.g., swapchain -> Present)
 
             // Side-effect flag for passes that mutate engine state outside the RG (e.g.,
             // TlasBuildPass updates RtSubsystem::m_LastResult.tlas which feeds Set 0 binding 6
@@ -153,7 +150,7 @@ namespace Luth::RG
 
             ResourceState initialState = ResourceState::Undefined;
             ResourceState currentState = ResourceState::Undefined;
-            // External-only: forces a postBarrier on the last writer (e.g., swapchain → Present after ImGui).
+            // External-only: forces a postBarrier on the last writer (e.g., swapchain -> Present after ImGui).
             ResourceState finalState = ResourceState::Undefined;
 
             // Physical resource (filled by AllocatePhysicalResources)
@@ -172,7 +169,7 @@ namespace Luth::RG
             u32 firstPass = UINT32_MAX;
             u32 lastPass = 0;
 
-            // Drives WAW barrier emission — consecutive same-state writes still need an exec barrier.
+            // Drives WAW barrier emission; consecutive same-state writes still need an exec barrier.
             u32 lastWriter = UINT32_MAX;
         };
 
@@ -221,7 +218,7 @@ namespace Luth::RG
         }
 
         // Compute passes: execute directly on primary cmd, no BeginRendering/secondary cmd. 3-arg overload keeps
-        // back-compat (defaults to graphics queue — Cull and pre-existing compute passes stay on the graphics
+        // back-compat (defaults to graphics queue; Cull and pre-existing compute passes stay on the graphics
         // primary unless they opt into AsyncCompute via the 4-arg overload below).
         template<typename Data, typename SetupFunc, typename ExecuteFunc>
         void AddComputePass(const std::string& name, SetupFunc&& setup, ExecuteFunc&& execute)
@@ -249,23 +246,23 @@ namespace Luth::RG
             };
         }
 
-        // Compile: Cull → Barrier Solve (topo sort is implicit — passes added in order)
+        // Compile: Cull -> Barrier Solve (topo sort is implicit; passes added in order)
         void Compile();
 
         // Execute the graph against the per-view QueueRecorders triplet. Each pass routes by PassNode::queueFamily:
-        //   AsyncCompute → recorders.compute
-        //   Graphics     → recorders.gA (until the first AsyncCompute pass is seen) then recorders.gB
+        //   AsyncCompute -> recorders.compute
+        //   Graphics     -> recorders.gA (until the first AsyncCompute pass is seen) then recorders.gB
         // Returns true iff at least one AsyncCompute pass executed (forwarded to SubmitView so the compute submit
-        // can be skipped when the graph routed nothing). Graphics-only graphs collapse to gA alone — gB and compute
+        // can be skipped when the graph routed nothing). Graphics-only graphs collapse to gA alone; gB and compute
         // primaries get empty-submitted by the caller.
         bool Execute(QueueRecorders recorders, Luth::GPUTimerPool* timers = nullptr);
 
-        // Internal API for Builder — Image resources
+        // Internal API for Builder: Image resources
         ResourceHandle RegisterResource(const TextureDesc& desc);
         ResourceHandle ImportResource(const TextureDesc& desc, void* image, void* view, ResourceState initialState);
         ResourceHandle ImportResource(const TextureDesc& desc, void* image, void* view, ResourceState initialState,
                                        u32 baseArrayLayer, u32 layerCount);
-        // RG appends a postBarrier on the last writer to transition to finalState (e.g., swapchain → Present).
+        // RG appends a postBarrier on the last writer to transition to finalState (e.g., swapchain -> Present).
         ResourceHandle ImportResource(const TextureDesc& desc, void* image, void* view,
                                        ResourceState initialState, ResourceState finalState);
         void RegisterRead(u32 passIndex, ResourceHandle handle, ResourceState state);
@@ -276,7 +273,7 @@ namespace Luth::RG
         void RegisterColorAttachment(u32 passIndex, ResourceHandle handle, VkAttachmentLoadOp loadOp, VkAttachmentStoreOp storeOp, VkClearValue clearValue);
         void RegisterDepthAttachment(u32 passIndex, ResourceHandle handle, VkAttachmentLoadOp loadOp, VkAttachmentStoreOp storeOp, VkClearValue clearValue);
 
-        // Internal API for Builder — Buffer resources
+        // Internal API for Builder: Buffer resources
         BufferHandle RegisterBuffer(const BufferDesc& desc);
         BufferHandle ImportBuffer(const BufferDesc& desc, void* buffer, ResourceState initialState);
         void RegisterBufferRead(u32 passIndex, BufferHandle handle, ResourceState state);
@@ -292,23 +289,22 @@ namespace Luth::RG
         std::string DumpGraphJson() const;
 
         // Fill snap.barriers + per-pass/total counts from the compiled graph (the solver already stored
-        // every barrier per pass). Off by default — gated by BarrierCapture() so the small string-building
+        // every barrier per pass). Off by default; gated by BarrierCapture() so the small string-building
         // cost is paid only with the inspector open.
         void CaptureBarrierRecords(RenderGraphSnapshot& snap) const;
         static void SetBarrierCapture(bool e);
         static bool BarrierCapture();
 
-        // State → (stage, access) for barrier emission; public for headless emission tests. see arch/rendering-pipeline.md
+        // State -> (stage, access) for barrier emission; public for headless emission tests. see arch/rendering-pipeline.md
         static std::pair<VkPipelineStageFlags2, VkAccessFlags2> GetStateInfo(ResourceState state);
 
-        // Archive sink — invoked after each non-culled pass during Execute. Optional.
+        // Archive sink: invoked after each non-culled pass during Execute. Optional.
         // The sink is responsible for restoring source RT layouts (see IArchiveSink.h).
         void SetArchiveSink(IArchiveSink* sink) { m_ArchiveSink = sink; }
 
-        // When set, Execute uses per-pass dispatch+wait instead of the
-        // default parallel two-phase. Caller sets this when pass lambdas
-        // touch shared mutable state that isn't thread-safe — primary
-        // case is FrameDebugger capture (passes push into shared vectors).
+        // When set, Execute uses per-pass dispatch+wait instead of the default parallel two-phase. Caller sets
+        // this when pass lambdas touch shared mutable state that isn't thread-safe; primary case is
+        // FrameDebugger capture (passes push into shared vectors).
         void SetSerialize(bool enable) { m_SerializeDispatch = enable; }
 
     private:
@@ -327,7 +323,7 @@ namespace Luth::RG
         void SolveBarriers();
         void ComputeLifetimes();
 
-        // Nearest prior pass that wrote `handle` before `beforePass` (UINT32_MAX if none) — graph-dump/trace edges.
+        // Nearest prior pass that wrote `handle` before `beforePass` (UINT32_MAX if none); graph-dump/trace edges.
         u32 FindLastWriter(ResourceHandle handle, u32 beforePass) const;
         u32 FindLastBufferWriter(BufferHandle handle, u32 beforePass) const;
     };

@@ -46,7 +46,7 @@ namespace Luth
     namespace
     {
 #if defined(TRACY_ENABLE)
-        // Tracy stores the plot-name POINTER, not a copy — names must be process-stable string literals,
+        // Tracy stores the plot-name POINTER, not a copy; names must be process-stable string literals,
         // never runtime-built strings. Indexed by Memory::Category.
         const char* const kMemPlotNames[] = {
             "Mem General", "Mem Rendering", "Mem Scene", "Mem Jobs", "Mem Resources",
@@ -84,8 +84,7 @@ namespace Luth
             LH_PROFILE_PLOT("Game Stage (ms)",   (double)js.GameStageMs);
             LH_PROFILE_PLOT("Render Stage (ms)", (double)js.RenderStageMs);
 
-            // Bottleneck-triage plots: present stall, PSO-compile hitches, and the two silent
-            // draw/asset-drop counters.
+            // Bottleneck-triage plots: present stall, PSO-compile hitches, and the two silent draw/asset-drop counters.
             LH_PROFILE_PLOT("Present Acquire (ms)", VulkanSwapchain::GetLastAcquireMs());
             LH_PROFILE_PLOT("Present (ms)",         VulkanSwapchain::GetLastPresentMs());
 
@@ -101,7 +100,7 @@ namespace Luth
             for (u32 i = 0; i < (u32)Memory::Category::Count; ++i)
                 LH_PROFILE_PLOT(kMemPlotNames[i], (i64)mem.Categories[i].Current);
 
-            // VMA stats walk allocations — throttle so the per-frame cost stays negligible.
+            // VMA stats walk allocations; throttle so the per-frame cost stays negligible.
             static u32 frame = 0;
             if ((frame++ % 8) == 0)
             {
@@ -112,7 +111,7 @@ namespace Luth
         }
     }
 
-    // ── Engine Root Discovery ──
+    // ---- Engine Root Discovery ----
 
     static fs::path DiscoverEngineRoot()
     {
@@ -135,18 +134,18 @@ namespace Luth
         return fs::current_path();
     }
 
-    // ── Phase 1: Engine Boot — no project needed ──
+    // ---- Engine Boot: no project needed ----
 
     App::App(int argc, char** argv)
     {
-        // 1. Core systems
+        // Core systems
         Memory::MemoryTracker::Init();
         Memory::TaggedPageAllocator::Get().Init();
         JobSystem::Init();
 
         // Jolt global state must come up before SystemRegistry::Init constructs PhysicsSystem (which
         // builds a JPH::PhysicsSystem in its ctor). Factory + RegisterTypes register Jolt's serializable
-        // types and collision dispatch tables — required before any body creation.
+        // types and collision dispatch tables; required before any body creation.
         JPH::RegisterDefaultAllocator();
         JPH::Factory::sInstance = new JPH::Factory();
         JPH::RegisterTypes();
@@ -156,7 +155,7 @@ namespace Luth
         DebugDraw::Init();
         Image::Init();   // sets stb's global flip flag to 0; no other site touches it
 
-        // 2. Engine root + engine assets
+        // Engine root + engine assets
         fs::path engineRoot = DiscoverEngineRoot();
         FileSystem::InitEngine(engineRoot);
         AssetManager::Init();
@@ -164,7 +163,7 @@ namespace Luth
         AssetManager::ImportDirty();
         AssetDatabase::ClearDirtyAssets();
 
-        // 3. Window + Renderer
+        // Window + Renderer
         WindowSpec ws = ParseCommandLineArgs(argc, argv);
         SetAppTitle(ws);
         m_Window = Window::Create(ws);
@@ -174,19 +173,19 @@ namespace Luth
         Renderer::SetFrameData(&m_FrameData);
         ShaderLibrary::Init();
 
-        // 4. Scene & Systems (RenderingSystem loads engine shaders — no project needed)
+        // Scene & Systems (RenderingSystem loads engine shaders; no project needed)
         m_Scene = std::make_shared<Scene>();
         SystemRegistry::Init();
         SystemRegistry::SetScene(m_Scene.get());
 
-        // 5. Editor + Launcher (no-op in runtime-only builds with no hooks registered)
+        // Editor + Launcher (no-op in runtime-only builds with no hooks registered)
         if (auto* h = EditorHooks::Get())
         {
             h->Init(m_Window.get());
             h->SetActiveScene(m_Scene);
         }
 
-        // 6. Check CLI args for a .luthproj to open immediately
+        // Check CLI args for a .luthproj to open immediately
         fs::path projectHint;
         for (int i = 1; i < argc; ++i)
         {
@@ -214,12 +213,11 @@ namespace Luth
         }
         else
         {
-            // No project specified — show the launcher
+            // No project specified: show the launcher
             LH_CORE_INFO("No project specified -- showing Project Launcher");
             if (auto* h = EditorHooks::Get()) h->ShowProjectLauncher();
         }
 
-        // Subscribe to events
         EventBus::Subscribe<WindowResizeEvent>(BusType::MainThread, [this](Event& e) {
             OnWindowResize(static_cast<WindowResizeEvent&>(e));
         });
@@ -235,16 +233,15 @@ namespace Luth
 
     App::~App() {}
 
-    // ── Pipelined Engine Loop — Game(N) | Render(N-1) | GPU(N-2) ──
+    // ---- Pipelined Engine Loop: Game(N) | Render(N-1) | GPU(N-2) ----
     // invariant: see arch/frame-pipeline.md for the full pipeline diagram and ring-slot ownership.
     // Main thread is V2-isolated: it pumps OS events, drives editor ImGui, dispatches the two
-    // stage fibers, and busy-spins on their counters — never steals worker jobs.
+    // stage fibers, and busy-spins on their counters; never steals worker jobs.
     //
-    // Frames 0/1 run synchronously (game then render against Current()) to seed the pipeline.
-    // From frame 2 onward, Render of Previous() is dispatched before the GameReady wait, so
-    // Game(N) and Render(N-1) overlap on separate worker fibers.
-    // The frame boundary is the RenderSnapshot captured at end of game stage; render reads it
-    // from a different FrameContext slot, so the two stages never race on the same data.
+    // Frames 0/1 run synchronously (game then render against Current()) to seed the pipeline. From frame 2
+    // onward, Render of Previous() is dispatched before the GameReady wait, so Game(N) and Render(N-1)
+    // overlap on separate worker fibers. The frame boundary is the RenderSnapshot captured at end of game
+    // stage; render reads it from a different FrameContext slot, so the two stages never race on the same data.
 
     void App::Run()
     {
@@ -256,7 +253,7 @@ namespace Luth
 
             u64 frameIndex = m_FrameData.GetFrameIndex();
 
-            // ── Step 1: OS Message Pump ──
+            // ---- OS Message Pump ----
             Time::Update();
             m_Window->OnUpdate();
             EventBus::ProcessEvents(BusType::MainThread);
@@ -274,7 +271,7 @@ namespace Luth
                 continue;
             }
 
-            // ── Step 2: GPU Reclaim (N-2) ──
+            // ---- GPU Reclaim (N-2) ----
             FrameContext& currentFrame = m_FrameData.Current();
             if (frameIndex >= MAX_FRAMES_IN_FLIGHT)
             {
@@ -282,7 +279,7 @@ namespace Luth
                 (void)gpuFrame;
             }
 
-            // ── Step 3: Begin Vulkan Frame ──
+            // ---- Begin Vulkan Frame ----
             // Skip on swapchain rebuild (resize / DPI change); same frameIndex retries (Advance is at end of loop).
             if (!Renderer::BeginFrame(frameIndex))
             {
@@ -295,11 +292,10 @@ namespace Luth
             currentFrame.Params.TotalTime = Time::GetTime();
             currentFrame.Params.FrameNumber = frameIndex;
 
-            // ── Step 4: Editor + Asset Update (must precede stage dispatch) ──
+            // ---- Editor + Asset Update (must precede stage dispatch) ----
             if (auto* h = EditorHooks::Get()) h->BeginFrame();
             OnUpdate();
 
-            // Only update project-dependent systems when a project is loaded
             if (m_ProjectLoaded)
             {
                 AssetManager::Update();
@@ -314,10 +310,9 @@ namespace Luth
                 h->EndFrame();
             }
 
-            // Snapshot editor state once per frame — reused for camera setup
-            // and play-mode system gating below. Headless runtime (no editor
-            // hook) leaves defaults: hasCamera=false, playState=Editing,
-            // previewAnimationInEditor=true → game systems always tick.
+            // Snapshot editor state once per frame; reused for camera setup and play-mode system gating below.
+            // Headless runtime (no editor hook) leaves defaults: hasCamera=false, playState=Editing,
+            // previewAnimationInEditor=true -> game systems always tick.
             EditorViewportState viewState;
             bool haveEditor  = false;
             PlayState playState = PlayState::Editing;
@@ -379,18 +374,14 @@ namespace Luth
                 rs->SetCameraParams(cp);
             }
 
-            // Game systems tick only in Playing, Paused+Step, or Editing when
-            // the preview toggle is on. Standalone runtime (no editor) always
-            // ticks them. Read by GameStageFn through m_RunGameSystems.
+            // Game systems tick only in Playing, Paused+Step, or Editing when the preview toggle is on.
+            // Standalone runtime (no editor) always ticks them. Read by GameStageFn through m_RunGameSystems.
             m_RunGameSystems = !haveEditor
                 || (playState == PlayState::Playing)
                 || (playState == PlayState::Paused && stepThisFrame)
                 || (playState == PlayState::Editing && viewState.previewAnimationInEditor);
 
-            // ── Step 5: Stage Dispatch — pipelined Game(N) | Render(N-1) ──
-            // Frames 0/1 sync-render Current() to seed the pipeline; from
-            // frame 2 on, Render(N-1) is dispatched before the GameReady
-            // wait so it overlaps with Game(N) on separate worker fibers.
+            // ---- Stage Dispatch: pipelined Game(N) | Render(N-1) ----
             const bool isSteady = (frameIndex >= 2);
 
             // Cycle DebugDraw's producer slot before the Game stage spawns. Slot = frameIndex mod 2;
@@ -422,14 +413,13 @@ namespace Luth
                 JobSystem::WaitForCounter(&renderFrame->RenderReady);
             }
 
-            // ── Step 6: Mouse picking + Frame end (main thread) ──
-            // PickingSystem reads back the EntityID texture written by the
-            // render stage, so it must follow RenderReady. EndFrame is a
-            // no-op today (Submit + Present happens inside the render stage).
+            // ---- Mouse picking + Frame end (main thread) ----
+            // PickingSystem reads back the EntityID texture written by the render stage, so it must follow
+            // RenderReady. EndFrame is a no-op today (Submit + Present happens inside the render stage).
             SystemRegistry::Update<PickingSystem>();
             Renderer::EndFrame();
 
-            // ── Step 7: Advance Frame ──
+            // ---- Advance Frame ----
             m_FrameData.Advance();
             EmitFrameProfilingPlots();   // plot the frame's accumulated counters before they reset
             JobSystem::ResetFrameStats();
@@ -439,20 +429,19 @@ namespace Luth
         Close();
     }
 
-    // ── Stage entry points ──
+    // ---- Stage entry points ----
 
     void App::GameStageFn(JobSystem::JobArgs args)
     {
-        // Stage tag propagates to sub-jobs dispatched from this fiber so
-        // stage-isolated subsystems (MaterialSystem, BoneMatrixBuffer) can
-        // assert their callers are on the right stage.
+        // Stage tag propagates to sub-jobs dispatched from this fiber so stage-isolated subsystems
+        // (MaterialSystem, BoneMatrixBuffer) can assert their callers are on the right stage.
         JobSystem::SetCurrentStage(JobSystem::Stage::Game);
         Timer stageTimer;
 
         auto* app = static_cast<App*>(args.data);
 
         SystemRegistry::Update<TransformSystem>();
-        // Stub player input → CharacterController.desiredVelocity. Gated so authoring (Editing) mode
+        // Stub player input -> CharacterController.desiredVelocity. Gated so authoring (Editing) mode
         // doesn't drive characters from WASD; PhysicsSystem still runs unconditionally so falling
         // bodies keep falling in editor preview.
         if (app->m_RunGameSystems)
@@ -461,14 +450,14 @@ namespace Luth
         if (app->m_RunGameSystems)
             SystemRegistry::Update<AnimationSystem>();
 
-        // Editor in-world gizmos (lights/cameras/bounds/bones/fog/wind) → DebugDraw. Game-stage producer:
+        // Editor in-world gizmos (lights/cameras/bounds/bones/fog/wind) -> DebugDraw. Game-stage producer:
         // shares DebugDraw's single-writer slot, reads post-Animation transforms, gated per category
         // by CameraParams (all-off in a runtime build). DebugDrawSubsystem flushes them in the scene view.
         if (auto* rs = SystemRegistry::GetSystem<RenderingSystem>())
             Gizmos::Draw(*app->m_Scene, rs->GetCameraParams(), rs->GetWindSettings());
 
-        // CaptureSnapshot must run after all ECS mutations for the frame —
-        // it freezes the state Render(N-1) will read next iteration.
+        // CaptureSnapshot must run after all ECS mutations for the frame; it freezes the state
+        // Render(N-1) will read next iteration.
         FrameContext& cf = Renderer::GetFrameData()->Current();
         CaptureSnapshot(*app->m_Scene, cf.LogicMemory, cf.Snapshot);
 
@@ -486,20 +475,20 @@ namespace Luth
         JobSystem::RecordStageTime(JobSystem::Stage::Render, stageTimer.ElapsedMillis());
     }
 
-    // ── Shutdown ──
+    // ---- Shutdown ----
 
     void App::Close()
     {
         Renderer::WaitForGPU();
 
-        // Persist the Vulkan pipeline cache to the active project before tearing
-        // down systems / the renderer. SaveToProject is a no-op if no project.
+        // Persist the Vulkan pipeline cache to the active project before tearing down systems / the renderer.
+        // SaveToProject is a no-op if no project.
         PipelineCache::SaveToProject();
 
         if (auto* h = EditorHooks::Get()) h->Shutdown();
         SystemRegistry::Shutdown();
 
-        // Jolt global teardown — must come after SystemRegistry::Shutdown so PhysicsSystem's destructor
+        // Jolt global teardown: must come after SystemRegistry::Shutdown so PhysicsSystem's destructor
         // (which holds a JPH::PhysicsSystem) finishes while Jolt globals are still alive.
         JPH::UnregisterTypes();
         delete JPH::Factory::sInstance;
@@ -526,7 +515,7 @@ namespace Luth
         Memory::MemoryTracker::Shutdown();
     }
 
-    // ── Project Loading ──
+    // ---- Project Loading ----
 
     void App::LoadProject(const fs::path& luthprojPath)
     {
@@ -542,8 +531,8 @@ namespace Luth
         // If switching away from an existing project, clean up first
         if (m_ProjectLoaded)
         {
-            // Drain GPU before tearing down asset / scene state — pending
-            // cmd buffers must not reference resources about to be destroyed.
+            // Drain GPU before tearing down asset / scene state; pending cmd buffers must not
+            // reference resources about to be destroyed.
             Renderer::WaitForGPU();
 
             if (auto* h = EditorHooks::Get()) h->SaveSettings();
@@ -554,29 +543,23 @@ namespace Luth
             if (m_Scene) m_Scene->Clear();
         }
 
-        // Set the project root in FileSystem
         FileSystem::SetProjectRoot(project.ProjectRoot);
 
-        // Load any persisted Vulkan pipeline cache for this project
         PipelineCache::LoadFromProject();
 
         // Scan project assets
         AssetDatabase::LoadProject(FileSystem::AssetsPath());
 
-        // Import dirty assets
         AssetManager::ImportDirty();
 
-        // Start watching for file changes
         AssetDatabase::StartWatching();
 
-        // Refresh the editor for the new project
         if (auto* h = EditorHooks::Get()) h->OnProjectChanged();
 
         // Notify systems that depend on project paths (e.g. shader hot-reload watcher)
         if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
             rs->OnProjectLoaded();
 
-        // Track in recent projects and hide launcher
         if (auto* h = EditorHooks::Get())
         {
             h->AddRecentProject(project.Name, project.FilePath);
@@ -587,7 +570,7 @@ namespace Luth
         LH_CORE_INFO("Project loaded: '{}'", project.Name);
     }
 
-    // ── Utility ──
+    // ---- Utility ----
 
     WindowSpec App::ParseCommandLineArgs(int argc, char** argv)
     {
@@ -619,7 +602,7 @@ namespace Luth
         m_Running = false;
     }
 
-    // ── File Drop Handling ──
+    // ---- File Drop Handling ----
 
     void App::OnFileDrop(FileDropEvent& e)
     {

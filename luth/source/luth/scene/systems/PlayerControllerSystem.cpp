@@ -12,7 +12,7 @@ namespace Luth
 {
     namespace
     {
-        // Raw GLFW keycodes — Luth has no Key enum yet, and existing Input call sites use the same
+        // Raw GLFW keycodes: Luth has no Key enum yet, and existing Input call sites use the same
         // literals. Lift to a Key constant set when one lands.
         constexpr int kKeyW     = 87;
         constexpr int kKeyA     = 65;
@@ -35,8 +35,8 @@ namespace Luth
 
             // GLM is column-major, right-handed, Y-up. Forward = -Z basis, right = +X basis. Extract
             // from the world matrix so a parented character (e.g. on a moving platform) still walks
-            // along its local frame. World basis vectors carry any scale on the entity; we project to
-            // the ground plane and normalise so WASD speed stays uniform regardless of pitch/scale.
+            // along its local frame. World basis vectors carry any scale on the entity; projected to
+            // the ground plane and normalised so WASD speed stays uniform regardless of pitch/scale.
             const Vec3 forward = -Vec3(world.Matrix[2]);
             const Vec3 right   =  Vec3(world.Matrix[0]);
 

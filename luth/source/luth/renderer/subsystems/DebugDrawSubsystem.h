@@ -14,7 +14,7 @@ namespace Luth
 
     // Render-side companion to luth/core/DebugDraw. Owns a single line-list graphics pipeline and
     // drains the current frame's queued line endpoints into a transient vertex buffer carved from
-    // the GPUTaggedPageAllocator. No descriptor set — viewProj rides on a push constant. The pass
+    // the GPUTaggedPageAllocator. No descriptor set: viewProj rides on a push constant. The pass
     // slots after the outline pass and before ImGui so colliders render on top of the scene but
     // under UI; gated by RenderView::drawDebugShapes (scene view only by default).
     class DebugDrawSubsystem

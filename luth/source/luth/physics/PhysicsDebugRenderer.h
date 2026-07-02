@@ -10,7 +10,7 @@ namespace Luth::Physics
     // JPH::DebugRendererSimple subclass that forwards Jolt's wireframe lines into Luth's shared
     // DebugDraw facility. Owned by PhysicsSystem. Triangle calls fall through to the base class
     // which decomposes them into three lines (sufficient for wireframe shape preview); text is
-    // dropped — DebugDraw has no text path yet.
+    // dropped since DebugDraw has no text path yet.
     class PhysicsDebugRenderer final : public JPH::DebugRendererSimple
     {
     public:

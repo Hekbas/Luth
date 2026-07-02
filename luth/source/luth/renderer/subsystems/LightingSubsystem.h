@@ -23,7 +23,7 @@ namespace Luth
     namespace fs = std::filesystem;
 
     // Owns Set 3, shadow map, IBL maps, skybox VB + shadow/skybox pipelines.
-    // invariant: Init() must precede BuildPipelines(geoLayouts) — the latter needs Set 5.
+    // invariant: Init() must precede BuildPipelines(geoLayouts); the latter needs Set 5.
     class LightingSubsystem
     {
     public:
@@ -31,8 +31,8 @@ namespace Luth
         void BuildPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts);
         void Shutdown();
 
-        // Re-bake IBL from a new HDR. Rebuilds the skybox pipeline (prefiltered
-        // mip count may change) and rewrites every cached view's Set 0.
+        // Re-bake IBL from a new HDR. Rebuilds the skybox pipeline (prefiltered mip count may change)
+        // and rewrites every cached view's Set 0.
         void ReloadSkybox(const fs::path& hdrPath, const std::vector<VkDescriptorSetLayout>& geoLayouts);
 
         // Hot-reload hook. Returns true if name matched and was handled.
@@ -44,7 +44,7 @@ namespace Luth
         RG::ResourceHandle AddSkyboxPass(RG::RenderGraph& rg, RG::ResourceHandle sceneColor, RG::ResourceHandle sceneDepth);
 
         // Forward+ cluster build. Returns BufferHandles + the underlying SubRegions so consumers can
-        // bind the right (buffer, offset, size) triple — BufferHandle stores only the backing VkBuffer
+        // bind the right (buffer, offset, size) triple: BufferHandle stores only the backing VkBuffer
         // pointer; the offset within that backing is in the SubRegion.
         struct ClusterBuildOutputs {
             RG::BufferHandle     aabb;
@@ -78,13 +78,13 @@ namespace Luth
         // from AllocateViewResources after the descriptor pool has allocated the set.
         void WriteShadowView(struct ViewResources& vr);
 
-        // Cluster debug viz — gated by ShadeMode::ClustersDensity in BuildGraph. Samples SceneDepth
+        // Cluster debug viz, gated by ShadeMode::ClustersDensity in BuildGraph. Samples SceneDepth
         // to derive the per-fragment Olsson slice, then reads the per-view cluster grid and heat-maps
         // the lights-per-cluster count over LDR.
         RG::ResourceHandle AddClusterVizPass(RG::RenderGraph& rg, RG::ResourceHandle ldrInput,
                                               RG::ResourceHandle sceneDepth);
 
-        // Per-view depth-sampler write for the ClusterViz pipeline. Stable across frames — called
+        // Per-view depth-sampler write for the ClusterViz pipeline. Stable across frames; called
         // once at AllocateViewResources time + on resize via FrameTargets re-allocation.
         void WriteClusterVizView(struct ViewResources& vr, class FrameTargets& targets);
 
@@ -94,7 +94,7 @@ namespace Luth
 
         // ---- Accessors ----
         VkDescriptorSetLayout GetSetLayout() const          { return m_LightSetLayout; }
-        // Delegates to the active ViewResources — Set 3 is per-view now.
+        // Delegates to the active ViewResources; Set 3 is per-view.
         VkDescriptorSet       GetLightDescSet(u32 slot) const;
         VkSampler             GetShadowSampler() const      { return m_ShadowSampler; }
         const std::shared_ptr<Texture>& GetShadowMap() const { return m_ShadowMap; }
@@ -103,7 +103,7 @@ namespace Luth
         VKPipeline*           GetShadowSkinnedPipeline() const { return m_ShadowSkinnedPipeline.get(); }
 
         // Depth-prepass + selection pipelines reuse this null-fragment SPV.
-        // Temp accessor — folds away once those pipelines move into Geometry/EditorOverlays.
+        // Temp accessor; folds away once those pipelines move into Geometry/EditorOverlays.
         const std::vector<u32>& GetShadowFragSpv() const { return m_ShadowFragSpv; }
 
         const std::shared_ptr<Texture>& GetIrradianceMap()  const { return m_IrradianceMap; }
@@ -125,7 +125,7 @@ namespace Luth
         std::shared_ptr<Texture> m_ShadowMap;
         VkImageView              m_ShadowLayerViews[k_ShadowCascadeCount] = { VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE };
         VkSampler                m_ShadowSampler        = VK_NULL_HANDLE;
-        VkSampler                m_SunShadowMaskSampler = VK_NULL_HANDLE;  // Set 3 binding 4 — RT sun shadow mask (linear, clamp-to-edge, no compare)
+        VkSampler                m_SunShadowMaskSampler = VK_NULL_HANDLE;  // Set 3 binding 4: RT sun shadow mask (linear, clamp-to-edge, no compare)
         VkDescriptorSetLayout    m_LightSetLayout = VK_NULL_HANDLE;
 
         // Shadow pipelines + SPV.

@@ -19,7 +19,6 @@ namespace Luth::JobSystem
         AtomicCounter() : Value(0), WaitingListHead(nullptr) {}
         AtomicCounter(u32 initialValue) : Value(initialValue << 1), WaitingListHead(nullptr) {}
 
-        // Non-copyable
         AtomicCounter(const AtomicCounter&) = delete;
         AtomicCounter& operator=(const AtomicCounter&) = delete;
 

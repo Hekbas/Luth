@@ -70,10 +70,8 @@ namespace Luth
         }
     }
 
-    // -------------------------------------------------------------------------------
-    // Static callback job data — avoids new/delete in the dispatch path.
-    // Uses a simple ring of pre-allocated slots.
-    // -------------------------------------------------------------------------------
+    // ---- Static callback job data ----
+    // Ring of pre-allocated slots; avoids new/delete in the dispatch path.
 
     static constexpr u32 MAX_IO_CALLBACKS = 64;
 
@@ -92,7 +90,7 @@ namespace Luth
 
     static IOCallbackSlot* AcquireSlot()
     {
-        // s_NextSlot is just a probe hint — relaxed is fine; the CAS on InUse is the gate.
+        // s_NextSlot is a probe hint (relaxed is fine); the CAS on InUse is the gate.
         for (u32 attempt = 0; attempt < MAX_IO_CALLBACKS; ++attempt)
         {
             u32 idx = s_NextSlot.fetch_add(1, std::memory_order_relaxed) % MAX_IO_CALLBACKS;
@@ -100,7 +98,7 @@ namespace Luth
             if (s_CallbackSlots[idx].InUse.compare_exchange_strong(expected, true))
                 return &s_CallbackSlots[idx];
         }
-        return nullptr; // All slots busy — caller should handle
+        return nullptr; // All slots busy; caller should handle
     }
 
     static void IOCallbackJob(JobSystem::JobArgs args)
@@ -111,8 +109,8 @@ namespace Luth
         slot->Callback(std::move(slot->Data));
         slot->Callback = nullptr;
         slot->Data.clear();
-        // Release pairs with the acquire implicit in AcquireSlot's CAS — ensures
-        // the next acquirer sees the cleared Callback/Data, not stale state.
+        // Release pairs with the acquire implicit in AcquireSlot's CAS so the next acquirer
+        // sees the cleared Callback/Data, not stale state.
         slot->InUse.store(false, std::memory_order_release);
     }
 
@@ -171,7 +169,7 @@ namespace Luth
             {
                 LH_PROFILE_SCOPE("IO Read");
 
-                // Read file (blocking — that's fine, we're on a dedicated OS thread)
+                // Blocking read is fine on this dedicated OS thread.
                 std::ifstream file(req.Path, std::ios::ate | std::ios::binary);
 
                 IOCallbackSlot* slot = AcquireSlot();

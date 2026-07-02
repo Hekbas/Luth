@@ -6,9 +6,9 @@
 
 namespace Luth::TAA
 {
-    // Halton(2,3) prefix of 8 sub-pixel offsets in [-0.5, +0.5]². Matches Karis 2014 + UE4/UE5 base
-    // TAA default. Pairs with tight YCoCg variance clip — longer sequences hurt convergence under
-    // aggressive clipping. INSIDE's N=16 was paired with looser RGB min/max; opposite pairing.
+    // Halton(2,3) prefix of 8 sub-pixel offsets in [-0.5, +0.5]^2. Matches Karis 2014 + UE4/UE5 base TAA default.
+    // Pairs with tight YCoCg variance clip; longer sequences hurt convergence under aggressive clipping.
+    // INSIDE's N=16 was paired with looser RGB min/max; opposite pairing.
     //
     // Halton(b, i) for i=1..8:
     //   base 2: 1/2, 1/4, 3/4, 1/8, 5/8, 3/8, 7/8, 1/16
@@ -30,9 +30,9 @@ namespace Luth::TAA
         return k_HaltonJitter[frameAbs % k_HaltonJitter.size()];
     }
 
-    // Sub-pixel jitter on the projection matrix: shifts NDC by ±jitter/halfViewport. Karis recipe —
-    // rendered pixels land at non-grid positions; motion vectors naturally absorb the jitter delta;
-    // the resolve pass reads jittered current + reprojected history and integrates.
+    // Sub-pixel jitter on the projection matrix: shifts NDC by +/-jitter/halfViewport. Karis recipe: rendered
+    // pixels land at non-grid positions; motion vectors naturally absorb the jitter delta; the resolve pass
+    // reads jittered current + reprojected history and integrates.
     inline Mat4 ApplyJitter(const Mat4& proj, Vec2 jitter, u32 w, u32 h)
     {
         Mat4 j = proj;

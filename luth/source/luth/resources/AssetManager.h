@@ -63,8 +63,7 @@ namespace Luth
         // Removes a specific asset from the cache (forces reload on next access)
         static void Evict(UUID handle);
 
-        // Unloads assets that are only referenced by the AssetManager
-        // Returns the number of evicted assets. force=true skips the 5s timeout.
+        // Unloads assets only referenced by the AssetManager. Returns the count evicted; force=true skips the 5s timeout.
         static u32 Trim(bool force = false);
 
     private:
@@ -82,8 +81,8 @@ namespace Luth
 
         static void LoadJob(JobSystem::JobArgs args);
 
-        // Shared helpers — DeserializeArtifact is thread-safe,
-        // FinalizeAsset must run on the main thread (creates GPU resources).
+        // Shared helpers: DeserializeArtifact is thread-safe; FinalizeAsset must run on the main thread
+        // (creates GPU resources).
         static std::unique_ptr<AssetData> DeserializeArtifact(AssetType type, const std::filesystem::path& artifactPath);
         static std::shared_ptr<Asset> FinalizeAsset(AssetType type, AssetData* data, const std::filesystem::path& sourcePath);
 

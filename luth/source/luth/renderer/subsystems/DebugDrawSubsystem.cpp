@@ -43,8 +43,8 @@ namespace Luth
         LH_PROFILE_FUNCTION();
         if (m_VertSpv.empty() || m_FragSpv.empty()) return;
 
-        // No descriptor set — viewProj rides on the push constant; vertex data binds as VBO.
-        std::vector<VkDescriptorSetLayout> layouts; // empty
+        // No descriptor set: viewProj rides on the push constant; vertex data binds as VBO.
+        std::vector<VkDescriptorSetLayout> layouts;
 
         VkPushConstantRange pcRange{};
         pcRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
@@ -69,7 +69,7 @@ namespace Luth
 
         PipelineConfig cfg;
         cfg.colorFormats          = { VK_FORMAT_R8G8B8A8_UNORM };  // matches LDR target
-        cfg.depthFormat           = VK_FORMAT_UNDEFINED;          // depth disabled — always-visible
+        cfg.depthFormat           = VK_FORMAT_UNDEFINED;          // depth disabled; always-visible
         cfg.depthTest             = false;
         cfg.depthWrite            = false;
         cfg.blendEnabled          = true;                         // alpha-blend over scene
@@ -109,7 +109,7 @@ namespace Luth
         if (!m_LinePipeline) return ldrOutput;
 
         // Read the lines for the frame the render stage is consuming. Span is valid until
-        // BeginGameFrame is called for the same modulo-2 slot — at least two frames out.
+        // BeginGameFrame is called for the same modulo-2 slot; at least two frames out.
         const u64 renderFrameIdx = Renderer::GetFrameData()->GetRenderFrameIndex();
         const auto lines = DebugDraw::GetForRender(renderFrameIdx);
         if (lines.empty()) return ldrOutput;

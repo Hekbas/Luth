@@ -16,7 +16,7 @@ namespace Luth::DebugDraw
         // already-recorded command buffers; it doesn't touch DebugDraw state.
         std::vector<DebugVertex> s_Buffers[2];
 
-        // Producer slot index (mod 2). Updated by BeginGameFrame — read by Line/Triangle on the
+        // Producer slot index (mod 2). Updated by BeginGameFrame; read by Line/Triangle on the
         // game-stage fiber. Relaxed atomic is enough: BeginGameFrame happens-before the Game stage
         // dispatch (both on the main thread) which itself synchronizes-with the worker fiber via
         // the JobSystem's queue handoff.
@@ -91,7 +91,7 @@ namespace Luth::DebugDraw
 
     void WireSphere(const Vec3& center, float radius, u32 color, int segments)
     {
-        // Three orthogonal great circles — the Unity-style point-light/range gizmo.
+        // Three orthogonal great circles: the Unity-style point-light/range gizmo.
         const float step = Math::TwoPi<float> / float(segments);
         for (int axis = 0; axis < 3; ++axis)
         {
@@ -149,7 +149,7 @@ namespace Luth::DebugDraw
             Line(prev, p, color);
             prev = p;
         }
-        // Four spokes apex → base ring at the quarter points.
+        // Four spokes apex -> base ring at the quarter points.
         for (int k = 0; k < 4; ++k)
         {
             const float a = Math::TwoPi<float> * float(k) / 4.0f;

@@ -30,9 +30,8 @@ namespace Luth
         }
         s_Pending.fetch_add(1, std::memory_order_relaxed);
 
-        // Allocation accounting outside the lock — matches EventBus precedent.
-        // Tracks the std::function wrapper size; the lambda's heap capture (if
-        // any) is caught by Tracy's global new hook.
+        // Allocation accounting outside the lock; matches EventBus precedent. Tracks the std::function
+        // wrapper size; the lambda's heap capture (if any) is caught by Tracy's global new hook.
         Memory::MemoryTracker::RecordAlloc(Memory::Category::Editor, sizeof(Callback));
     }
 
@@ -44,9 +43,8 @@ namespace Luth
             "MainThreadPump::Drain called from inconsistent thread");
     #endif
 
-        // Swap the live queue into a local under the lock, then drop it.
-        // Callbacks that re-Post during dispatch land on the next frame's
-        // queue, not this drain — same reentrancy contract as EventBus.
+        // Swap the live queue into a local under the lock, then drop it. Callbacks that re-Post during
+        // dispatch land on the next frame's queue, not this drain (same reentrancy contract as EventBus).
         std::queue<Callback> processing;
         {
             std::lock_guard<std::mutex> guard(s_Lock);

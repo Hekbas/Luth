@@ -78,9 +78,8 @@ namespace Luth
         Vec4  gizmoFogColor         = { 0.300f, 0.800f, 1.000f, 0.500f };
         Vec4  gizmoWindColor        = { 0.600f, 0.900f, 1.000f, 0.800f };
 
-        // When true, AnimationSystem still ticks while PlayState::Editing so
-        // characters animate in the scene view. Flip off for strict
-        // "game systems only run during Play" behavior.
+        // When true, AnimationSystem still ticks while PlayState::Editing so characters animate in the
+        // scene view. Flip off for strict "game systems only run during Play" behavior.
         bool      previewAnimationInEditor = true;
 
         // Physics debug visualization. Paired toggles per pass: render bodies of selected entities,
@@ -128,18 +127,17 @@ namespace Luth
         // Editor-owned viewport / selection snapshot fed to RenderingSystem
         virtual void GetViewportState(EditorViewportState& out) = 0;
 
-        // Play-mode state + single-frame step request. Defaults keep the
-        // runtime-only (no-editor) build "always ticking" game systems.
+        // Play-mode state + single-frame step request. Defaults keep the runtime-only (no-editor) build
+        // "always ticking" game systems.
         virtual PlayState GetPlayState() const { return PlayState::Editing; }
         virtual bool ConsumeStepRequest() { return false; }
 
         // ProjectPanel: current directory for file-drop ingestion. Returns empty path if no panel is available.
         virtual std::filesystem::path GetProjectCurrentDir() = 0;
 
-        // Engine-side notice surfaced to the editor UI (e.g. status bar, log).
-        // Default no-op so runtime-only builds (no editor) can ignore it.
-        // Currently used by FrameDebuggerContext when a captured view is closed
-        // mid-Freeze and capture is auto-cleared.
+        // Engine-side notice surfaced to the editor UI (e.g. status bar, log). Default no-op so
+        // runtime-only builds (no editor) can ignore it. Used by FrameDebuggerContext when a captured
+        // view is closed mid-Freeze and capture is auto-cleared.
         virtual void OnFrameDebuggerNotice(const std::string& /*message*/) {}
 
         // Project launcher
@@ -154,7 +152,7 @@ namespace Luth
     namespace EditorHooks
     {
         // Registered by Luthien.lib's bootstrap before App is constructed. Passing nullptr clears
-        // the registration (rarely useful in practice — exists for symmetry).
+        // the registration (rarely useful in practice; exists for symmetry).
         void Register(IEditorHooks* hooks);
 
         // Returns the registered hook, or nullptr if no editor is linked (runtime-only build) or

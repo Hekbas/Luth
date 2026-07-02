@@ -4,7 +4,7 @@
 
 namespace Luth
 {
-    // RT specular reflections (rt-renderer D.1) runtime knobs. Read each frame by ReflectionsSubsystem
+    // RT specular reflections runtime knobs. Read each frame by ReflectionsSubsystem
     // into the trace push constants + by GlobalSubsystem into reflParams (pbr.frag composite gate).
     // The reflection lobe is GGX-VNDF importance-sampled from the slim G-buffer; rough surfaces fall
     // back to the prefiltered-env IBL (RT contributes little there and the denoiser can't keep up).
@@ -20,6 +20,6 @@ namespace Luth
         f32  roughnessFadeEnd   = 0.65f;
         f32  maxRayDistance     = 1000.0f;  // reflection-ray tMax
         f32  fireflyClamp       = 8.0f;     // per-ray radiance-luminance clamp (bounds 1-spp variance)
-        bool denoise            = true;     // specular denoiser (D.1 S3); off = raw 1-spp for A/B
+        bool denoise            = true;     // specular denoiser; off = raw 1-spp for A/B
     };
 }

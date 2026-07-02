@@ -1,4 +1,4 @@
-// Global operator new/delete overrides — wires every heap allocation through
+// Global operator new/delete overrides: wires every heap allocation through
 // Tracy's memory profiler so STL containers and third-party libs are visible
 // in capture-time analysis. Engine-categorized allocations (LH_NEW/LH_ALLOC)
 // keep their separate tracking via MemoryTracker; see arch/memory.md.

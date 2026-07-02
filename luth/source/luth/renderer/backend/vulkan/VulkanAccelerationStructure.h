@@ -13,12 +13,11 @@ namespace Luth
     // RAII wrapper for a single VkAccelerationStructureKHR + its persistent backing VkBuffer.
     // Used for both BLAS (per-mesh, owned by Mesh) and TLAS (per-frame, owned by RtSubsystem).
     // For a DEFORMABLE BLAS (skinned or static wind-deformable) it additionally owns the persistent
-    // "deformed vertex" buffer (per-frame compute output in the interleaved Vertex layout — AS-build
+    // "deformed vertex" buffer (per-frame compute output in the interleaved Vertex layout; AS-build
     // input on refit AND the RT geometry-table source, so ray hits read post-deform normals/tangents,
     // not bind pose). The deform compute (skinning.slang / deform.slang) reads the source VB directly.
-    // Dtor pushes every owned VkBuffer + AS handle into VulkanContext::PushDeletion so they
-    // retire N+2 frames out — safe against in-flight cmd buffers referencing the AS in a
-    // build / traceRays call.
+    // Dtor pushes every owned VkBuffer + AS handle into VulkanContext::PushDeletion so they retire N+2 frames
+    // out, safe against in-flight cmd buffers referencing the AS in a build / traceRays call.
     class VKAccelerationStructure
     {
     public:
@@ -32,10 +31,10 @@ namespace Luth
         VkDeviceAddress            GetDeviceAddress() const { return m_DeviceAddress; }
         bool                       IsDeformable()     const { return m_IsDeformable; }
 
-        // Deformable-only — null/0 for a static (non-deformable) BLAS. The deformed buffer is double-
-        // buffered (curr/prev regions of m_DeformedRegionBytes each) so raster motion vectors can read
-        // the previous frame's positions; the region alternates by frame parity — region 0 == CURR on
-        // frame 0, matching the initial build at offset 0. The deform writes + AS-build/geom-table read CURR.
+        // Deformable-only: null/0 for a static (non-deformable) BLAS. The deformed buffer is double-buffered
+        // (curr/prev regions of m_DeformedRegionBytes each) so raster motion vectors can read the previous
+        // frame's positions; the region alternates by frame parity, with region 0 == CURR on frame 0 to match
+        // the initial build at offset 0. The deform writes + AS-build/geom-table read CURR.
         VkDeviceAddress GetDeformedBdaCurr(u32 frameAbs) const
             { return m_DeformedBda + static_cast<VkDeviceAddress>(frameAbs & 1u) * m_DeformedRegionBytes; }
         VkDeviceAddress GetDeformedBdaPrev(u32 frameAbs) const
@@ -43,26 +42,25 @@ namespace Luth
         u32             GetVertexCount()     const { return m_VertexCount; }
         u64             GetUpdateScratchSize() const { return m_UpdateScratchSize; }
 
-        // Per-mesh static BLAS factory. Synchronous main-thread ImmediateSubmit on the graphics
-        // queue (graphics families always advertise VK_QUEUE_COMPUTE_BIT per spec, which is what
-        // vkCmdBuildAccelerationStructuresKHR requires). PREFER_FAST_TRACE flag per NVIDIA RTX
-        // best practices — static BLAS optimizes for ray-trace performance, build cost is paid once.
-        // Gates on UploadContext::WaitForUpload of the VB/IB upload fences before recording the
-        // build — VB/IB upload runs on a separate submission chain (transfer queue), so the
+        // Per-mesh static BLAS factory. Synchronous main-thread ImmediateSubmit on the graphics queue (graphics
+        // families always advertise VK_QUEUE_COMPUTE_BIT per spec, which is what vkCmdBuildAccelerationStructuresKHR
+        // requires). PREFER_FAST_TRACE flag per NVIDIA RTX best practices: static BLAS optimizes for ray-trace
+        // performance, build cost is paid once. Gates on UploadContext::WaitForUpload of the VB/IB upload fences
+        // before recording the build; VB/IB upload runs on a separate submission chain (transfer queue), so the
         // graphics-queue draws' implicit serialize does NOT cover this build path.
         static std::shared_ptr<VKAccelerationStructure> CreateStaticBLAS(const Mesh& mesh);
 
         // Per-mesh DEFORMABLE BLAS factory (skinned OR static wind-deformable). Allocates a persistent
-        // double-buffered deformed-positions buffer and builds the AS over its (zero-init) curr region
-        // with ALLOW_UPDATE | PREFER_FAST_TRACE — the first per-frame deform compute + Refit fills the
-        // real positions before any consumer reads the BLAS. The deform compute reads the mesh's source
-        // VB directly; this waits on the VB + IB upload fences before the initial build.
+        // double-buffered deformed-positions buffer and builds the AS over its (zero-init) curr region with
+        // ALLOW_UPDATE | PREFER_FAST_TRACE; the first per-frame deform compute + Refit fills the real positions
+        // before any consumer reads the BLAS. The deform compute reads the mesh's source VB directly; this
+        // waits on the VB + IB upload fences before the initial build.
         static std::shared_ptr<VKAccelerationStructure> CreateDeformableBLAS(const Mesh& mesh);
 
         // In-place refit (MODE_UPDATE_KHR). Requires the BLAS was originally built with
         // ALLOW_UPDATE_BIT_KHR + same primitiveCount/geometry layout/vertex format/index format.
         // The deformed positions buffer must already be populated by the deform compute on `cmd`
-        // (or a prior submission); caller is responsible for the ComputeWrite → AS-build barrier
+        // (or a prior submission); caller is responsible for the ComputeWrite -> AS-build barrier
         // (render graph emits this when both passes share resource handles).
         // scratchBda must be at least GetUpdateScratchSize() bytes, aligned to the
         // minAccelerationStructureScratchOffsetAlignment from VulkanContext::GetAsProperties().

@@ -43,7 +43,7 @@ namespace Luth
             PFN_vkCmdTraceRaysKHR                       vkCmdTraceRaysKHR                       = nullptr;
         };
 
-        // VK_NV_device_diagnostic_checkpoints — optional NV-only diagnostic. Enabled when the
+        // VK_NV_device_diagnostic_checkpoints: optional NV-only diagnostic. Enabled when the
         // physical device advertises the extension; otherwise both pointers stay null and call
         // sites no-op. Used to localize the failing GPU command after VK_ERROR_DEVICE_LOST.
         struct CheckpointFunctions
@@ -52,7 +52,7 @@ namespace Luth
             PFN_vkGetQueueCheckpointDataNV   vkGetQueueCheckpointDataNV   = nullptr;
         };
 
-        // VK_EXT_debug_utils — object names + cmd labels for RenderDoc/Nsight/Aftermath; null no-op when off.
+        // VK_EXT_debug_utils: object names + cmd labels for RenderDoc/Nsight/Aftermath; null no-op when off.
         struct DebugUtilsFunctions
         {
             PFN_vkSetDebugUtilsObjectNameEXT vkSetDebugUtilsObjectNameEXT = nullptr;
@@ -76,9 +76,9 @@ namespace Luth
         // UBO descriptor base offsets (and size) must satisfy this when sub-allocating from a tagged page.
         u64 GetMinUniformBufferAlignment() const { return m_PhysicalDeviceProperties.limits.minUniformBufferOffsetAlignment; }
         BindlessDescriptorSet& GetBindlessSet() { return m_BindlessSet; }
-        RG::RenderResourceCache& GetResourceCache() { return m_ResourceCache; } // Getter
+        RG::RenderResourceCache& GetResourceCache() { return m_ResourceCache; }
 
-        // Queue Access — graphics is always present; compute/transfer alias to graphics on single-family GPUs.
+        // Queue access: graphics is always present; compute/transfer alias to graphics on single-family GPUs.
         VkQueue GetGraphicsQueue() const { return m_GraphicsQueue; }
         VkQueue GetComputeQueue()  const { return m_ComputeQueue;  }
         VkQueue GetTransferQueue() const { return m_TransferQueue; }
@@ -88,30 +88,30 @@ namespace Luth
         bool IsAsyncCompute()   const { return m_ComputeIsAsync;  }
         bool IsAsyncTransfer()  const { return m_TransferIsAsync; }
 
-        // Tracy GPU profiling contexts — one per queue; compute aliases graphics when not async-compute.
+        // Tracy GPU profiling contexts: one per queue; compute aliases graphics when not async-compute.
         GpuTracyCtx GetGraphicsTracyCtx() const { return m_GraphicsTracyCtx; }
         GpuTracyCtx GetComputeTracyCtx()  const { return m_ComputeTracyCtx; }
 
         // Deduped {graphics, compute, transfer} family list for VK_SHARING_MODE_CONCURRENT resource creation.
-        // Single-family layouts collapse to size 1 — callers should fall back to EXCLUSIVE in that case.
+        // Single-family layouts collapse to size 1; callers should fall back to EXCLUSIVE in that case.
         const std::vector<u32>& GetConcurrentFamilyIndices() const { return m_ConcurrentFamilyIndices; }
 
         // Apply CONCURRENT sharing across all in-use queue families. When the deduped set is size 1, leaves the
-        // create-info at the caller's default (typically EXCLUSIVE) — CONCURRENT with one family is spec UB.
+        // create-info at the caller's default (typically EXCLUSIVE); CONCURRENT with one family is spec UB.
         // See docs/development/arch/multi-queue.md for the per-resource opt-in policy.
         void ApplyConcurrentSharing(VkBufferCreateInfo& info) const;
         void ApplyConcurrentSharing(VkImageCreateInfo&  info) const;
 
-        // Helper to find memory types (if not using VMA for some reason)
+        // Manual memory-type lookup for the rare non-VMA allocation path.
         u32 FindMemoryType(u32 typeFilter, VkMemoryPropertyFlags properties);
 
         // Submit a command immediately and wait for it to finish (used for resource uploads)
         void ImmediateSubmit(std::function<void(VkCommandBuffer)>&& function);
 
-        // Thread-safe queue submission. Per-queue mutex guards the kernel syscall (vkQueueSubmit*) — this is the
+        // Thread-safe queue submission. Per-queue mutex guards the kernel syscall (vkQueueSubmit*); this is the
         // documented case where std::mutex is correct on a hot path per arch/memory.md (exceeds SpinLock contract).
         bool Submit(const VkSubmitInfo& submitInfo, VkFence fence);
-        bool Submit2(const VkSubmitInfo2& submitInfo, VkFence fence);          // Alias of SubmitGraphics2 — back-compat.
+        bool Submit2(const VkSubmitInfo2& submitInfo, VkFence fence);          // Alias of SubmitGraphics2; back-compat.
         bool SubmitGraphics2(const VkSubmitInfo2& submitInfo, VkFence fence);
         bool SubmitCompute2 (const VkSubmitInfo2& submitInfo, VkFence fence);
         bool SubmitTransfer2(const VkSubmitInfo2& submitInfo, VkFence fence);
@@ -123,14 +123,14 @@ namespace Luth
         void FlushAllDeletionQueues();
 
         // On VK_ERROR_DEVICE_LOST from any submit: dump the last checkpoint per queue to the log.
-        // Idempotent — only fires once per process lifetime; subsequent calls are no-ops.
+        // Idempotent: only fires once per process lifetime; subsequent calls are no-ops.
         // No-op when VK_NV_device_diagnostic_checkpoints isn't enabled on this device.
         void DumpCheckpointsOnDeviceLost(const char* originLabel);
 
         // Called by RendererAPI
         void SetCurrentFrameIndex(u32 index) { m_CurrentFrameIndex = index; }
 
-        // VK_EXT_debug_utils tag — validation / RenderDoc / Nsight / Aftermath print `name` alongside
+        // VK_EXT_debug_utils tag: validation / RenderDoc / Nsight / Aftermath print `name` alongside
         // the raw handle. No-op when debug-utils is off. Core takes a raw handle + type; typed overloads
         // cover the common objects so call sites stay terse.
         static void SetDebugName(u64 objectHandle, VkObjectType type, const char* name);
@@ -156,7 +156,7 @@ namespace Luth
         // Validation layers gated by LUTH_ENABLE_VALIDATION (luth/core/BuildConfig.h).
         // Default: on in Debug, off in Release/Dist. Override per-config or via the LUTH_VALIDATION env.
         bool CheckValidationLayerSupport();
-        // Resolve LUTH_VALIDATION → m_EnableValidationLayers + m_ValTiers (any-build runtime opt-in).
+        // Resolve LUTH_VALIDATION -> m_EnableValidationLayers + m_ValTiers (any-build runtime opt-in).
         // see arch/gpu-crash-debugging.md
         void ResolveValidationConfig();
         std::vector<const char*> m_ValidationLayers = { "VK_LAYER_KHRONOS_validation" };
@@ -179,9 +179,9 @@ namespace Luth
         bool m_CheckpointsAvailable = false;
         bool m_PipelineStatsSupported = false;  // pipelineStatisticsQuery + inheritedQueries both enabled
         
-        // Queue handles. Compute/transfer alias to graphics when no distinct family exists — callers route through
+        // Queue handles. Compute/transfer alias to graphics when no distinct family exists; callers route through
         // SubmitCompute2/SubmitTransfer2 regardless, so the alias is invisible at the call site. Each queue has its
-        // own mutex (vkQueueSubmit2 is a kernel syscall — std::mutex is the right primitive here, see arch/memory.md).
+        // own mutex (vkQueueSubmit2 is a kernel syscall; std::mutex is the right primitive here, see arch/memory.md).
         VkQueue m_GraphicsQueue = VK_NULL_HANDLE;
         VkQueue m_ComputeQueue  = VK_NULL_HANDLE;
         VkQueue m_TransferQueue = VK_NULL_HANDLE;
@@ -195,16 +195,16 @@ namespace Luth
         u32 m_TransferFamily = (u32)-1;
         bool m_ComputeIsAsync  = false;  // true iff compute family distinct from graphics
         bool m_TransferIsAsync = false;  // true iff transfer family distinct from graphics
-        std::vector<u32> m_ConcurrentFamilyIndices;  // Deduped list — used for CONCURRENT sharing-mode resources.
+        std::vector<u32> m_ConcurrentFamilyIndices;  // Deduped list; used for CONCURRENT sharing-mode resources.
         std::mutex m_CommandPoolMutex;
         VkCommandPool m_CommandPool = VK_NULL_HANDLE;
         BindlessDescriptorSet m_BindlessSet;
-        RG::RenderResourceCache m_ResourceCache; // Instance
+        RG::RenderResourceCache m_ResourceCache;
 
         VmaAllocator m_Allocator = VK_NULL_HANDLE;
         void* m_WindowHandle = nullptr; // Raw GLFW window handle
 
-        // Per-frame ring; resource dtors push from any thread (V1 SpinLock — push/swap stays under <100 cycles).
+        // Per-frame ring; resource dtors push from any thread (V1 SpinLock; push/swap stays under <100 cycles).
         struct DeletionQueue { std::deque<std::function<void()>> deletors; };
         DeletionQueue m_DeletionQueues[MAX_FRAMES_IN_FLIGHT];
         SpinLock m_DeletionLock;

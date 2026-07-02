@@ -17,7 +17,7 @@ namespace Luth::RG
         std::string name;
     };
 
-    // Per-pass GPU pipeline statistics — graphics passes only (async-compute queues can't run graphics
+    // Per-pass GPU pipeline statistics, graphics passes only (async-compute queues can't run graphics
     // stat queries). valid=false when stats capture is off or the pass recorded none.
     struct GpuPipelineStats
     {
@@ -31,7 +31,7 @@ namespace Luth::RG
     };
 
     // One barrier the RG solver emitted, captured from the compiled graph for the inspector. redundant =
-    // before==after (no layout transition — e.g. a WAW/RAW memory barrier, not necessarily wasteful).
+    // before==after (no layout transition; e.g. a WAW/RAW memory barrier, not necessarily wasteful).
     struct BarrierRecord
     {
         std::string resource;

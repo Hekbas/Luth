@@ -6,9 +6,9 @@
 
 namespace Luth
 {
-    // Wraps a VkCommandPool and caches the VkCommandBuffers it has handed out so they can be
-    // reused next frame after pool reset. Owned by a single Fiber during recording — not
-    // thread-safe by design (V3 forbids fiber yield while recording, so single-thread is fine).
+    // Wraps a VkCommandPool and caches the VkCommandBuffers it has handed out so they can be reused
+    // next frame after pool reset. Owned by a single Fiber during recording; not thread-safe by design
+    // (V3 forbids fiber yield while recording, so single-thread is fine).
 
     class CommandAllocator
     {

@@ -8,9 +8,8 @@
 
 namespace Luth::JobSystem
 {
-    // 16 KB guard at the low end. Single 4 KB page would fault on most overflows but
-    // a leaf with a large alloca could jump past it; 4 pages gives the fault detector
-    // enough cushion without meaningfully eating into the per-fiber footprint.
+    // 16 KB guard at the low end. Single 4 KB page would fault on most overflows but a leaf with a large alloca
+    // could jump past it; 4 pages gives the fault detector enough cushion without meaningfully eating into the per-fiber footprint.
     static constexpr size_t kGuardSize = 16 * 1024;
 
     FiberStack AllocateFiberStack(size_t usableSize)

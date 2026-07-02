@@ -20,9 +20,9 @@
 namespace Luth
 {
     namespace {
-        // Megakernel push constants. S0 uses invViewProj + frameSeed only; S1+ fill the rest. The
-        // pipeline reserves a fixed 128 B range (k_PtPCSize) so growing this struct never touches the
-        // pipeline layout (geomTableBDA + bounce params land in the reserved tail).
+        // Megakernel push constants. The pipeline reserves a fixed 128 B range (k_PtPCSize) so growing
+        // this struct never touches the pipeline layout (geomTableBDA + bounce params land in the
+        // reserved tail).
         struct PtPC {
             Mat4  invViewProj;
             u32   frameSeed;
@@ -30,15 +30,15 @@ namespace Luth
             u32   samplesPerFrame;
             u32   maxBounces;
             u32   rrStartDepth;
-            u32   reset;             // 1 → ignore the accumulator this frame
+            u32   reset;             // 1 = ignore the accumulator this frame
             f32   fireflyClamp;
             f32   pad0;
-            u32   envReady;          // 1 → IBL prefiltered env bound (else ray-miss returns black)
+            u32   envReady;          // 1 = IBL prefiltered env bound (else ray-miss returns black)
             u32   pad1;
             u64   geomTableBDA;      // secondary-hit material fetch (paired with the bound TLAS)
         };
         static_assert(sizeof(PtPC) == 112, "PtPC must match path_trace.comp push_constant");
-        constexpr u32 k_PtPCSize = 128;  // fixed range — leaves tail headroom (S2/S3 add no new fields)
+        constexpr u32 k_PtPCSize = 128;  // fixed range: leaves tail headroom for future fields
     }
 
     bool PathTraceSubsystem::IsEnabled() const
@@ -52,8 +52,8 @@ namespace Luth
         m_Pipeline = &pipeline;
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // Set 2 (pass-local) — b0 fp32 accumulator (in-place running mean), b1 fp16 display color.
-        // Both STORAGE_IMAGE, kept GENERAL, stable per-view (no per-frame swap → no UAB).
+        // Set 2 (pass-local): b0 fp32 accumulator (in-place running mean), b1 fp16 display color.
+        // Both STORAGE_IMAGE, kept GENERAL, stable per-view (no per-frame swap -> no UAB).
         VkDescriptorSetLayoutBinding bindings[2]{};
         bindings[0].binding         = 0;
         bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -78,8 +78,8 @@ namespace Luth
         }
 
         // Sets: 0 = global (UBO b0 + TLAS b6), 1 = light SSBO, 2 = pass-local, 3 = Material SSBO,
-        // 4 = bindless textures. Matches restir_gi_initial's layout so S1's secondary-hit material
-        // fetch drops in without a layout change (S0's stub references only Sets 0 + 2).
+        // 4 = bindless textures. Matches restir_gi_initial's layout so the secondary-hit material
+        // fetch drops in without a layout change.
         const std::vector<VkDescriptorSetLayout> layouts = {
             m_Pipeline->GetGlobal().GetSetLayout(),
             m_Pipeline->GetLighting().GetSetLayout(),
@@ -163,12 +163,12 @@ namespace Luth
         u64 h = 0xcbf29ce484222325ull;          // FNV-1a basis
         h = mix(h, static_cast<u64>(m_ResetSalt));
 
-        // Camera VP — covers position / rotation / FOV. Copy to a local (accessor may return by value).
+        // Camera VP: covers position / rotation / FOV. Copy to a local (accessor may return by value).
         Mat4 vp = m_Pipeline->GetGlobal().GetCachedViewProj();
         const f32* vpF = &vp[0][0];
         for (int i = 0; i < 16; ++i) h = mixF(h, vpF[i]);
 
-        // Scene instances — full world matrix + material + mesh + entity. Hashes more than the TLAS
+        // Scene instances: full world matrix + material + mesh + entity. Hashes more than the TLAS
         // dirty-skip (translation only) so a pure rotation also restarts: never stale, only slower.
         const RenderSnapshot& snap = m_Pipeline->GetSystem().GetActiveSnapshot();
         for (const auto& m : snap.meshes)
@@ -180,7 +180,7 @@ namespace Luth
             h = mix(h, (static_cast<u64>(m.meshIndex) << 32) ^ static_cast<u64>(m.entity));
         }
 
-        // Lights — directional + every point light (edits here don't rebuild the TLAS, so they need
+        // Lights: directional + every point light (edits here don't rebuild the TLAS, so they need
         // their own signal). LightingSystem holds the final gathered set by graph-build time.
         if (auto* ls = SystemRegistry::GetSystem<LightingSystem>())
         {
@@ -195,14 +195,14 @@ namespace Luth
             }
         }
 
-        // Environment exposure — env-on-miss scales by skyboxIntensity, so an edit changes the image.
+        // Environment exposure: env-on-miss scales by skyboxIntensity, so an edit changes the image.
         if (const RenderView* view = m_Pipeline->GetCurrentView())
         {
             h = mixF(h, view->camera.skyboxIntensity);
             h = mixF(h, view->camera.iblIntensity);
         }
 
-        // Settings — changing the integrator (bounces / samples / RR / clamp) restarts the reference.
+        // Settings: changing the integrator (bounces / samples / RR / clamp) restarts the reference.
         const PathTraceSettings& s = m_Pipeline->GetSystem().GetPathTraceSettings();
         h = mix(h, static_cast<u64>(s.samplesPerFrame));
         h = mix(h, static_cast<u64>(s.maxBounces));
@@ -236,12 +236,12 @@ namespace Luth
         pc.frameSeed       = frameAbs;
         pc.sampleCount     = vr->ptSampleCount;
         pc.samplesPerFrame = std::max(s.samplesPerFrame, 1u);
-        pc.maxBounces      = std::max(s.maxBounces, 1u);   // ≥1 → at least the primary hit
+        pc.maxBounces      = std::max(s.maxBounces, 1u);   // >=1: at least the primary hit
         pc.rrStartDepth    = s.rrStartDepth;
         pc.reset           = reset ? 1u : 0u;
         pc.fireflyClamp    = s.fireflyClamp;
         pc.envReady        = m_Pipeline->GetLighting().IsIBLReady() ? 1u : 0u;
-        // Geometry-table BDA read at preflight, paired with the same m_LastResult that binds Set 0 b6 —
+        // Geometry-table BDA read at preflight, paired with the same m_LastResult that binds Set 0 b6,
         // so the table can't desync from the bound TLAS. Zero before the first real build (all rays miss).
         pc.geomTableBDA    = m_Pipeline->GetRt().GetGeometryTableBDA();
 
@@ -253,7 +253,7 @@ namespace Luth
             [&, this](PtData& data, RG::RenderPassBuilder& builder) {
                 ViewResources* v = m_Pipeline->GetCurrentViewResources();
 
-                // fp32 accumulator — imported in its LEFT state (ComputeWrite, where last frame's
+                // fp32 accumulator: imported in its LEFT state (ComputeWrite, where last frame's
                 // WriteStorageImage left it) so the RG emits the cross-frame RAW barrier that makes
                 // last frame's write visible to this frame's imageLoad. Read+Write in one pass = an
                 // in-place RMW (no intra-pass barrier; the GIReservoir temporal uses the same shape).
@@ -269,8 +269,8 @@ namespace Luth
                 data.accum = builder.ReadStorageImageGeneral(data.accum);
                 data.accum = builder.WriteStorageImage(data.accum);
 
-                // fp16 display copy — fully overwritten each frame → Undefined import (restirGiDI pattern).
-                // The post chain Reads colorHandle, so the RG transitions it GENERAL → SHADER_READ_ONLY for
+                // fp16 display copy: fully overwritten each frame -> Undefined import (restirGiDI pattern).
+                // The post chain Reads colorHandle, so the RG transitions it GENERAL -> SHADER_READ_ONLY for
                 // the bloom/composite sample (cross-queue, semaphore-gated by the per-view 3-submit topology).
                 auto colTex = std::static_pointer_cast<VKTexture>(v->ptColor);
                 RG::TextureDesc colDesc;
@@ -289,7 +289,7 @@ namespace Luth
                 ViewResources*  v   = m_Pipeline->GetCurrentViewResources();
                 if (!v || v->ptDescSet == VK_NULL_HANDLE) return;
 
-                // AS-build → AS-read barrier. dstStageMask is COMPUTE_SHADER (NOT RAY_TRACING) —
+                // AS-build -> AS-read barrier. dstStageMask is COMPUTE_SHADER (NOT RAY_TRACING):
                 // rayQuery executes in the compute stage; a RAY_TRACING dst here is a TDR trap.
                 VkMemoryBarrier2 asBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
                 asBarrier.srcStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
@@ -320,7 +320,7 @@ namespace Luth
                 vkCmdDispatch(cmd, groupX, groupY, 1);
             });
 
-        // Advance the accumulated-sample count for next frame (clamped — keeps the running-mean weight
+        // Advance the accumulated-sample count for next frame (clamped: keeps the running-mean weight
         // 1/(n+1) from collapsing to fp32 epsilon over a very long parked-camera session).
         if (accumulate)
             vr->ptSampleCount = std::min(vr->ptSampleCount + pc.samplesPerFrame, 65536u);

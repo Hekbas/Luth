@@ -22,9 +22,8 @@ namespace Luth
 
     void Renderer::Shutdown()
     {
-        // Wait for all GPU work to complete BEFORE destroying any resources.
-        // MaterialSystem::Shutdown() frees its SSBO buffer directly (no deferred
-        // deletion), so in-flight command buffers must have finished first.
+        // Wait for all GPU work to complete BEFORE destroying any resources. MaterialSystem::Shutdown() frees
+        // its SSBO buffer directly (no deferred deletion), so in-flight command buffers must have finished first.
         WaitForGPU();
         MaterialSystem::Shutdown();
         if (s_Backend) {
@@ -55,7 +54,7 @@ namespace Luth
 
     void Renderer::EndFrame()
     {
-        // No-op — submission happens in ExecuteGraph
+        // No-op; submission happens in ExecuteGraph
     }
 
     void Renderer::OnResize(u32 width, u32 height)
@@ -81,7 +80,7 @@ namespace Luth
 
     bool Renderer::RecordGraph(QueueRecorders recorders, RG::RenderGraph& graph, GPUTimerPool* timers)
     {
-        // RG::Execute routes per pass: AsyncCompute → recorders.compute; Graphics → recorders.gA (before first
+        // RG::Execute routes per pass: AsyncCompute -> recorders.compute; Graphics -> recorders.gA (before first
         // AsyncCompute pass) or recorders.gB (after). Returns true iff any pass routed to compute, so SubmitView
         // can skip the compute submit when the graph stayed graphics-only.
         return graph.Execute(recorders, timers);
@@ -91,7 +90,7 @@ namespace Luth
                                           bool hasComputeWork, bool isLastView)
     {
     #if defined(TRACY_ENABLE)
-        // Tracy GPU collect — append the readback to the still-open primaries. Graphics ctx on gB (always
+        // Tracy GPU collect: append the readback to the still-open primaries. Graphics ctx on gB (always
         // submitted, last graphics submit); compute ctx on the compute primary only when it carries work and is
         // a distinct async context (else it aliases graphics and is collected via gB).
         auto& vkCtx = VulkanContext::Get();
@@ -100,7 +99,7 @@ namespace Luth
             LH_PROFILE_GPU_COLLECT(vkCtx.GetComputeTracyCtx(), recorders.compute);
     #endif
 
-        // Present transition is RG-driven — ImGuiPass imports the backbuffer with finalState=Present. End all
+        // Present transition is RG-driven; ImGuiPass imports the backbuffer with finalState=Present. End all
         // three primaries (empty compute/gB are valid no-op submits) and forward to the backend's per-view 3-submit
         // topology. SubmitView skips the compute submit when hasComputeWork is false; gB always submits.
         vkEndCommandBuffer(recorders.gA);

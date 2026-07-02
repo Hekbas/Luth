@@ -35,7 +35,7 @@ namespace Luth
         m_Pipeline = &pipeline;
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // Set 6 — b0 fog atlas (sampler3D, parity-rewritten per frame → UAB), b1 OIT heads storage
+        // Set 6: b0 fog atlas (sampler3D, parity-rewritten per frame -> UAB), b1 OIT heads storage
         // image + b2 OIT nodes SSBO (UAB + PARTIALLY_BOUND: unwritten until the PPLL passes land;
         // the sorted pipeline never statically uses them, which partially-bound makes legal).
         VkDescriptorSetLayoutBinding bindings[3]{};
@@ -69,7 +69,7 @@ namespace Luth
         layoutCI.pBindings    = bindings;
         vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_TransparentSetLayout);
 
-        // OIT resolve layout — b0 heads (storage image), b1 nodes (SSBO). Stable per-view; rewritten
+        // OIT resolve layout: b0 heads (storage image), b1 nodes (SSBO). Stable per-view; rewritten
         // only by WriteOitView on alloc/resize, so no UAB flags needed.
         VkDescriptorSetLayoutBinding resolveBindings[2]{};
         resolveBindings[0].binding         = 0;
@@ -251,7 +251,7 @@ namespace Luth
         const bool parity = (frameAbs & 1u) != 0u;
         if (vr.transparentDescSet[slot] == VK_NULL_HANDLE) return;
 
-        // Same parity rule as the volumetric composite's b1 — sample this frame's resolved atlas.
+        // Same parity rule as the volumetric composite's b1: sample this frame's resolved atlas.
         auto vkScat = std::static_pointer_cast<VKTexture>(
             parity ? vr.volInScatterHistA : vr.volInScatterHistB);
 
@@ -281,7 +281,7 @@ namespace Luth
         headsInfo.imageView   = vkHeads->GetImageView();
         headsInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-        // Bind through the producer's GPUSubRegion {buffer, offset, size} — RG BufferHandles are
+        // Bind through the producer's GPUSubRegion {buffer, offset, size}; RG BufferHandles are
         // barrier bookkeeping only. see arch/rendering-pipeline.md (hazard 3)
         VkDescriptorBufferInfo nodesInfo{};
         nodesInfo.buffer = vr.oitNodes.buffer;
@@ -358,7 +358,7 @@ namespace Luth
         auto vkHeads = std::static_pointer_cast<VKTexture>(vr->oitHeads);
 
         // Import in the end-of-frame state (GENERAL + fragment read) so the clear's barrier orders
-        // after LAST frame's resolve reads — an Undefined import would carry srcStage TOP and let
+        // after LAST frame's resolve reads; an Undefined import would carry srcStage TOP and let
         // the transition race them (cross-frame WAR). Frame 0 holds by the bootstrap transition.
         RG::TextureDesc headsDesc;
         headsDesc.name   = "OITHeads";
@@ -377,7 +377,7 @@ namespace Luth
 
         const u32 nodeCapacity = static_cast<u32>((vr->oitNodes.size - 16ull) / 16ull);
 
-        // ── OITClear — heads → OIT_EMPTY, node-count header → 0 (node payloads stay stale; the
+        // OITClear: heads -> OIT_EMPTY, node-count header -> 0 (node payloads stay stale; the
         // cleared heads make them unreachable). Transfer ops on the graphics primary.
         struct ClearData { RG::ResourceHandle heads; RG::BufferHandle nodes; };
         RG::ResourceHandle headsCleared;
@@ -402,9 +402,9 @@ namespace Luth
                 vkCmdFillBuffer(ctx.commandBuffer, view->oitNodes.buffer, view->oitNodes.offset, 16, 0u);
             });
 
-        // ── OITStore — depth-tested transparent draws shade once and push onto the per-pixel list.
+        // OITStore: depth-tested transparent draws shade once and push onto the per-pixel list.
         // Zero color attachments (depth-only BeginRendering, the ShadowPass shape); bucket order
-        // is irrelevant — the resolve sorts per pixel.
+        // is irrelevant, the resolve sorts per pixel.
         struct StoreData
         {
             RG::ResourceHandle depth, fog, heads;
@@ -505,7 +505,7 @@ namespace Luth
                     auto ib = std::static_pointer_cast<VKIndexBuffer >(mesh->GetIndexBuffer ());
                     if (!vb || !ib) continue;
 
-                    // Deformable draws bind no VB — the VS fetches the deformed buffer by gl_VertexIndex.
+                    // Deformable draws bind no VB; the VS fetches the deformed buffer by gl_VertexIndex.
                     if (!dc.isDeformed)
                     {
                         VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
@@ -542,7 +542,7 @@ namespace Luth
                 sys.GetFrameDebugger().EndCapturePass();
             });
 
-        // ── OITResolve — fullscreen sort-K + under-composite onto sceneColor; nearest entity →
+        // OITResolve: fullscreen sort-K + under-composite onto sceneColor; nearest entity ->
         // EntityID (picking parity with the sorted path).
         struct ResolveData
         {
@@ -605,7 +605,7 @@ namespace Luth
         const auto& draws = sys.GetDrawList().transparent;
         const u32 n = static_cast<u32>(draws.size());
 
-        // Per-view back-to-front order over the SHARED transparent bucket — an index array, never an
+        // Per-view back-to-front order over the SHARED transparent bucket: an index array, never an
         // in-place sort (the other view + the OIT store iterate the same vector). Key = view-space
         // depth of the world-space bind-pose bounds center; scratch from the per-frame LinearAllocator
         // (reset at Update entry; the RG records within the same Update body).
@@ -621,7 +621,7 @@ namespace Luth
             if (dc.model && dc.meshIndex < dc.model->GetMeshesData().size())
                 center = dc.model->GetMeshesData()[dc.meshIndex].BindPoseAABB.Center();
             const Vec4 worldCenter = dc.modelMatrix * Vec4(center, 1.0f);
-            keys[i] = -(viewMat * worldCenter).z;   // RH view space: -z in front → key = distance
+            keys[i] = -(viewMat * worldCenter).z;   // RH view space: -z in front -> key = distance
         }
         std::sort(order, order + n, [keys](u32 a, u32 b) { return keys[a] > keys[b]; });
 
@@ -727,7 +727,7 @@ namespace Luth
                     auto ib = std::static_pointer_cast<VKIndexBuffer >(mesh->GetIndexBuffer ());
                     if (!vb || !ib) continue;
 
-                    // Deformable draws bind no VB — the VS fetches the deformed buffer by gl_VertexIndex.
+                    // Deformable draws bind no VB; the VS fetches the deformed buffer by gl_VertexIndex.
                     if (!dc.isDeformed)
                     {
                         VkBuffer vbuf[] = { vb->GetVulkanBuffer() };

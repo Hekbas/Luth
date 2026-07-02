@@ -11,7 +11,7 @@ namespace Luth
     fs::path FileSystem::s_AssetsRoot;
     bool     FileSystem::s_HasProject = false;
 
-    // ── Phase 1: Engine-only init (called at startup) ──
+    // ---- Engine-only init (called at startup, before any project) ----
 
     void FileSystem::InitEngine(const fs::path& engineRoot)
     {
@@ -26,7 +26,7 @@ namespace Luth
         LH_LOG(Assets, info, "FileSystem: Engine root = {}", s_EngineRoot.string());
     }
 
-    // ── Phase 2: Set project root (called when user selects a project) ──
+    // ---- Project root setup (called when user selects a project) ----
 
     void FileSystem::SetProjectRoot(const fs::path& projectRoot)
     {
@@ -52,7 +52,7 @@ namespace Luth
         return s_HasProject;
     }
 
-    // ── Path Operations ──
+    // ---- Path Operations ----
 
     fs::path FileSystem::GetPath(AssetType type, const fs::path& name, bool addExtension)
     {
@@ -80,7 +80,7 @@ namespace Luth
             return path.lexically_normal();
         }
 
-        // No project loaded — return engine path as default
+        // No project loaded: return engine path as default
         fs::path path = enginePath;
         if (addExtension && !name.has_extension() && !info.extension.empty())
             path += info.extension;
@@ -125,7 +125,7 @@ namespace Luth
         return enginePath.lexically_normal();
     }
 
-    // ── Platform / Utility ──
+    // ---- Platform / Utility ----
 
     fs::path FileSystem::PlatformAssetsPath()
     {
@@ -148,8 +148,8 @@ namespace Luth
     }
 
     fs::path FileSystem::LogPath() {
-        // Logs go alongside the project when one is loaded; otherwise next to
-        // the engine so the launcher / pre-project boot still has somewhere to write.
+        // Logs go alongside the project when one is loaded; otherwise next to the engine so the
+        // launcher / pre-project boot still has somewhere to write.
         return s_HasProject ? ProjectPath("Logs") : EnginePath("Logs");
     }
 
@@ -196,7 +196,7 @@ namespace Luth
         auto it = extensionMap.find(ext);
         AssetType type = (it != extensionMap.end()) ? it->second : AssetType::None;
 
-        // common/*.slang are import-only modules (like common/*.glsl includes) — compiling a no-entry
+        // common/*.slang are import-only modules (like common/*.glsl includes); compiling a no-entry
         // module standalone collides in Slang's cache; consumers resolve the import from disk. Skip it.
         if (type == AssetType::Shader && ext == ".slang" && path.parent_path().filename() == "common")
             return AssetType::None;

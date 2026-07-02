@@ -28,7 +28,7 @@ namespace Luth::Gizmos
         constexpr float kConeOuterAlpha = 0.60f;
         constexpr float kConeInnerAlpha = 0.35f;
 
-        // Distance-proportional world size → roughly screen-constant on-screen. Tuned so the arrow
+        // Distance-proportional world size -> roughly screen-constant on-screen. Tuned so the arrow
         // reads like the old ~80px ImGui overlay at a typical FOV; joints are a small fraction.
         constexpr float kArrowK = 0.085f;
         constexpr float kJointK = 0.006f;
@@ -94,7 +94,7 @@ namespace Luth::Gizmos
                 auto& sl = spotView.get<SpotLight>(e);
                 const Vec3 apex = Vec3(wt.Matrix[3]);
                 const Vec3 dir  = Math::Normalize(-Vec3(wt.Matrix[2]));
-                // Half-angle is measured from the axis; clamp under 90° so tan() stays finite.
+                // Half-angle is measured from the axis; clamp under 90 deg so tan() stays finite.
                 const float outerR = sl.Range * std::tan(Math::Radians(Math::Min(sl.OuterConeAngleDeg, 89.0f)));
                 const float innerR = sl.Range * std::tan(Math::Radians(Math::Min(sl.InnerConeAngleDeg, 89.0f)));
                 DebugDraw::WireCone(apex, dir, sl.Range, outerR, Pack(sl.Color, kConeOuterAlpha * a));
@@ -218,7 +218,7 @@ namespace Luth::Gizmos
 
             if (sc.all)
             {
-                // Whole-scene skeletons — opt-in (default off): a many-character cost the selected path
+                // Whole-scene skeletons are opt-in (default off): a many-character cost the selected path
                 // avoids. Selection-vs-anim-owner mismatch only dims a child-selected rig, harmless here.
                 auto view = reg.view<Animation, WorldTransform>();
                 for (auto e : view)

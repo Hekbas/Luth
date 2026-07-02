@@ -13,9 +13,8 @@
 #include <windows.h>
 #endif
 
-// ASan fiber-switch annotations. Paired around each jump_fcontext switch so the
-// sanitizer can keep its stack-tracking accurate across fiber boundaries. Compiled
-// out when ASan is not in the build.
+// ASan fiber-switch annotations. Paired around each jump_fcontext switch so the sanitizer can keep
+// its stack-tracking accurate across fiber boundaries. Compiled out when ASan is not in the build.
 #if defined(__SANITIZE_ADDRESS__)
 extern "C" {
     void __sanitizer_start_switch_fiber(void** fake_stack_save,
@@ -30,13 +29,12 @@ namespace Luth::JobSystem
     struct JobContext;
     JobContext* GetCurrentJobContext();
 
-    // Worker scheduler fiber wrapper. Stack lives in a VirtualAlloc'd region that we own
-    // — bottom/size are known pre-first-switch, which lets ASan track per-fiber bounds
-    // (Win32 fibers can't satisfy this). See arch/fiber-system.md for the V1-V6 hazard
-    // model and the rationale for the custom backend.
+    // Worker scheduler fiber wrapper. Stack lives in a VirtualAlloc'd region owned by the engine:
+    // bottom/size are known pre-first-switch, which lets ASan track per-fiber bounds (Win32 fibers
+    // can't satisfy this). See arch/fiber-system.md for the V1-V6 hazard model and the custom-backend rationale.
     struct Fiber
     {
-        // ── State ──
+        // ---- State ----
         void* Args = nullptr;
         Fiber* NextWaiting = nullptr;
         u32 PinnedThreadIndex = ~0u;
@@ -45,16 +43,15 @@ namespace Luth::JobSystem
         void* WaitCounter = nullptr;
         u32 WaitTarget = 0;
 
-        // ASan tracking: AsanFakeStack is the per-fiber save slot; StackBottom/StackSize
-        // are the bounds passed to start_switch_fiber. Populated by Create or
-        // CaptureCurrentThreadAsFiber; inert under non-ASan builds.
+        // ASan tracking: AsanFakeStack is the per-fiber save slot; StackBottom/StackSize are the bounds
+        // passed to start_switch_fiber. Populated by Create or CaptureCurrentThreadAsFiber; inert under non-ASan builds.
         void* AsanFakeStack = nullptr;
         void* StackBottom = nullptr;
         size_t StackSize = 0;
 
-        // Saved RSP (initial value from make_fcontext, updated by each jump_fcontext).
-        // Stack region owned by Stack — its Region is null for fibers wrapping an existing
-        // OS-thread stack via CaptureCurrentThreadAsFiber (we don't own that stack).
+        // Saved RSP (initial value from make_fcontext, updated by each jump_fcontext). Stack region owned
+        // by Stack; its Region is null for fibers wrapping an existing OS-thread stack via
+        // CaptureCurrentThreadAsFiber (the OS owns that stack).
         void* Context = nullptr;
         FiberStack Stack{};
 
@@ -107,9 +104,8 @@ namespace Luth::JobSystem
 
         using EntryPoint = void(*)(void*);
 
-        // 2 MB stack — sized for heavy importers (Assimp). ownerCtx is patched into the
-        // new fiber's TIB ArbitraryUserPointer save slot so its first resume restores the
-        // correct JobContext pointer into gs:[0x28].
+        // 2 MB stack, sized for heavy importers (Assimp). ownerCtx is patched into the new fiber's TIB
+        // ArbitraryUserPointer save slot so its first resume restores the correct JobContext pointer into gs:[0x28].
         static Fiber Create(EntryPoint entry, void* args, JobContext* ownerCtx,
                              size_t stackSize = 2 * 1024 * 1024)
         {
@@ -144,10 +140,9 @@ namespace Luth::JobSystem
             f.StackSize = 0;
         }
 
-        // V3 ENFORCEMENT: Assert that we are NOT inside a RecordingScope.
-        // ASan: paired start/finish_switch_fiber tells the sanitizer about the stack
-        // swap so it doesn't flag the destination fiber's first stack access as
-        // use-after-scope against `from`'s redzones.
+        // V3 ENFORCEMENT: assert the caller is NOT inside a RecordingScope.
+        // ASan: paired start/finish_switch_fiber tells the sanitizer about the stack swap so it doesn't
+        // flag the destination fiber's first stack access as use-after-scope against `from`'s redzones.
         static void SwitchTo(Fiber& from, Fiber& to)
         {
             #ifndef NDEBUG
@@ -175,9 +170,8 @@ namespace Luth::JobSystem
             #endif
         }
 
-        // Wrap the calling OS thread's existing stack as a Fiber: record bounds (TIB read)
-        // and seed gs:[0x28] = ownerCtx so subsequent jump_fcontext save cycles capture
-        // the correct per-fiber JobContext pointer.
+        // Wrap the calling OS thread's existing stack as a Fiber: record bounds (TIB read) and seed gs:[0x28] = ownerCtx
+        // so subsequent jump_fcontext save cycles capture the correct per-fiber JobContext pointer.
         static Fiber CaptureCurrentThreadAsFiber(JobContext* ownerCtx)
         {
             Fiber f;
@@ -195,9 +189,8 @@ namespace Luth::JobSystem
             return f;
         }
 
-        // Capture the current OS-thread's stack range. TIB is per-fiber (our MASM swaps
-        // StackBase/StackLimit on every jump_fcontext), so GetCurrentThreadStackLimits
-        // returns the active fiber's bounds.
+        // Capture the current OS-thread's stack range. TIB is per-fiber (the MASM backend swaps
+        // StackBase/StackLimit on every jump_fcontext), so GetCurrentThreadStackLimits returns the active fiber's bounds.
         void CaptureCurrentStackBounds()
         {
             #ifdef _WIN32

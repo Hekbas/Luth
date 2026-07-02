@@ -27,7 +27,7 @@ namespace Luth
     std::vector<AssetManager::PendingUpload> AssetManager::s_UploadQueue;
 
     static float s_GCTimer = 0.0f;
-    static const float k_GCInterval = 2.0f; // Run GC every 2 seconds
+    static const float k_GCInterval = 2.0f; // seconds
 
     void AssetManager::Init()
     {
@@ -52,7 +52,6 @@ namespace Luth
         LH_PROFILE_FUNCTION();
         std::lock_guard<std::mutex> lock(s_AssetMutex);
 
-        // Check if already loaded or currently loading
         if (s_Assets.find(handle) != s_Assets.end()) return;
         if (s_LoadingAssets.find(handle) != s_LoadingAssets.end()) return;
 
@@ -67,8 +66,7 @@ namespace Luth
         s_LoadingAssets.insert(handle);
         
         LoadRequest* req = new LoadRequest{ handle, info.Path, info.Type };
-        
-        // Dispatch to JobSystem
+
         JobSystem::Execute(LoadJob, req, nullptr, "AssetLoad");
     }
 
@@ -76,13 +74,12 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
 
-        // Check cache first
         if (auto asset = GetAsset<Asset>(handle)) return asset;
 
         const auto& info = AssetDatabase::GetMetadata(handle);
         if (info.Path.empty()) return nullptr;
 
-        // 1. Check/Create Artifact
+        // Check/create artifact.
         fs::path artifactPath = AssetDatabase::GetArtifactPath(handle);
         bool artifactReady = fs::exists(artifactPath);
 
@@ -96,8 +93,8 @@ namespace Luth
 
         if (!artifactReady) return nullptr;
 
-        // 2. Load Data from Artifact. A present-but-incompatible artifact (an older schema after a
-        // format-version bump) fails to deserialize — regenerate it once from source so a schema bump
+        // Load data from the artifact. A present-but-incompatible artifact (an older schema after a
+        // format-version bump) fails to deserialize; regenerate it once from source so a schema bump
         // self-heals instead of silently failing every load until the artifact cache is wiped.
         auto data = DeserializeArtifact(info.Type, artifactPath);
         if (!data && s_Importers.find(info.Type) != s_Importers.end())
@@ -108,7 +105,7 @@ namespace Luth
         }
         if (!data) return nullptr;
 
-        // 3. Create Asset (Main Thread)
+        // Create the asset (main thread).
         auto newAsset = FinalizeAsset(info.Type, data.get(), info.Path);
 
         if (newAsset) { 
@@ -205,7 +202,7 @@ namespace Luth
         JobSystem::WaitForCounter(&importCounter);
     }
 
-    // ── Shared helpers ──
+    // ---- Shared helpers ----
 
     std::unique_ptr<AssetData> AssetManager::DeserializeArtifact(AssetType type, const fs::path& artifactPath)
     {
@@ -275,7 +272,7 @@ namespace Luth
         return nullptr;
     }
 
-    // ── Async loading ──
+    // ---- Async loading ----
 
     void AssetManager::LoadJob(JobSystem::JobArgs args)
     {
@@ -287,7 +284,7 @@ namespace Luth
         fs::path artifactPath = AssetDatabase::GetArtifactPath(req->Handle);
         bool artifactReady = fs::exists(artifactPath);
 
-        // 1. Import if missing
+        // Import if missing.
         if (!artifactReady)
         {
             if (s_Importers.find(req->Type) != s_Importers.end())
@@ -297,13 +294,13 @@ namespace Luth
             }
             else
             {
-                // Font and Scene types are handled directly — not an error
+                // Font and Scene types are handled directly (not an error)
                 if (req->Type != AssetType::Font && req->Type != AssetType::Scene)
                     LH_LOG(Assets, error, "AssetManager: No importer for type {0}", (int)req->Type);
             }
         }
 
-        // 2. Load from Artifact
+        // Load from the artifact.
         std::unique_ptr<AssetData> data = nullptr;
         if (artifactReady)
             data = DeserializeArtifact(req->Type, artifactPath);
@@ -329,7 +326,7 @@ namespace Luth
             s_GCTimer = 0.0f;
         }
 
-        // Idle frames must still tick — upload fences retire 1-2 frames after the ctor pushed.
+        // Idle frames must still tick; upload fences retire 1-2 frames after the ctor pushed.
         UploadContext::Get().DrainPendingBinds();
 
         std::lock_guard<std::mutex> lock(s_UploadMutex);
@@ -354,8 +351,7 @@ namespace Luth
                     }
                 }
 
-                // Model-specific: trigger async load for the model's animation clips
-                // so AnimationSystem can sample them on the next frame.
+                // Model-specific: async-load the model's animation clips so AnimationSystem can sample them next frame.
                 if (upload.Type == AssetType::Model && newAsset)
                 {
                     auto* model = static_cast<Model*>(newAsset.get());
@@ -369,8 +365,7 @@ namespace Luth
 
             {
                 std::lock_guard<std::mutex> assetLock(s_AssetMutex);
-                
-                // Clear loading flag
+
                 s_LoadingAssets.erase(upload.Handle);
 
                 if (newAsset) {

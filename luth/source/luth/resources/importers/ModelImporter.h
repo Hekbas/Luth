@@ -38,7 +38,7 @@ namespace Luth
         MeshTransformMode SkinMeshTransform = MeshTransformMode::Auto;
 
         // When true, each animation clip from the source becomes its own .anim sibling asset (UUID-addressable, shareable across rigs).
-        // Disable to kip clip extraction entirely.
+        // Disable to skip clip extraction entirely.
         bool ExtractClipsAsSeparateAssets = true;
 
         // Scene-graph extras (static models): import source cameras / lights as entities.
@@ -49,8 +49,8 @@ namespace Luth
         // suffix), so packed/non-standard layouts canonicalize at import. Never clobbers a user-set role.
         bool AutoDetectTextureRoles = true;
 
-        // Physics shape sourcing. None (default) → ShapeCache returns null for asset-backed colliders referencing
-        // this model and warns once per UUID. Auto → ShapeCache builds JPH::ConvexHullShape / JPH::MeshShape on
+        // Physics shape sourcing. None (default) -> ShapeCache returns null for asset-backed colliders referencing
+        // this model and warns once per UUID. Auto -> ShapeCache builds JPH::ConvexHullShape / JPH::MeshShape on
         // demand from Model::m_MeshesData. Per-mesh override + actual on-disk shape cooking are deferred to a future effort.
         enum class PhysicsBakeMode : int { None = 0, Auto = 1 };
         PhysicsBakeMode PhysicsBake = PhysicsBakeMode::None;
@@ -67,7 +67,7 @@ namespace Luth
         std::vector<UUID> AnimationClipUUIDs;
         bool IsSkinned = false;
 
-        // V4 scene graph — populated for static models only (skinned models stay empty).
+        // V4 scene graph: populated for static models only (skinned models stay empty).
         std::vector<ModelNode>   Nodes;
         std::vector<ModelCamera> Cameras;
         std::vector<ModelLight>  Lights;

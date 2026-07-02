@@ -18,9 +18,9 @@
 
 namespace Luth
 {
-    // Mirrors the GLSL push_constant block in taa_resolve.slang. Source-side de-jitter now lives
-    // in slim_gbuffer.slang (ubo.taaParams.zw + ubo.prevJitter), so the resolve no longer carries
-    // a jitter delta — just the temporal feedback weight.
+    // Mirrors the push_constant block in taa_resolve.slang. Source-side de-jitter lives in
+    // slim_gbuffer.slang (ubo.taaParams.zw + ubo.prevJitter), so the resolve no longer carries
+    // a jitter delta, just the temporal feedback weight.
     struct TaaResolvePushConstants
     {
         f32 temporalAlpha;
@@ -32,8 +32,8 @@ namespace Luth
     // bright-pass on the scene->mip0 step; later mips run the plain 13-tap.
     struct BloomDownPC
     {
-        Vec2  srcTexel;   // 0  — 1/sourceResolution
-        IVec2 dstSize;    // 8  — dest extent
+        Vec2  srcTexel;   // 0: 1/sourceResolution
+        IVec2 dstSize;    // 8: dest extent
         f32   threshold;  // 16
         f32   knee;       // 20
         u32   prefilter;  // 24
@@ -66,7 +66,7 @@ namespace Luth
         samplerInfo.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_LINEAR;
         vkCreateSampler(device, &samplerInfo, nullptr, &m_Sampler);
 
-        // Nearest sampler for the slim G-buffer matID binding (R16_UINT — integer formats lack
+        // Nearest sampler for the slim G-buffer matID binding (R16_UINT: integer formats lack
         // SAMPLED_IMAGE_FILTER_LINEAR_BIT, so binding the LINEAR m_Sampler trips VUID 04553).
         VkSamplerCreateInfo nearestInfo{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
         nearestInfo.magFilter    = VK_FILTER_NEAREST;
@@ -137,7 +137,7 @@ namespace Luth
         bloomLayoutInfo.pBindings    = bloomBindings;
         vkCreateDescriptorSetLayout(device, &bloomLayoutInfo, nullptr, &m_BloomComputeLayout);
 
-        // Slim viz descriptor set layout — 4 sampler bindings (normal/roughness/motion/matID).
+        // Slim viz descriptor set layout: 4 sampler bindings (normal/roughness/motion/matID).
         // Stable per-view; written once at AllocateViewResources time. No UAB needed since the
         // slim attachment views only change on resize (which destroys + recreates the descPool).
         VkDescriptorSetLayoutBinding slimBindings[4] = {};
@@ -156,9 +156,9 @@ namespace Luth
         // TAA Resolve descriptor set layout (Karis14 YCoCg-clip recipe).
         //   0 = sceneColor (sampler2D, current HDR after volumetric composite)
         //   1 = motion vectors (sampler2D, RG16F NDC delta from SlimGBufferPass)
-        //   2 = history-prev (sampler2D, cycled UAB — parity-picked taaHistoryA/B each frame)
+        //   2 = history-prev (sampler2D, cycled UAB; parity-picked taaHistoryA/B each frame)
         //   3 = sceneDepth (sampler2D, for closest-depth velocity dilation in resolve)
-        //   4 = PP UBO (shared with bloom/composite sets — rewritten per render-stage)
+        //   4 = PP UBO (shared with bloom/composite sets; rewritten per render-stage)
         // All bindings UAB so binding 2's per-frame parity-rewrite is race-safe.
         VkDescriptorSetLayoutBinding taaBindings[5] = {};
         for (u32 i = 0; i < 4; ++i)
@@ -261,7 +261,7 @@ namespace Luth
 
         // TAA Resolve pipeline. Output to RGBA16F (HDR history texture); push constant carries
         // temporalAlpha (jitter delta moved to slim_gbuffer.slang as source-side de-jitter).
-        // No depth, no blend — opaque write.
+        // No depth, no blend: opaque write.
         if (!m_TaaResolveFragSpv.empty())
         {
             std::vector<VkDescriptorSetLayout> taaLayouts = { m_TaaResolveDescSetLayout };
@@ -427,9 +427,8 @@ namespace Luth
 
         vkUpdateDescriptorSets(device, idx, writes, 0, nullptr);
 
-        // Slim viz set — 4 stable bindings into the per-view slim attachments. Written once
-        // per resize. Binding 3 (R16_UINT matID) uses m_NearestSampler — integer formats don't
-        // support LINEAR filtering (VUID 04553).
+        // Slim viz set: 4 stable bindings into the per-view slim attachments. Written once per resize.
+        // Binding 3 (R16_UINT matID) uses m_NearestSampler; integer formats don't support LINEAR filtering (VUID 04553).
         if (vr.slimVizDescSet != VK_NULL_HANDLE)
         {
             auto slimN = std::static_pointer_cast<VKTexture>(targets.GetSlimNormal());
@@ -472,7 +471,7 @@ namespace Luth
         if (!vr.bloomMip[0]) return;
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // Per-mip image infos must outlive the single vkUpdateDescriptorSets — hold them in arrays.
+        // Per-mip image infos must outlive the single vkUpdateDescriptorSets; hold them in arrays.
         // sampled[i] = SHADER_READ_ONLY (filtered taps); storage[i] = GENERAL (imageStore dest).
         std::array<VkDescriptorImageInfo, ViewResources::kBloomMipCount> sampled{};
         std::array<VkDescriptorImageInfo, ViewResources::kBloomMipCount> storage{};
@@ -624,7 +623,7 @@ namespace Luth
                     b.ReadStorageImage(h[i + 1]);            // smaller mip, sampled (tent taps)
                     // Additive RMW: the dest read needs read-visibility for the imageLoad, so declare
                     // ReadStorageImageGeneral + WriteStorageImage on the same node (PathTrace ptAccum
-                    // pattern) — WriteStorageImage alone would leave the imageLoad of the downsample
+                    // pattern); WriteStorageImage alone would leave the imageLoad of the downsample
                     // content un-synchronized. Same node, no re-import (arch RG-aliasing hazard).
                     h[i] = b.ReadStorageImageGeneral(h[i]);
                     h[i] = b.WriteStorageImage(h[i]);
@@ -735,13 +734,13 @@ namespace Luth
         rg.AddPass<SlimVizPassData>("SlimVizPass",
             [&, ldrInput, mode, slimGB](SlimVizPassData& data, RG::RenderPassBuilder& builder)
             {
-                // Write to the LDR handle Composite returned — same RG resource node, so the
+                // Write to the LDR handle Composite returned: same RG resource node, so the
                 // barrier solver sees the producer's COLOR_ATTACHMENT state. Re-importing would
                 // alias the same VkImage onto a fresh node with a stale initialState (VUID 01197).
                 VkClearValue clearVal{ { {0.f, 0.f, 0.f, 1.f} } };
                 data.output = builder.Write(ldrInput, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, clearVal);
 
-                // Same reasoning for the slim attachments — reuse SlimGBufferPass's handles.
+                // Same reasoning for the slim attachments: reuse SlimGBufferPass's handles.
                 data.slimNormal     = builder.Read(slimGB.normal);
                 data.slimRoughness  = builder.Read(slimGB.roughness);
                 data.slimMotion     = builder.Read(slimGB.motion);
@@ -788,7 +787,7 @@ namespace Luth
     void PostProcessSubsystem::WriteTaaResolveView(ViewResources& vr, FrameTargets& targets)
     {
         LH_PROFILE_FUNCTION();
-        // Bindings 0/1/3 are stable per-view-resize — write once across all cycled slots.
+        // Bindings 0/1/3 are stable per-view-resize; write once across all cycled slots.
         // Binding 2 (history-prev sampler) cycles per-frame in WriteTaaResolvePerFrame.
         // Binding 4 (UBO) is declared in the layout but unused by the current shader.
         if (vr.taaResolveDescSet[0] == VK_NULL_HANDLE) return;
@@ -840,8 +839,8 @@ namespace Luth
             return;
 
         const auto& pps  = m_Pipeline->GetSystem().GetPostProcessSettings();
-        // Path-traced reference mode (rt-renderer C.5) takes priority: bloom + composite sample the PT
-        // display image (ptColor), the megakernel's HDR output, in place of the raster sceneColor / TAA.
+        // Path-traced reference mode takes priority: bloom + composite sample the PT display image
+        // (ptColor), the megakernel's HDR output, in place of the raster sceneColor / TAA.
         const bool ptOn  = m_Pipeline->GetSystem().GetRenderMode() == RenderMode::PathTrace && vr.ptColor;
         const bool taaOn = !ptOn && pps.taaEnabled && vr.taaHistoryA && vr.taaHistoryB;
 
@@ -852,7 +851,7 @@ namespace Luth
         }
         else if (taaOn)
         {
-            // Parity rule matches AddTaaResolvePass — parity=0 writes taaHistoryA, =1 writes B.
+            // Parity rule matches AddTaaResolvePass: parity=0 writes taaHistoryA, =1 writes B.
             // Bloom + grid + composite all read the same VkImage; RG inserts barriers so bloom
             // sees the pre-grid version and composite sees the post-grid version.
             const bool parity = (frameAbs & 1u) != 0u;
@@ -973,7 +972,7 @@ namespace Luth
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_TaaResolvePipeline->GetLayout(), 0, 1, &vr->taaResolveDescSet[slot], 0, nullptr);
 
-                // Source-side de-jitter lives in slim_gbuffer.slang — the motion attachment carries
+                // Source-side de-jitter lives in slim_gbuffer.slang: the motion attachment carries
                 // pure scene displacement, so the resolve push constant is just the feedback weight.
                 TaaResolvePushConstants pc{};
                 pc.temporalAlpha = sys.GetPostProcessSettings().taaTemporalAlpha;

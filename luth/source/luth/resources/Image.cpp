@@ -17,9 +17,8 @@ namespace Luth::Image
 {
     void Init()
     {
-        // Set ONCE at engine boot. No other site is allowed to call
-        // stbi_set_flip_vertically_on_load — engine-wide convention is
-        // top-left origin. Bottom-left consumers post-process via
+        // Set ONCE at engine boot. No other site is allowed to call stbi_set_flip_vertically_on_load;
+        // engine-wide convention is top-left origin. Bottom-left consumers post-process via
         // FlipVertical* after Load*.
         stbi_set_flip_vertically_on_load(0);
     }

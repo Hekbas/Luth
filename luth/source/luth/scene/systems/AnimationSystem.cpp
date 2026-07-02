@@ -18,15 +18,11 @@ namespace Luth
 
     AnimationSystem::~AnimationSystem()
     {
-        // Free all allocated bone blocks
+        // No-op by design: the registry may already be destroyed here. Real cleanup happens in Update()
+        // on entity removal; anything still allocated is reclaimed by BoneMatrixBuffer::Shutdown().
         for (auto entity : m_PreviousEntities)
         {
-            // Registry may already be destroyed, so we just free all tracked blocks
-            // This is safe because BoneMatrixBuffer::FreeBlock only needs the index
         }
-        // Note: actual cleanup happens in Update() when entities are removed.
-        // Destructor is a final safety net, but by this point the registry
-        // may be invalid. The blocks will be reclaimed when BoneMatrixBuffer::Shutdown() runs.
     }
 
     void AnimationSystem::Update(Scene* scene)
@@ -45,7 +41,7 @@ namespace Luth
 
         auto& registry = scene->Registry();
 
-        // Collect all entities with Animation + WorldTransform (MeshRenderer not required —
+        // Collect all entities with Animation + WorldTransform (MeshRenderer not required;
         // parent entity owns Animation, children own MeshRenderer)
         auto view = registry.view<Animation, WorldTransform>();
         std::vector<entt::entity> entities;
@@ -119,8 +115,7 @@ namespace Luth
             {
                 if (anim.CurrentTime >= duration)
                 {
-                    // Cycle to the next clip in the model's list. With UUID storage we no
-                    // longer carry an index — find the current UUID and advance.
+                    // Cycle to the next clip in the model's list. UUID storage carries no index; find the current UUID and advance.
                     const auto& clipUUIDs = model->GetAnimationClipUUIDs();
                     if (!clipUUIDs.empty()) {
                         u32 cur = 0;
@@ -156,7 +151,6 @@ namespace Luth
             auto model = AssetManager::GetAsset<Model>(anim.ModelUUID);
             if (!model) continue;
 
-            // Helper to advance a layer's time
             auto advanceLayerTime = [&](BlendLayer& layer) {
                 auto cl = AssetManager::GetAsset<AnimationClip>(layer.ClipUUID);
                 if (!cl) return;
@@ -174,7 +168,6 @@ namespace Luth
                 }
             };
 
-            // Advance each blend layer
             for (auto& layer : ctrl.Layers)
                 advanceLayerTime(layer);
 
@@ -184,7 +177,6 @@ namespace Luth
                 auto& t = *ctrl.ActiveTransition;
                 t.Elapsed += dt;
 
-                // Advance from-clip time
                 if (auto cl = AssetManager::GetAsset<AnimationClip>(t.FromClipUUID))
                 {
                     f32 fromDur = cl->GetDurationSeconds();
@@ -195,12 +187,10 @@ namespace Luth
                         t.FromTime = fromDur;
                 }
 
-                // Complete transition
                 if (t.Elapsed >= t.Duration)
                     ctrl.ActiveTransition.reset();
             }
 
-            // Reset root motion delta
             ctrl.RootMotionDelta = Vec3(0.0f);
 
             // Sync Animation component for event detection
@@ -208,8 +198,7 @@ namespace Luth
             if (!ctrl.Layers.empty())
                 anim.CurrentTime = ctrl.Layers[0].CurrentTime;
 
-            // Mirror controller's selection onto Animation so the single-clip
-            // path / inspector show the live clip.
+            // Mirror controller's selection onto Animation so the single-clip path / inspector show the live clip.
             anim.ClipUUID = ctrl.CurrentClipUUID;
         }
 
@@ -223,7 +212,7 @@ namespace Luth
         JobSystem::Dispatch(jobData.totalCount, 1, EvaluateAnimJob, &jobData, &counter, "AnimEval");
         JobSystem::WaitForCounter(&counter);
 
-        // Fire animation events (main thread — safe to modify ECS)
+        // Fire animation events (main thread; safe to modify ECS)
         for (auto entity : entities)
         {
             auto& anim = registry.get<Animation>(entity);
@@ -292,17 +281,14 @@ namespace Luth
                 (u32)attachment.BoneIndex >= (u32)targetAnim.GlobalBoneTransforms.size())
                 continue;
 
-            // Bone world transform
             Mat4 boneWorld = targetWorld.Matrix * targetAnim.GlobalBoneTransforms[attachment.BoneIndex];
 
-            // Apply local offset
             Mat4 offset = ComposeTransform(
                 attachment.LocalOffset,
                 Quat(Math::Radians(attachment.LocalRotation)),
                 Vec3(1.0f));
             Mat4 finalMatrix = boneWorld * offset;
 
-            // Decompose back to Transform
             Vec3 pos, scl;
             Quat rot;
             DecomposeTransform(finalMatrix, pos, rot, scl);
@@ -311,8 +297,7 @@ namespace Luth
             transform.Scale = scl;
             transform.IsDirty = false;
 
-            // Write directly to WorldTransform to avoid one-frame lag
-            // (TransformSystem already ran this frame)
+            // Write directly to WorldTransform to avoid one-frame lag (TransformSystem already ran this frame).
             world.Matrix = finalMatrix;
         }
     }
@@ -358,7 +343,7 @@ namespace Luth
             return;
         }
 
-        // --- Single-clip path (unchanged from 7C) ---
+        // ---- Single-clip path ----
         u32 boneCount = skeleton.BoneCount();
         auto clipPtr = AssetManager::GetAsset<AnimationClip>(anim.ClipUUID);
         const AnimationClip* clip = clipPtr.get();
@@ -393,7 +378,7 @@ namespace Luth
         PropagateAndUpload(skeleton, localTransforms, anim, registry, entity, model);
     }
 
-    // --- Shared tail: hierarchy propagation, AABB, skin matrices, SSBO upload ---
+    // Shared tail: hierarchy propagation, AABB, skin matrices, SSBO upload.
     void AnimationSystem::PropagateAndUpload(
         const Skeleton& skeleton,
         const std::vector<Mat4>& localTransforms,
@@ -471,15 +456,13 @@ namespace Luth
             }
         }
 
-        // Skin matrix computation
         for (u32 i = 0; i < boneCount; i++)
             skinMatrices[i] = globalTransforms[i] * skeleton.Bones[i].InverseBindPose;
 
-        // Upload to SSBO
         BoneMatrixBuffer::UploadBones(anim.BoneBufferOffset, skinMatrices.data(), boneCount);
     }
 
-    // ── SQT blending helpers ──
+    // ---- SQT blending helpers ----
 
     void AnimationSystem::SampleClipSQT(
         const AnimationClip& clip,
@@ -565,7 +548,7 @@ namespace Luth
 
         if (ctrl.Layers.empty())
         {
-            // No layers configured — fall back to bind pose
+            // No layers configured: fall back to bind pose
             std::vector<Mat4> localTransforms(boneCount);
             for (u32 i = 0; i < boneCount; i++)
                 localTransforms[i] = skeleton.Bones[i].LocalBindPose;
@@ -573,7 +556,7 @@ namespace Luth
             return;
         }
 
-        // --- Step 1: Sample base pose ---
+        // Sample base pose
         std::vector<BonePose> basePoses;
 
         if (ctrl.ActiveTransition)
@@ -603,7 +586,7 @@ namespace Luth
         }
         else
         {
-            // No transition — sample base layer directly
+            // No transition: sample base layer directly
             if (auto cl = AssetManager::GetAsset<AnimationClip>(ctrl.Layers[0].ClipUUID))
                 SampleClipSQT(*cl, skeleton, ctrl.Layers[0].CurrentTime, basePoses);
             else
@@ -615,7 +598,7 @@ namespace Luth
             }
         }
 
-        // --- Step 2: Layered override (layers 1+) ---
+        // Layered override (layers 1+)
         for (u32 layerIdx = 1; layerIdx < (u32)ctrl.Layers.size(); layerIdx++)
         {
             const auto& layer = ctrl.Layers[layerIdx];
@@ -628,7 +611,7 @@ namespace Luth
             BlendPoses(basePoses, layerPoses, layer.Weight, basePoses, layer.BoneMask);
         }
 
-        // --- Step 3: Root motion ---
+        // Root motion
         if (ctrl.ApplyRootMotion && boneCount > 0)
         {
             auto baseClipPtr = AssetManager::GetAsset<AnimationClip>(ctrl.Layers[0].ClipUUID);
@@ -665,11 +648,10 @@ namespace Luth
                         delta = currRootPos - prevRootPos;
                     }
 
-                    // Write delta (XZ only — Y stays on the bone for vertical movement)
+                    // Write delta (XZ only; Y stays on the bone for vertical movement)
                     ctrl.RootMotionDelta = Vec3(delta.x, 0.0f, delta.z);
 
-                    // Zero out root bone XZ to prevent double-movement
-                    // Keep Y so the character still bobs vertically
+                    // Zero out root bone XZ to prevent double-movement; keep Y so the character still bobs vertically.
                     Vec3 bindRootPos;
                     Quat bindRootRot;
                     Vec3 bindRootScl;
@@ -681,13 +663,13 @@ namespace Luth
             }
         }
 
-        // --- Step 4: Convert to Mat4 and propagate ---
+        // Convert to Mat4 and propagate
         std::vector<Mat4> localTransforms;
         PosesToLocalTransforms(basePoses, localTransforms);
         PropagateAndUpload(skeleton, localTransforms, anim, registry, entity, model);
     }
 
-    // --- Keyframe binary search (VectorKey) ---
+    // Keyframe binary search (VectorKey)
     u32 AnimationSystem::FindKeyIndex(const std::vector<VectorKey>& keys, f32 time)
     {
         if (keys.size() < 2) return 0;
@@ -711,7 +693,7 @@ namespace Luth
         return lo;
     }
 
-    // --- Keyframe binary search (QuatKey) ---
+    // Keyframe binary search (QuatKey)
     u32 AnimationSystem::FindKeyIndex(const std::vector<QuatKey>& keys, f32 time)
     {
         if (keys.size() < 2) return 0;

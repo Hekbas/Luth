@@ -28,11 +28,10 @@ namespace Luth
 
         auto& registry = scene.Registry();
 
-        // ── Mesh draws ──
-        // One row per (WorldTransform + MeshRenderer) entity with a valid model + mesh index.
-        // boneOffset is pre-resolved here from the entity's Animation or its parent's, so the
-        // render stage never walks the registry to find one (lookup used to be duplicated in
-        // DrawListBuilder + GPUObjectBuffers).
+        // ---- Mesh draws ----
+        // One row per (WorldTransform + MeshRenderer) entity with a valid model + mesh index. boneOffset is
+        // pre-resolved here from the entity's Animation or its parent's, so the render stage never walks the
+        // registry to find one (lookup used to be duplicated in DrawListBuilder + GPUObjectBuffers).
         {
             auto view = registry.view<Component::WorldTransform, Component::MeshRenderer>();
             const size_t maxMeshes = view.size_hint();
@@ -103,7 +102,7 @@ namespace Luth
             out.meshes = std::span<const MeshDrawSnapshot>(meshRows, count);
         }
 
-        // ── Directional light (first-wins) ──
+        // ---- Directional light (first-wins) ----
         {
             auto view = registry.view<Component::WorldTransform, Component::DirectionalLight>();
             for (auto [entity, wt, dl] : view.each())
@@ -130,7 +129,7 @@ namespace Luth
             }
         }
 
-        // ── Point lights (unbounded — Forward+ clustered lighting iterates per-cluster) ──
+        // ---- Point lights (unbounded; Forward+ clustered lighting iterates per-cluster) ----
         {
             auto view = registry.view<Component::WorldTransform, Component::PointLight>();
             const size_t maxCount = view.size_hint();
@@ -154,7 +153,7 @@ namespace Luth
             out.pointLights = std::span<const PointLightSnapshot>(lightRows, count);
         }
 
-        // ── Spot lights (unbounded — clustered alongside points) ──
+        // ---- Spot lights (unbounded; clustered alongside points) ----
         {
             auto view = registry.view<Component::WorldTransform, Component::SpotLight>();
             const size_t maxCount = view.size_hint();
@@ -181,7 +180,7 @@ namespace Luth
             out.spotLights = std::span<const SpotLightSnapshot>(lightRows, count);
         }
 
-        // ── Fog volumes ──
+        // ---- Fog volumes ----
         // Bake the entity world matrix with the fog's local-offset/rotation so the injection
         // shader inverts a single transform per volume. extentsOrRadius is the active union
         // member packed as Vec3 (halfExtents for Box, radius in .x for Sphere).
@@ -217,10 +216,9 @@ namespace Luth
             out.fogVolumes = std::span<const FogVolumeSnapshot>(rows, count);
         }
 
-        // ── Frame Debugger entity tags ──
-        // Indexed by entt::to_entity(handle) (dense index, version stripped).
-        // Strings are copied into LogicMemory so the snapshot stays valid across
-        // game-stage mutations once stages run concurrently.
+        // ---- Frame Debugger entity tags ----
+        // Indexed by entt::to_entity(handle) (dense index, version stripped). Strings are copied into
+        // LogicMemory so the snapshot stays valid across game-stage mutations once stages run concurrently.
         {
             auto view = registry.view<Component::Tag>();
             u32 maxIdx = 0;
@@ -251,7 +249,7 @@ namespace Luth
             }
         }
 
-        // ── Material registration + dirty flush (game stage) ──
+        // ---- Material registration + dirty flush (game stage) ----
         // Walk the registry a second time so even entities skipped by the mesh capture (no model
         // loaded yet) still hold their material refs alive. MaterialSystem::Update flushes any
         // dirty material UBO writes; running it on the game stage keeps m_Lock stage-isolated.

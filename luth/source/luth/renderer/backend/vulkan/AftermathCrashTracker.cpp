@@ -138,7 +138,7 @@ namespace Luth
     bool AftermathCrashTracker::Enabled() { return s_Initialized; }
 }
 
-#else // !LUTH_ENABLE_AFTERMATH — compiled-out no-ops so the engine builds without the SDK.
+#else // !LUTH_ENABLE_AFTERMATH: compiled-out no-ops so the engine builds without the SDK.
 
 namespace Luth
 {

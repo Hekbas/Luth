@@ -60,9 +60,8 @@ namespace Luth
         // Direct port of Sascha Willems' updateCascades() from
         // https://github.com/SaschaWillems/Vulkan/blob/master/examples/shadowmappingcascade/shadowmappingcascade.cpp
         //
-        // `stabilize` is intentionally unused: the fit is effectively always
-        // stabilized via the 1/16-unit radius quantization below. Kept in the
-        // signature to preserve callers and the serialized DirectionalLight flag.
+        // `stabilize` is intentionally unused: the fit is effectively always stabilized via the 1/16-unit radius
+        // quantization below. Kept in the signature to preserve callers and the serialized DirectionalLight flag.
         (void)stabilize;
 
         // Bounding sphere of the 8 slice corners, quantized to 1/16 unit so the slab
@@ -74,12 +73,10 @@ namespace Luth
 
         outWorldHalfExtent = radius;
 
-        // Eye placed exactly `radius` behind the frustum centroid along -lightDir.
-        // Symmetric ortho covers lightView.z in [-2*radius, 0] → clip.z in [0, 1]
-        // under GLM_FORCE_DEPTH_ZERO_TO_ONE (Luth's convention).
-        //
-        // No Y-flip: the shadow pass writes and pbr.frag samples through the same
-        // matrix, so the pair is self-consistent regardless of NDC Y orientation.
+        // Eye placed exactly `radius` behind the frustum centroid along -lightDir. Symmetric ortho covers
+        // lightView.z in [-2*radius, 0] -> clip.z in [0, 1] under GLM_FORCE_DEPTH_ZERO_TO_ONE (Luth's convention).
+        // No Y-flip: the shadow pass writes and pbr.frag samples through the same matrix,
+        // so the pair is self-consistent regardless of NDC Y orientation.
         Mat4 lightView = Math::LookAt(center - lightDir * radius, center, up);
         Mat4 lightProj = Math::Ortho(-radius, radius, -radius, radius, 0.0f, 2.0f * radius);
         return lightProj * lightView;
@@ -114,9 +111,8 @@ namespace Luth
             out.lightSpaceMatrix[i] = ComputeMatrix(
                 cascadeNear, cf, lightDir, tanHalfFovY, aspect, camViewInv,
                 params.stabilizeCascades, halfExtent);
-            // World-space size of one shadow-map texel for this cascade.
-            // Shader uses this to scale normal bias (expressed in texels) so a given
-            // bias setting produces consistent offsets across cascades of different sizes.
+            // World-space size of one shadow-map texel for this cascade. Shader uses this to scale normal bias
+            // (expressed in texels) so a given bias setting produces consistent offsets across cascades.
             out.texelSize[i] = (2.0f * halfExtent) / float(k_ShadowResolution);
             cascadeNear = cf;
         }

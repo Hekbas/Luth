@@ -18,7 +18,7 @@ namespace Luth
         if (compiled.spirv.empty() || compiled.stage == ShaderStage::Unknown)
         {
             // A real compile error is already logged by the compiler; a .slang module with no single 'main'
-            // entry (e.g. a multi-stage probe) simply isn't a single-stage asset. Nothing to serialize.
+            // entry (e.g. a multi-stage probe) isn't a single-stage asset. Nothing to serialize.
             LH_LOG(Shaders, trace, "ShaderImporter: no single-stage SPIR-V for '{0}' — skipped", source.string());
             return false;
         }

@@ -19,7 +19,7 @@ namespace Luth
         // Post a callback for main-thread execution on the next Drain. Safe to call from any thread
         // or fiber. The callback itself must be non-blocking (no JobSystem::WaitForCounter, no OS
         // sync). Re-posting from inside a callback lands in the NEXT frame's drain, not the current
-        // one — same reentrancy contract as EventBus.
+        // one; same reentrancy contract as EventBus.
         static void Post(Callback cb);
 
         // Drain and run all pending callbacks. Single-thread-only by design; the first call latches

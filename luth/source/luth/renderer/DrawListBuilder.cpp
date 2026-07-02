@@ -19,9 +19,8 @@ namespace Luth
 
         for (const MeshDrawSnapshot& meshSnap : snapshot.meshes)
         {
-            // Entities absent from entityToSSBOIndex were skipped by
-            // BuildGPUObjectBuffer (over k_MaxGPUObjects, no GetMesh, etc.)
-            // — drawing them via indirect would reference stale SSBO slots.
+            // Entities absent from entityToSSBOIndex were skipped by BuildGPUObjectBuffer (over
+            // k_MaxGPUObjects, no GetMesh, etc.); drawing them via indirect would reference stale SSBO slots.
             entt::entity entity = static_cast<entt::entity>(meshSnap.entity);
             auto ssboIt = entityToSSBOIndex.find(entity);
             if (ssboIt == entityToSSBOIndex.end()) continue;

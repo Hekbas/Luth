@@ -14,8 +14,8 @@ namespace Luth
 {
     // Dedicated OS thread for blocking file I/O. Fibers submit ReadFile / WriteFile requests; the
     // callback runs as a JobSystem job when the read completes, so the originating fiber doesn't
-    // pay the disk latency. std::mutex + condition_variable here are deliberate — this thread
-    // exists precisely so worker fibers don't need to block on disk.
+    // pay the disk latency. std::mutex + condition_variable here are deliberate; this thread
+    // exists precisely so worker fibers never block on disk.
 
     class IOThread
     {

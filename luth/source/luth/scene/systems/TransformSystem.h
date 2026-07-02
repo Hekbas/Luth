@@ -40,13 +40,12 @@ namespace Luth
             {
                 entt::entity entity = (*data->entities)[i];
 
-                // Safety check: Ensure entity is valid and has required components
                 if (!reg.valid(entity) || !reg.all_of<Component::Transform, Component::WorldTransform>(entity)) continue;
 
                 auto& transform = reg.get<Component::Transform>(entity);
                 auto& world = reg.get<Component::WorldTransform>(entity);
 
-                // 1. Update Local
+                // Update local matrix
                 if (transform.IsDirty)
                 {
                     Mat4 rotation = Math::ToMat4(Quat(Math::Radians(transform.Rotation)));
@@ -55,8 +54,7 @@ namespace Luth
                         * Math::Scale(Mat4(1.0f), transform.Scale);
                 }
 
-                // 2. Update World
-                // Parent is guaranteed to be updated because we process by levels
+                // Update world matrix. Parent is already up to date (level-order processing).
                 // Active-in-hierarchy rides the same parent-before-child order, propagating Disabled down.
                 const bool selfDisabled = reg.all_of<Component::Disabled>(entity);
                 if (reg.any_of<Component::Parent>(entity))
@@ -80,7 +78,7 @@ namespace Luth
         {
             LH_PROFILE_FUNCTION();
 
-            // Rebuild if version changed OR if we have roots but no levels (first frame init)
+            // Rebuild if version changed OR roots exist but no levels (first-frame init)
             if (scene->GetHierarchyVersion() != m_LastHierarchyVersion || (m_Levels.empty() && !scene->GetRootEntities().empty()))
             {
                 RebuildHierarchy(scene);

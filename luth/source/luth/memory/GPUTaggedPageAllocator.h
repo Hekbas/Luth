@@ -15,7 +15,7 @@ namespace Luth::Memory
     // tag-based bulk-free fenced on GPU N-2 timeline completion.
     // See docs/development/arch/memory.md.
 
-    // Sub-region returned to consumers — bind via descriptors / use as indirect-buffer offset.
+    // Sub-region returned to consumers; bind via descriptors / use as indirect-buffer offset.
     struct GPUSubRegion
     {
         VkBuffer  buffer    = VK_NULL_HANDLE;
@@ -38,11 +38,11 @@ namespace Luth::Memory
         u64      baseOffset = 0;
         void*    basePtr    = nullptr;
 
-        // Set only when isLargeOneShot — the dedicated VkBuffer that this "page" owns.
+        // Set only when isLargeOneShot: the dedicated VkBuffer that this "page" owns.
         VmaAllocation oneShotAlloc = nullptr;
     };
 
-    // Per-fiber cache (lives on JobContext, not TLS — see arch/fiber-system.md).
+    // Per-fiber cache (lives on JobContext, not TLS; see arch/fiber-system.md).
     struct GPUThreadCache
     {
         GPUPage* ActivePage = nullptr;
@@ -58,13 +58,13 @@ namespace Luth::Memory
         GPUTaggedPageAllocator();
         ~GPUTaggedPageAllocator();
 
-        // Singleton — VulkanBackend owns lifecycle (post-VulkanContext::Init, pre-Shutdown).
+        // Singleton; VulkanBackend owns lifecycle (post-VulkanContext::Init, pre-Shutdown).
         static GPUTaggedPageAllocator& Get();
 
         void Init();
         void Shutdown();
 
-        // Hot path — bumps within active page; claims a new page on overflow.
+        // Hot path: bumps within active page; claims a new page on overflow.
         // alignment is rounded up to max(alignment, m_MinAlignment).
         // size > PAGE_SIZE delegates to AllocateLargeTagged.
         GPUSubRegion Allocate(GPUThreadCache& cache, u64 size, u64 alignment = 16);
@@ -81,12 +81,12 @@ namespace Luth::Memory
         void FlushRegion(const GPUSubRegion& region);
 
         // Bulk-release all pages tagged `tag`. Driven from VulkanBackend::AcquireImage
-        // after the GPU N-2 timeline wait (V6 — see arch/fiber-system.md).
+        // after the GPU N-2 timeline wait (V6; see arch/fiber-system.md).
         void FreeTag(u32 tag);
 
         // Like FreeTag, but DESTROYS matching large-one-shot buffers (deferred N+2 via PushDeletion)
         // instead of recycling them. For persistent reserved-tag Garlic buffers whose capacity
-        // changes on resize — recycling always misses exact-capacity reuse and orphans the old
+        // changes on resize; recycling always misses exact-capacity reuse and orphans the old
         // size until Shutdown. see arch/memory.md
         void FreeTagAndDestroy(u32 tag);
 

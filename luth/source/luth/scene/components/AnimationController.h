@@ -43,7 +43,7 @@ namespace Luth::Component
         bool ApplyRootMotion  = false;
         f32  DefaultTransitionDuration = 0.2f;
 
-        // Runtime (not serialized) — written by job, read by main thread
+        // Runtime (not serialized): written by job, read by main thread
         Vec3 RootMotionDelta = Vec3(0.0f);
 
         void Play(UUID clipUUID, f32 transitionDuration = -1.0f)

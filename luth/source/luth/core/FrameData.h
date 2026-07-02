@@ -20,14 +20,14 @@ namespace Luth
     static constexpr u32 MAX_FRAMES_IN_FLIGHT = 3;
 
     // Hard cap on visible views per frame (Scene + Game panels today; reserves room for future PIP / reflection
-    // views / cubemap captures). Drives the per-view × per-frame primary cmd buffer ring sized in VulkanBackend:
+    // views / cubemap captures). Drives the per-view x per-frame primary cmd buffer ring sized in VulkanBackend:
     // each view needs its own gA / compute / gB primaries so cross-queue semaphores can sequence
-    // (view K writes shared resource → view K+1 reads it) — single-primary-per-type-per-frame would race.
+    // (view K writes shared resource -> view K+1 reads it); single-primary-per-type-per-frame would race.
     // See docs/development/arch/multi-queue.md.
     static constexpr u32 MAX_VIEWS_PER_FRAME = 4;
 
-    // ── Frame Params — read-only data packet for the frame ──
-    // Written by Game(N). Read by Render(N-1). Immutable after GameReady signals.
+    // ---- Frame Params ----
+    // Read-only data packet for the frame. Written by Game(N), read by Render(N-1). Immutable after GameReady signals.
 
     struct FrameParams
     {
@@ -47,7 +47,8 @@ namespace Luth
         u32 ViewportHeight = 0;
     };
 
-    // ── Frame Context — one per in-flight frame (triple buffered) ──
+    // ---- Frame Context ----
+    // One per in-flight frame (triple buffered).
 
     struct FrameContext
     {
@@ -66,9 +67,9 @@ namespace Luth
         CommandAllocatorPool* CmdPool = nullptr;
 
         // V6: Overflow allocator tier
-        // If GPU(N-2) hasn't finished when frame N starts, we can't reset the primary
-        // allocators. Instead, this frame uses overflow memory. Pages are tagged with
-        // the frame index and reclaimed when GPU eventually finishes.
+        // If GPU(N-2) hasn't finished when frame N starts, the primary allocators can't be reset.
+        // Instead, this frame uses overflow memory. Pages are tagged with the frame index and
+        // reclaimed when GPU eventually finishes.
         bool UsingOverflow = false;
 
         // Secondary command buffers collected from parallel recording
@@ -98,8 +99,8 @@ namespace Luth
             Params = {};
             GameReady.Value = 0;
             GameReady.WaitingListHead = nullptr;
-            // Defense-in-depth: a stuck Lock would deadlock WaitForCounter
-            // forever on this counter; Reset is the only safe clear point.
+            // Defense-in-depth: a stuck Lock would deadlock WaitForCounter forever on this counter;
+            // Reset is the only safe clear point.
             GameReady.Lock.clear(std::memory_order_release);
             RenderReady.Value = 0;
             RenderReady.WaitingListHead = nullptr;
@@ -107,7 +108,7 @@ namespace Luth
             UsingOverflow = false;
 
             // Snapshot spans point into LogicMemory; clear them BEFORE resetting the allocator
-            // so we never carry dangling pointers across frames.
+            // so dangling pointers never carry across frames.
             Snapshot.Clear();
 
             LogicMemory.Reset();
@@ -120,8 +121,8 @@ namespace Luth
         }
     };
 
-    // ── Frame Data — triple-buffered ring ──
-    // Owned exclusively by App. Passed to systems by reference.
+    // ---- Frame Data ----
+    // Triple-buffered ring. Owned exclusively by App; passed to systems by reference.
 
     class FrameData
     {
@@ -144,9 +145,8 @@ namespace Luth
         // Two frames ago (GPU N-2, check for completion)
         FrameContext& GPU()      { return m_Frames[(m_FrameIndex - 2) % MAX_FRAMES_IN_FLIGHT]; }
 
-        // Slot the render stage targets this iteration — set by App::Run
-        // before dispatching RenderStageFn. Decoupled from m_FrameIndex so
-        // game and render can write/read different slots concurrently.
+        // Slot the render stage targets this iteration; set by App::Run before dispatching RenderStageFn.
+        // Decoupled from m_FrameIndex so game and render can write/read different slots concurrently.
         FrameContext& RenderFrame() { return m_Frames[m_RenderFrameIndex % MAX_FRAMES_IN_FLIGHT]; }
         void SetRenderFrameIndex(u64 index) { m_RenderFrameIndex = index; }
         u64 GetRenderFrameIndex() const { return m_RenderFrameIndex; }

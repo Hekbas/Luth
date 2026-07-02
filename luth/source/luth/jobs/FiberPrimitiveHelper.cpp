@@ -1,10 +1,9 @@
 #include "luthpch.h"
 #include "luth/jobs/FiberPrimitive.h"
 
-// ASan finish_switch_fiber hook — paired with the start_switch_fiber call on the source
-// side of Fiber::SwitchTo. Each fiber's FIRST run needs this hook on its own stack so
-// ASan reorients tracking (Folly's pattern; boost::context's asm-side equivalent has a
-// known ordering bug, see github.com/boostorg/context/issues/65).
+// ASan finish_switch_fiber hook, paired with the start_switch_fiber call on the source side of
+// Fiber::SwitchTo. Each fiber's FIRST run needs this hook on its own stack so ASan reorients tracking
+// (Folly's pattern; boost::context's asm-side equivalent has a known ordering bug, see github.com/boostorg/context/issues/65).
 #if defined(__SANITIZE_ADDRESS__)
 extern "C" {
     void __sanitizer_finish_switch_fiber(void* fake_stack_save,

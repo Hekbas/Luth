@@ -9,7 +9,7 @@
 namespace Luth
 {
     // Polling shim over the EventBus key and mouse streams. Init subscribes once; gameplay then
-    // queries IsKeyPressed / GetMousePosition synchronously. Reads are game-stage-only — the cached
+    // queries IsKeyPressed / GetMousePosition synchronously. Reads are game-stage-only: the cached
     // arrays are written exclusively from main-thread event handlers, so no atomic dance is needed.
     class Input
     {
