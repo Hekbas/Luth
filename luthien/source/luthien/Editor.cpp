@@ -707,6 +707,24 @@ namespace Luth
         s_ActiveScene->Clear();
         CommandHistory::Clear();
 
+        // Seed the fresh scene with a sun + camera so it doesn't open onto a black, unlit viewport
+        // (mirrors the hierarchy "Create > Directional Light / Camera" defaults). Created directly,
+        // not via commands, since NewScene wipes the undo history anyway.
+        Entity sun = s_ActiveScene->CreateEntity("Directional Light");
+        sun.AddComponent<Component::DirectionalLight>();
+        {
+            auto& t = sun.GetComponent<Component::Transform>();
+            t.Rotation = Vec3(-45.0f, 0.0f, 0.0f);
+            t.IsDirty  = true;
+        }
+        Entity cam = s_ActiveScene->CreateEntity("Camera");
+        cam.AddComponent<Component::Camera>();
+        {
+            auto& t = cam.GetComponent<Component::Transform>();
+            t.Position = Vec3(0.0f, 1.0f, 5.0f);
+            t.IsDirty  = true;
+        }
+
         s_ScenePath.clear();
         s_IsDirty = false;
 

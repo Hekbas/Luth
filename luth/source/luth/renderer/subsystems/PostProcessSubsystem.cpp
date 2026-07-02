@@ -339,7 +339,11 @@ namespace Luth
         ubo.exposure            = s.exposure;
         ubo.contrast            = s.contrast;
         ubo.saturation          = s.saturation;
-        ubo.tonemapOp           = static_cast<int>(s.tonemapOp);
+        // Data debug modes (normals/IDs/[0,1] channels) must not be tonemapped or graded; a negative
+        // tonemapOp tells postprocess.slang to skip straight to the sRGB encode. PT forces the lit path.
+        const ShadeMode ppShadeMode = (m_Pipeline->GetSystem().GetRenderMode() == RenderMode::PathTrace)
+                                      ? ShadeMode::Lit : m_Pipeline->GetSystem().GetShadeMode();
+        ubo.tonemapOp           = IsDataDebugMode(ppShadeMode) ? -1 : static_cast<int>(s.tonemapOp);
         ubo.vignetteAmount      = s.vignetteAmount;
         ubo.vignetteHardness    = s.vignetteHardness;
         ubo.grainAmount         = s.grainAmount;

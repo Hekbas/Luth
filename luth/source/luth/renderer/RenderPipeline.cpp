@@ -557,10 +557,14 @@ namespace Luth
         // HDR source for the post chain: the PT megakernel output replaces the raster sceneColor when PT
         // is active (the raster chain above is then dead-pass-culled). Grid is editor-overlay-only → off in PT.
         RG::ResourceHandle hdrForPost  = ptActive ? ptColorHandle : taaColor;
-        // Bloom — skipped at strength 0 (the composite adds bloom × strength, so an absent/stale bloom texture
-        // contributes nothing; AddCompositePass already guards on an invalid bloom handle). Reads PRE-grid
-        // color so grid lines don't bloom.
-        RG::ResourceHandle bloomResult = (m_System.GetPostProcessSettings().bloomStrength > 0.0f)
+        // Resolve the active shade mode once (PT forces Lit). Hoisted here so the bloom gate and the
+        // slim-viz dispatch below share it.
+        const ShadeMode shadeMode = ptActive ? ShadeMode::Lit : m_System.GetShadeMode();
+        // Bloom — skipped at strength 0 (composite adds bloom x strength; AddCompositePass guards an
+        // invalid handle) and for every non-Lit mode: bloom is a radiance effect that smears over data
+        // views and clutters radiance debug. Reads PRE-grid color so grid lines don't bloom.
+        RG::ResourceHandle bloomResult = (m_System.GetPostProcessSettings().bloomStrength > 0.0f
+                                          && shadeMode == ShadeMode::Lit)
                                          ? m_PostProcess.AddBloomPasses(rg, hdrForPost)
                                          : RG::ResourceHandle{};
         RG::ResourceHandle gridColor   = (view.drawGrid && !ptActive)
@@ -573,7 +577,7 @@ namespace Luth
         // the frame-debugger panel exposes a slider for per-capture tuning; live viz uses a
         // sensible default matching the existing thumbnail UX. PT mode forces Lit (the debug-viz
         // blits read the culled G-buffer / cluster / reservoir state — meaningless over the PT image).
-        const ShadeMode shadeMode = ptActive ? ShadeMode::Lit : m_System.GetShadeMode();
+        // shadeMode was resolved above (hoisted for the bloom gate).
         if (shadeMode >= ShadeMode::SlimNormal && shadeMode <= ShadeMode::SlimMaterialID)
         {
             const u32 slimMode = static_cast<u32>(shadeMode) - static_cast<u32>(ShadeMode::SlimNormal);

@@ -157,6 +157,11 @@ namespace Luth
         std::vector<u32> m_PBRFragSpv;
         std::vector<u32> m_PBRSkinnedVertSpv;
 
+        // Shaded-wireframe overlay: flat line-polygon pipelines redrawn over the lit fill (static + skinned).
+        std::unique_ptr<VKPipeline> m_WireframeOverlayPipeline;
+        std::unique_ptr<VKPipeline> m_WireframeOverlaySkinnedPipeline;
+        std::vector<u32>            m_WireframeOverlayFragSpv;
+
         // Per-material node-graph fragment SPIR-V, keyed by the material's graph-shader UUID. Populated
         // lazily from ShaderLibrary in ResolveFragSpv; the stock pbr fragment is never stored here.
         std::unordered_map<UUID, std::vector<u32>, UUIDHash> m_GraphFragSpv;

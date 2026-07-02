@@ -97,6 +97,7 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
 
     // Shade-mode overrides.
     if (i.shadeMode == 1u)  { o.color = float4(albedo.rgb, 1.0);      return o; }   // Unlit
+    if (i.shadeMode == 2u)  { o.color = float4(0.45, 0.85, 1.0, 1.0); return o; }   // Wireframe (flat unlit lines, not lit)
     if (i.shadeMode == 3u)  { o.color = float4(N * 0.5 + 0.5, 1.0);   return o; }   // Normals
     if (i.shadeMode == 4u)
     {
@@ -111,9 +112,11 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
     // Raw screen-space signals — sampled where the lit shading reads them, gated on the feature
     // (the picker greys these when off). Ambient Occlusion (17) reuses the gtao.visualize path below.
     float2 dbgUv = fragCoord.xy / ubo.viewportSize;
-    if (i.shadeMode == 18u && ubo.restirParams.y > 0.5) { o.color = float4(giIrradiance.Sample(dbgUv).rgb, 1.0); return o; }  // GI Raw
-    if (i.shadeMode == 19u && ubo.restirParams.x > 0.5) { o.color = float4(diIrradiance.Sample(dbgUv).rgb, 1.0); return o; }  // DI Raw
-    if (i.shadeMode == 20u && ubo.reflParams.x  > 0.5)  { o.color = float4(reflRadiance.Sample(dbgUv).rgb, 1.0); return o; }  // RT Reflection Raw
+    // Raw signals always claim their mode: show the sampled buffer when the feature is on, else a
+    // magenta "unavailable" flag so the view isn't a silent fall-through to the lit image.
+    if (i.shadeMode == 18u) { o.color = ubo.restirParams.y > 0.5 ? float4(giIrradiance.Sample(dbgUv).rgb, 1.0) : float4(1.0, 0.0, 1.0, 1.0); return o; }  // GI Raw
+    if (i.shadeMode == 19u) { o.color = ubo.restirParams.x > 0.5 ? float4(diIrradiance.Sample(dbgUv).rgb, 1.0) : float4(1.0, 0.0, 1.0, 1.0); return o; }  // DI Raw
+    if (i.shadeMode == 20u) { o.color = ubo.reflParams.x  > 0.5 ? float4(reflRadiance.Sample(dbgUv).rgb, 1.0) : float4(1.0, 0.0, 1.0, 1.0); return o; }  // RT Reflection Raw
 
     // Material-baked AO × screen-space GTAO (half-res R8).
     float ao = mi.occlusion;
@@ -167,7 +170,7 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
     }
 
     // Debug: raw GTAO buffer (gtao.visualize toggle or the AmbientOcclusion shade-mode).
-    if (gtao.visualize != 0 || i.shadeMode == 17u)
+    if (i.shadeMode == 17u || (i.shadeMode == 0u && gtao.visualize != 0))
     {
         float g = gtaoTex.Sample(fragCoord.xy * gtao.invFullResolution).r;
         o.color = float4(g, g, g, 1.0);
@@ -175,7 +178,7 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
     }
 
     // Debug: cascade tint (CSM) / raw RT mask. Driven by the global toggle or the ShadowCascades shade-mode.
-    if (ubo.debugVisualizeCascades > 0.5 || i.shadeMode == 16u)
+    if (i.shadeMode == 16u || (i.shadeMode == 0u && ubo.debugVisualizeCascades > 0.5))
     {
         if (ubo.rtShadowParams.x > 0.5)
         {

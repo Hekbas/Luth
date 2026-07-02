@@ -74,6 +74,11 @@ float4 main(FIn i) : SV_Target
 {
     float2 uv = i.uv;
 
+    // Debug shade modes write display-ready DATA (encoded normals, IDs, [0,1] channels) into
+    // SceneColor; a negative tonemapOp means "skip bloom + grade + tonemap, just sRGB-encode".
+    if (pp.tonemapOp < 0)
+        return float4(pow(max(u_SceneColor.Sample(uv).rgb, float3(0.0)), float3(1.0 / 2.2)), 1.0);
+
     float3 color;
     if (pp.chromaticAberration > 0.0)
     {
