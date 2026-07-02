@@ -10,7 +10,7 @@ namespace Luth::UI
     // buttons spanning the content region (tab-strip look).
     bool SegmentedButton(const char* groupId, const char* const* labels, int count, int* selectedIdx, bool fillWidth = false);
 
-    // Row of N square icon-only buttons (FrameHeight × FrameHeight) with 2px
+    // Row of N square icon-only buttons (FrameHeight x FrameHeight) with 2px
     // spacing. Mirrors the active-state push pattern used by ScenePanel's gizmo
     // toolbar. tooltips may be nullptr or contain nullptr entries to skip.
     // filled (optional, one bool per icon) renders that icon in the Fill weight.

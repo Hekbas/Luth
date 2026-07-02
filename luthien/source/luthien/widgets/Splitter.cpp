@@ -19,7 +19,7 @@ namespace Luth::UI
             ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
 
         // Same-frame clamp so the caller's split layout never overshoots its
-        // available space. invariant: minH ≤ maxH; defensively swap otherwise.
+        // available space. invariant: minH <= maxH; defensively swap otherwise.
         if (active && bottomHeight) {
             *bottomHeight -= ImGui::GetIO().MouseDelta.y;
             const float lo = std::min(minH, maxH);

@@ -81,7 +81,7 @@ namespace Luth
 
         float m_ThumbnailSize = 64.0f;
         float m_Padding = 4.0f;
-        // Slider min stays 16; threshold raised so list view covers 16–32 and
+        // Slider min stays 16; threshold raised so list view covers 16-32 and
         // grid mode starts at 33 (smallest grid icons used to be unusably tiny).
         static constexpr float k_ListModeThreshold = 32.0f;
         static constexpr int   k_MaxNameLines      = 3;     // grid-mode label cap, Unreal-style
