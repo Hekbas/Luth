@@ -2,6 +2,7 @@
 
 #include "luth/core/types/LuthMath.h"
 
+#include <string>
 #include <vector>
 
 namespace Luth
@@ -30,7 +31,20 @@ namespace Luth
         Vec4        value = Vec4(0.0f);     // interpreted per type (see enum)
         u32         tex   = 0;              // TextureSample: MapType slot (Diffuse=0, Normal=2, ...)
         Vec2        pos   = Vec2(0.0f);     // editor canvas position
+
+        // Exposed-parameter metadata. Authoring-only: never read by codegen, so naming a node cannot
+        // change the canonical source or split structure-shared shaders/variants.
+        std::string name;                   // inspector label; empty = unexposed
+        std::string group;                  // inspector section; empty = ungrouped
+        u8          ui = 0;                 // widget hint: 0 = per-type default, 1 = checkbox (ConstFloat 0/1)
     };
+
+    // Node types whose value (or tex slot) is meaningful as an exposed material parameter.
+    inline bool IsExposableNode(MatNodeType t)
+    {
+        return t == MatNodeType::ConstFloat || t == MatNodeType::ConstColor
+            || t == MatNodeType::Remap      || t == MatNodeType::TextureSample;
+    }
 
     struct MatLink
     {
