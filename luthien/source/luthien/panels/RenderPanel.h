@@ -5,11 +5,11 @@
 
 namespace Luth
 {
-    // Renderer settings panel — category-tabbed feature tuning (Lighting / GI-RT / Denoise / Atmosphere /
+    // Renderer settings panel: category-tabbed feature tuning (Lighting / GI-RT / Denoise / Atmosphere /
     // Post FX / Reference / Diagnostics) plus a search filter. Reads/writes RenderingSystem settings live;
     // the snapshot stays empty since the UI is fully ImGui-driven. Editor-visual prefs (grid/outline/env)
     // live in Preferences, not here.
-    struct RenderSettingsSnapshot { /* placeholder; settings UI is fully ImGui-driven */ };
+    struct RenderSettingsSnapshot {};
 
     class RenderPanel : public Panel
     {

@@ -33,20 +33,17 @@ namespace Luth
         DebuggerState     state = DebuggerState::Inactive;
         RG::CapturedFrame capturedFrame;
 
-        // User's pending source selection (drives the next capture).
-        // capturedSource records what was actually captured (set when state
-        // transitions to Frozen) so the viewport overlay survives the user
-        // toggling requestedSource between captures.
+        // User's pending source selection (drives the next capture). capturedSource records what was actually
+        // captured (set when state transitions to Frozen) so the viewport overlay survives the user toggling
+        // requestedSource between captures.
         CaptureSource requestedSource = CaptureSource::Scene;
         CaptureSource capturedSource  = CaptureSource::Scene;
 
-        // Frame index stamp for the Frozen-state cameraMoved throttle in
-        // RenderingSystem (caps auto-refresh at ~10 Hz so the per-recapture
-        // GPU copy bandwidth doesn't saturate mid-tier GPUs).
+        // Frame index stamp for the Frozen-state cameraMoved throttle in RenderingSystem (caps auto-refresh at
+        // ~10 Hz so the per-recapture GPU copy bandwidth doesn't saturate mid-tier GPUs).
         u64 lastRecaptureFrameIndex = 0;
 
-        // Per-draw stepping reads the frozen UBOs/SSBOs/indirect buffers and
-        // re-records the owning pass via ImmediateSubmit.
+        // Per-draw stepping reads the frozen UBOs/SSBOs/indirect buffers and re-records the owning pass via ImmediateSubmit.
 
         // Debug blit resources (depth -> color preview composition)
         std::unique_ptr<VKPipeline>  blitPipeline;
@@ -66,25 +63,22 @@ namespace Luth
         // Archive sink configuration. Names match RG::TextureDesc::name. Set by RegisterTrackedRT before each capture.
         std::unordered_set<std::string> trackedRTs;
 
-        // (passName + "/" + rtName) → index into capturedFrame.archivedImages.
-        // Survives across captures so OnPassExecuted reuses the same VkImage
-        // / VkImageView (key + dims/format match) instead of reallocating —
-        // panel and viewport descriptor caches keyed by view-pointer stay
-        // valid frame-to-frame. Cleared only by DestroyArchives.
+        // (passName + "/" + rtName) -> index into capturedFrame.archivedImages. Survives across captures so
+        // OnPassExecuted reuses the same VkImage / VkImageView (key + dims/format match) instead of reallocating;
+        // panel and viewport descriptor caches keyed by view-pointer stay valid frame-to-frame. Cleared only by
+        // DestroyArchives.
         std::unordered_map<std::string, u32> m_ArchiveSlotMap;
-        // Slots written this capture; FinalizeCapture frees stragglers (e.g.
-        // an entry from a prior capture's SelectionMaskPass after the user
-        // toggled drawSelectionOutline off). Reset at BeginCapture.
+        // Slots written this capture; FinalizeCapture frees stragglers (e.g. an entry from a prior capture's
+        // SelectionMaskPass after the user toggled drawSelectionOutline off). Reset at BeginCapture.
         std::unordered_set<std::string>      m_ArchiveSlotInUseThisCapture;
 
         // Cached device/allocator for archive ownership. Populated by BeginCapture.
         VkDevice     archiveDevice    = VK_NULL_HANDLE;
         VmaAllocator archiveAllocator = nullptr;
 
-        // Capture helpers (called during normal recording when CaptureRequested).
-        // graphPassIndex is RenderPassContext::passIndex — needed so the Frozen
-        // panel can key passArchives lookups by graph index instead of dense
-        // push order. Pass call sites grab it from ctx.passIndex.
+        // Capture helpers (called during normal recording when CaptureRequested). graphPassIndex is
+        // RenderPassContext::passIndex, needed so the Frozen panel can key passArchives lookups by graph index
+        // instead of dense push order. Pass call sites grab it from ctx.passIndex.
         void BeginCapturePass(u32 graphPassIndex,
                               const std::string& name, const std::string& activeTarget,
                               bool isDepth, const RG::CapturedPipelineState& ps);
@@ -107,7 +101,7 @@ namespace Luth
         void FinalizeCapture(const Mat4& viewProj);
         void DestroyArchives();
 
-        // IArchiveSink — invoked post-pass during RenderGraph::Execute. queueFamily reflects which queue's primary
+        // IArchiveSink: invoked post-pass during RenderGraph::Execute. queueFamily reflects which queue's primary
         // primaryCmd was recorded on; the sink substitutes compute-compatible stage masks when on the compute primary.
         void OnPassExecuted(u32 passIndex, RG::RenderGraph& graph, VkCommandBuffer primaryCmd,
                             RG::QueueFamily queueFamily) override;

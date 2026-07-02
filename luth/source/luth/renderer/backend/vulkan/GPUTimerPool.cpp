@@ -28,7 +28,7 @@ namespace Luth
             LH_CORE_ASSERT(result == VK_SUCCESS, "Failed to create GPU timer query pool");
         }
 
-        // Pipeline-statistics pool (graphics passes only) — one query per pass. Skipped on GPUs lacking
+        // Pipeline-statistics pool (graphics passes only): one query per pass. Skipped on GPUs lacking
         // pipelineStatisticsQuery + inheritedQueries; stats then stay unavailable but timing still works.
         m_StatsSupported = ctx.SupportsPipelineStats();
         if (m_StatsSupported)
@@ -118,7 +118,7 @@ namespace Luth
                 static bool warned = false;
                 if (!warned)
                 {
-                    LH_LOG(Renderer, warn, "GPUTimerPool: pass count {} exceeds maxPasses {} — raise GPUTimerPool::Init(). "
+                    LH_LOG(Renderer, warn, "GPUTimerPool: pass count {} exceeds maxPasses {} - raise GPUTimerPool::Init(). "
                                  "GPU per-pass timing + pipeline stats are off until then.", passCount, m_MaxPasses);
                     warned = true;
                 }
@@ -152,7 +152,7 @@ namespace Luth
         }
         else
         {
-            // Results not ready or error — fill with -1
+            // Results not ready or error: fill with -1
             for (u32 i = 0; i < passCount; i++)
                 outTimesMs[i] = -1.0f;
         }
@@ -174,7 +174,7 @@ namespace Luth
         vkCmdEndQuery(cmd, m_StatsPools[slot], passIndex);
     }
 
-    // Reads the N-2 slot using the current frame counter — caller MUST invoke this before ReadResults,
+    // Reads the N-2 slot using the current frame counter; caller MUST invoke this before ReadResults,
     // which owns the counter increment. Per-query availability flags compute passes / disabled frames.
     void GPUTimerPool::ReadStats(u32 passCount, std::vector<RG::GpuPipelineStats>& out)
     {
@@ -198,7 +198,7 @@ namespace Luth
         for (u32 i = 0; i < passCount; i++)
         {
             const u64* q = &raw[i * stride];
-            if (q[k_StatsValues] == 0) continue;  // unavailable → compute pass, or stats not recorded
+            if (q[k_StatsValues] == 0) continue;  // unavailable -> compute pass, or stats not recorded
             RG::GpuPipelineStats& s = out[i];
             s.inputVertices   = q[0];
             s.inputPrimitives = q[1];

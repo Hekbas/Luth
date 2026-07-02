@@ -16,7 +16,7 @@ namespace Luth::Physics
     namespace
     {
         // Build the inner (un-offset, un-rotated) shape from the active union member. ConvexHullRef and
-        // MeshRef return nullptr — they need an asset-side shape cache that lands later.
+        // MeshRef return nullptr; asset-backed shapes route through Physics::ShapeCache instead.
         JPH::RefConst<JPH::Shape> BuildPrimitive(const Component::Collider& c)
         {
             using Type = Component::Collider::Type;

@@ -24,22 +24,22 @@ namespace Luth
     {
         struct InjectPC
         {
-            Mat4 invView;             // 64 B — push once per dispatch; avoids per-voxel inverse(ubo.view).
-            u32  volDimX, volDimY, volDimZ, _pad;  // 16 B — atlas dims, runtime-set per quality.
-            u64  geomTableBDA;        // 8 B — scatter-only cutout alpha-test fetch; density ignores it.
+            Mat4 invView;             // 64 B: push once per dispatch; avoids per-voxel inverse(ubo.view).
+            u32  volDimX, volDimY, volDimZ, _pad;  // 16 B: atlas dims, runtime-set per quality.
+            u64  geomTableBDA;        // 8 B: scatter-only cutout alpha-test fetch; density ignores it.
         };
         static_assert(sizeof(InjectPC) == 88, "InjectPC: invView(64) + dims(16) + geomTableBDA(8)");
 
         struct IntegratePC
         {
-            Vec4 nearFarPad;          // 16 B — x = nearZ, y = farZ.
-            u32  volDimX, volDimY, volDimZ, _pad;  // 16 B — atlas dims.
+            Vec4 nearFarPad;          // 16 B: x = nearZ, y = farZ.
+            u32  volDimX, volDimY, volDimZ, _pad;  // 16 B: atlas dims.
         };
 
         struct ResolvePC
         {
-            Mat4 invView;             // 64 B — current frame's view-space → world reconstruction.
-            u32  volDimX, volDimY, volDimZ, _pad;  // 16 B — atlas dims.
+            Mat4 invView;             // 64 B: current frame's view-space -> world reconstruction.
+            u32  volDimX, volDimY, volDimZ, _pad;  // 16 B: atlas dims.
         };
     }
 
@@ -51,7 +51,7 @@ namespace Luth
 
         // Linear-clamp sampler shared by the volumetric pipelines. 3D VKTexture ctor returns a
         // null sampler so each consumer subsystem owns the sampler that matches its sampling
-        // needs — Wronski wants linear-clamp on the 3D atlas, distinct from the anisotropic
+        // needs; Wronski wants linear-clamp on the 3D atlas, distinct from the anisotropic
         // mip-aware sampler the bindless 2D path emits.
         VkSamplerCreateInfo sampCI{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
         sampCI.magFilter    = VK_FILTER_LINEAR;
@@ -149,7 +149,7 @@ namespace Luth
             layoutCI.pBindings    = bindings;
             vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_InjectScatterDescLayout);
 
-            // Empty Set 2 placeholder — material_bindings_rt.slang pins Material to Set 3 + bindless to Set 4, but the
+            // Empty Set 2 placeholder: material_bindings_rt.slang pins Material to Set 3 + bindless to Set 4, but the
             // scatter pipeline has no pass-local Set 2. A 0-binding layout fills the gap; it's never bound.
             VkDescriptorSetLayoutCreateInfo emptyCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
             vkCreateDescriptorSetLayout(device, &emptyCI, nullptr, &m_EmptySet2Layout);
@@ -176,7 +176,7 @@ namespace Luth
                 std::vector<VkPushConstantRange>{ pcRange });
         }
 
-        // Integrate layout — b0 sampled volDensity (sampler3D, RG ReadStorageImage transitions to
+        // Integrate layout: b0 sampled volDensity (sampler3D, RG ReadStorageImage transitions to
         // SHADER_READ_ONLY), b1 read+write volInScatter scratch (storage, GENERAL). Stable bindings.
         {
             VkDescriptorSetLayoutBinding bindings[2]{};
@@ -209,9 +209,9 @@ namespace Luth
                 std::vector<VkPushConstantRange>{ pcRange });
         }
 
-        // Resolve layout — b0 scratch sampler (this frame's post-integrate), b1 prev resolved
-        // sampler (reprojected history source), b2 curr resolved storage (write). b1/b2 parity-
-        // rewrite per frame to ping-pong HistA/B. Push constant: invView (64B) + atlas dims (16B).
+        // Resolve layout: b0 scratch sampler (this frame's post-integrate), b1 prev resolved sampler
+        // (reprojected history source), b2 curr resolved storage (write). b1/b2 parity-rewrite per
+        // frame to ping-pong HistA/B. Push constant: invView (64B) + atlas dims (16B).
         {
             VkDescriptorSetLayoutBinding bindings[3]{};
             for (u32 i = 0; i < 3; ++i)
@@ -260,9 +260,9 @@ namespace Luth
                 std::vector<VkPushConstantRange>{ pcRange });
         }
 
-        // Composite layout (Set 1) — b0 sceneDepth, b1 volInScatter (sampler3D), b2 blueNoise.
-        // All FRAGMENT. b1 parity-rewrites each frame to sample whichever atlas integrate wrote to —
-        // UAB needed. b2 is stable per-view (blue noise texture never changes after bake).
+        // Composite layout (Set 1): b0 sceneDepth, b1 volInScatter (sampler3D), b2 blueNoise.
+        // All FRAGMENT. b1 parity-rewrites each frame to sample whichever atlas integrate wrote to
+        // (UAB needed). b2 is stable per-view (blue noise texture never changes after bake).
         // Descriptor set is cycled per MAX_FRAMES_IN_FLIGHT to keep rewrites disjoint from
         // in-flight prior frame's reads.
         {
@@ -304,7 +304,7 @@ namespace Luth
             cfg.depthFormat        = VK_FORMAT_UNDEFINED;
             cfg.depthTest          = false;
             cfg.depthWrite         = false;
-            cfg.blendEnabled       = true;                               // standard alpha — shader emits (fogColor, fogOpacity)
+            cfg.blendEnabled       = true;                               // standard alpha; shader emits (fogColor, fogOpacity)
             cfg.cullMode           = VK_CULL_MODE_NONE;
             cfg.pushConstantRanges = { compPC };
             std::vector<VkDescriptorSetLayout> setLayouts = {
@@ -315,7 +315,7 @@ namespace Luth
                 cfg, m_FullscreenVertSpv, m_CompositeFragSpv, setLayouts);
         }
 
-        // Viz layout (Set 1) — b0 sceneDepth, b1 volDensity, b2 volInScatter. All FRAGMENT.
+        // Viz layout (Set 1): b0 sceneDepth, b1 volDensity, b2 volInScatter. All FRAGMENT.
         // b2 parity-rewrites per frame to follow integrate's ping-pong target. Cycled set.
         {
             VkDescriptorSetLayoutBinding bindings[3]{};
@@ -362,14 +362,14 @@ namespace Luth
             }
         }
 
-        // 3D Worley-FBM noise bake (one-shot at init). Pool/layout/pipeline are scoped — the
+        // 3D Worley-FBM noise bake (one-shot at init). Pool/layout/pipeline are scoped; the
         // texture outlives Init and is sampled by inject density's b2.
         {
             constexpr u32 k_NoiseDim = 128;
             m_NoiseTexture = std::make_shared<VKTexture>(
                 k_NoiseDim, k_NoiseDim, k_NoiseDim, TextureFormat::RGBA8, VK_IMAGE_USAGE_STORAGE_BIT);
 
-            // Tileable noise needs REPEAT; m_Sampler is CLAMP_TO_EDGE so we own a dedicated one.
+            // Tileable noise needs REPEAT; m_Sampler is CLAMP_TO_EDGE, so the subsystem owns a dedicated one.
             VkSamplerCreateInfo nsCI{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
             nsCI.magFilter    = VK_FILTER_LINEAR;
             nsCI.minFilter    = VK_FILTER_LINEAR;
@@ -379,7 +379,7 @@ namespace Luth
             nsCI.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
             vkCreateSampler(device, &nsCI, nullptr, &m_NoiseSampler);
 
-            // Bake pipeline + descriptor — ephemeral, destroyed at end of this block.
+            // Bake pipeline + descriptor: ephemeral, destroyed at end of this block.
             std::vector<u32> bakeSpv;
             if (auto sh = ShaderLibrary::LoadEngine("shaders/volumetric_noise_bake.slang"))
                 bakeSpv = sh->GetSpirV();
@@ -1148,8 +1148,8 @@ namespace Luth
                 data.color = builder.Write(sceneColor,
                     VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
                 data.depth = builder.Read(sceneDepth);
-                // Sampler-binding 1 of the composite descriptor — declaring the read makes RG emit
-                // the GENERAL → SHADER_READ_ONLY transition after resolve's storage write.
+                // Sampler-binding 1 of the composite descriptor; declaring the read makes RG emit
+                // the GENERAL -> SHADER_READ_ONLY transition after resolve's storage write.
                 if (resolvedInScatter.IsValid())
                     data.inScatter = builder.Read(resolvedInScatter);
                 outputHandle = data.color;
@@ -1215,7 +1215,7 @@ namespace Luth
         rg.AddComputePass<IntegrateData>("VolumetricIntegrate", RG::QueueFamily::AsyncCompute,
             [&, injectOut](IntegrateData& data, RG::RenderPassBuilder& builder)
             {
-                // Reuse inject's ResourceNodes (no fresh ImportResource — arch hazard #1). The atlases
+                // Reuse inject's ResourceNodes (no fresh ImportResource: the RG re-import hazard). The atlases
                 // are persistent VMA images shared across both passes; aliasing them onto distinct
                 // nodes would diverge state tracking between the two passes' Solve walks.
                 data.density   = builder.ReadStorageImage(injectOut.density);
@@ -1282,10 +1282,10 @@ namespace Luth
                 const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
                 const bool parity  = (frameAbs & 1u) != 0u;
 
-                // Scratch comes from integrate's output — same ResourceNode (arch hazard #1 OK).
+                // Scratch comes from integrate's output: same ResourceNode, so no re-import hazard.
                 data.scratch = builder.ReadStorageImage(scratchInScatter);
 
-                // History ping-pong — two distinct VkImages, two distinct nodes per frame. Prev
+                // History ping-pong: two distinct VkImages, two distinct nodes per frame. Prev
                 // history sampled at reprojected coord; curr history written at current voxel.
                 // Separate physical atlases keep the read + write hazard-free.
                 auto vkCurr = std::static_pointer_cast<VKTexture>(
@@ -1440,7 +1440,7 @@ namespace Luth
             {
                 ViewResources* vr = m_Pipeline->GetCurrentViewResources();
 
-                // Reuse the density pass's ResourceNode (hazard #1: no fresh ImportResource — the
+                // Reuse the density pass's ResourceNode (re-import hazard: no fresh ImportResource; the
                 // RG barrier between the two compute passes only fires when both share the same
                 // node). Sampling via sampler3D in the shader; RG transitions to SHADER_READ_ONLY.
                 data.density = builder.ReadStorageImage(density);
@@ -1456,9 +1456,9 @@ namespace Luth
                     RG::ResourceState::Undefined);
                 data.inScatter = builder.WriteStorageImage(data.inScatter);
 
-                // Per-cascade Read triggers DEPTH→SHADER_READ barriers — shader binding 5 samples
+                // Per-cascade Read triggers DEPTH->SHADER_READ barriers; shader binding 5 samples
                 // the full shadow-map array. ReadStorageImage despite the COMBINED_IMAGE_SAMPLER
-                // descriptor — builder name is about queue affinity (COMPUTE_SHADER stage).
+                // descriptor: builder name is about queue affinity (COMPUTE_SHADER stage).
                 for (u32 i = 0; i < k_ShadowCascadeCount; ++i)
                     if (shadowHandles[i].IsValid())
                         data.shadowCascades[i] = builder.ReadStorageImage(shadowHandles[i]);
@@ -1484,9 +1484,9 @@ namespace Luth
                     return;
                 }
 
-                // RT fog shadows read the TLAS via rayQuery → order the per-frame TLAS build (same
+                // RT fog shadows read the TLAS via rayQuery -> order the per-frame TLAS build (same
                 // AsyncCompute primary, registered earlier) before this dispatch. dstStage = COMPUTE_SHADER
-                // (NOT RAY_TRACING — rayQuery runs in compute; a RAY_TRACING dst here is a TDR trap). Gated
+                // (NOT RAY_TRACING: rayQuery runs in compute; a RAY_TRACING dst here is a TDR trap). Gated
                 // so the off path emits nothing.
                 if (IsRtShadowsEnabled())
                 {
@@ -1502,7 +1502,7 @@ namespace Luth
                 }
 
                 m_InjectScatterPipeline->Bind(cmd);
-                // Sets 0-1 (global, scatter state) then Sets 3-4 (Material, bindless) — two binds straddle
+                // Sets 0-1 (global, scatter state) then Sets 3-4 (Material, bindless): two binds straddle
                 // the empty Set 2. Set 3/4 are statically referenced by material_bindings_rt.slang, so they bind every
                 // dispatch even when RT fog is off (validation requires bound sets for static references).
                 VkDescriptorSet sets01[2] = {
@@ -1636,8 +1636,8 @@ namespace Luth
                 d.output = builder.Write(ldrInput, VK_ATTACHMENT_LOAD_OP_LOAD,
                                                    VK_ATTACHMENT_STORE_OP_STORE, clearVal);
                 d.depth  = builder.Read(sceneDepth);
-                // Both atlases sampled via descriptors — RG MUST know so it emits the
-                // GENERAL → SHADER_READ_ONLY transitions (see arch/rendering-pipeline.md re-import hazard).
+                // Both atlases sampled via descriptors; RG MUST know so it emits the
+                // GENERAL -> SHADER_READ_ONLY transitions (see arch/rendering-pipeline.md re-import hazard).
                 if (density.IsValid())   d.density   = builder.Read(density);
                 if (inScatter.IsValid()) d.inScatter = builder.Read(inScatter);
                 outputHandle = d.output;

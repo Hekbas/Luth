@@ -26,7 +26,7 @@ namespace Luth
     {
         CreateSurface();
 
-        // Block on (0,0) extent (launched-minimized) — Vulkan rejects zero-sized swapchains.
+        // Block on (0,0) extent (launched-minimized); Vulkan rejects zero-sized swapchains.
         int w = 0, h = 0;
         while (w == 0 || h == 0)
         {
@@ -141,7 +141,7 @@ namespace Luth
         createInfo.imageColorSpace = surfaceFormat.colorSpace;
         createInfo.imageExtent = m_Extent;
         createInfo.imageArrayLayers = 1;
-        createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT; // Added TransferDst for blitting/clearing
+        createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT; // TransferDst for blitting/clearing
         createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
         createInfo.preTransform = capabilities.currentTransform;
         createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
@@ -194,7 +194,7 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
 
-        // Consume Present's deferred rebuild — Acquire runs on main thread (V2), blocking on Recreate is correct here.
+        // Consume Present's deferred rebuild; Acquire runs on main thread (V2), blocking on Recreate is correct here.
         if (m_NeedsRebuild)
         {
             int w = 0, h = 0;
@@ -244,7 +244,7 @@ namespace Luth
         VkResult result = VulkanContext::Get().Present(presentInfo);
         s_LastPresentMs.store(std::chrono::duration<f64, std::milli>(std::chrono::high_resolution_clock::now() - presStart).count(), std::memory_order_relaxed);
 
-        // Defer rebuild — Present runs on the render fiber; vkDeviceWaitIdle would stall the worker (V2).
+        // Defer rebuild: Present runs on the render fiber; vkDeviceWaitIdle would stall the worker (V2).
         // Acquire (main thread) consumes the flag. SUBOPTIMAL is benign (cosmetic scaling).
         if (result == VK_ERROR_OUT_OF_DATE_KHR)
         {

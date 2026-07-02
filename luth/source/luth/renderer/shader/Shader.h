@@ -10,9 +10,8 @@
 
 namespace Luth
 {
-	// A single pipeline stage a shader occupies. Each shader asset holds exactly one.
-	// RT stages (4-9) are recognized by ShaderCompiler in B.1; production asset-pipeline
-	// integration (Shader::Create factory, ShaderImporter, hot-reload) lands with B.3.
+	// A single pipeline stage a shader occupies. Each shader asset holds exactly one;
+	// stages 4-9 are the RT pipeline stages, recognized by ShaderCompiler via reflection.
 	enum class ShaderStage : u32
 	{
 		Unknown      = 0,
@@ -28,7 +27,7 @@ namespace Luth
 		// Future: Geometry, TessControl, TessEval, Mesh, Task, ...
 	};
 
-	// Represents a single uniform variable inside a UBO/PushConstant
+	// A single uniform variable inside a UBO / push-constant block
 	struct ShaderUniform
 	{
 		std::string Name;
@@ -37,7 +36,7 @@ namespace Luth
 		u32 Offset = 0;
 	};
 
-	// Represents a Uniform Buffer (UBO) or Push Constant block
+	// A uniform buffer (UBO) or push-constant block
 	struct ShaderBuffer
 	{
 		std::string Name;
@@ -47,7 +46,7 @@ namespace Luth
 		std::unordered_map<std::string, ShaderUniform> Uniforms;
 	};
 
-	// Represents a Texture, Sampler, or Image
+	// A texture, sampler, or image binding
 	struct ShaderResource
 	{
 		std::string Name;
@@ -56,9 +55,9 @@ namespace Luth
 		u32 ArraySize = 1;
 	};
 
-	// Abstract shader asset — one ShaderStage per asset, plus the introspected uniform / sampler
-	// metadata that PipelineManager reads to build descriptor-set layouts. The concrete
-	// VulkanShader holds the SPIR-V blob and the reflected layout. ShaderLibrary owns lifetime.
+	// Abstract shader asset: one ShaderStage per asset, plus the introspected uniform / sampler metadata
+	// that PipelineManager reads to build descriptor-set layouts. The concrete VulkanShader holds the
+	// SPIR-V blob and the reflected layout. ShaderLibrary owns lifetime.
 	class Shader : public Asset
 	{
 	public:

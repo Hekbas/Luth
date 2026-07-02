@@ -12,10 +12,10 @@ namespace Luth
     namespace RG { class RenderGraph; }
     class GPUTimerPool;
 
-    // Static facade over the active RenderBackend. Holds the global FrameData pointer (owned by
-    // App), forwards BeginFrame / EndFrame / GetCommandBuffer through to the backend, and exposes
-    // the deletion queues that subsystems push retired GPU resources into. Renderer never owns
-    // GPU lifetimes itself — those live on RenderPipeline + the various subsystems.
+    // Static facade over the active RenderBackend. Holds the global FrameData pointer (owned by App), forwards
+    // BeginFrame / EndFrame / GetCommandBuffer through to the backend, and exposes the deletion queues that
+    // subsystems push retired GPU resources into. Renderer never owns GPU lifetimes itself; those live on
+    // RenderPipeline + the various subsystems.
     class Renderer
     {
     public:
@@ -26,7 +26,7 @@ namespace Luth
         static void WaitForGPU();
         static void FlushDeletionQueues();
 
-        // Frame management — Renderer uses FrameData owned by App
+        // Frame management. Renderer uses FrameData owned by App.
         static void SetFrameData(FrameData* frameData);
 
         // false = skip this frame (caller yields + retries).
@@ -36,7 +36,7 @@ namespace Luth
         // Single-graph convenience: Begin + Record + End in one call. Single view (slot 0, isLastView = true).
         static void ExecuteGraph(RG::RenderGraph& graph, u64 frameIndex, GPUTimerPool* timers = nullptr);
 
-        // Multi-view path — each view owns its own QueueRecorders triplet (gA / compute / gB primary cmd buffers),
+        // Multi-view path: each view owns its own QueueRecorders triplet (gA / compute / gB primary cmd buffers),
         // submitted in per-view 3-submit topology. Inter-view ordering is enforced by timeline-semaphore waits at
         // submit boundaries (replaces the legacy inline pipeline barrier between views). Pattern:
         //     for (u32 v = 0; v < N; ++v) {
@@ -44,7 +44,7 @@ namespace Luth
         //         bool hasCompute = Renderer::RecordGraph(r, rg, timers);
         //         Renderer::EndPrimaryCmdAndSubmit(r, frameIndex, v, hasCompute, /*isLastView=*/ v == N-1);
         //     }
-        // RecordGraph returns true iff the graph routed any pass to the async-compute primary — forwarded to the
+        // RecordGraph returns true iff the graph routed any pass to the async-compute primary; forwarded to the
         // backend's SubmitView to decide whether to issue the compute submit at all.
         static QueueRecorders BeginPrimaryCmd(u64 frameIndex, u32 viewSlot);
         static bool RecordGraph(QueueRecorders recorders, RG::RenderGraph& graph, GPUTimerPool* timers = nullptr);

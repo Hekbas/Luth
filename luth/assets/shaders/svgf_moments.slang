@@ -46,7 +46,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     float  histLen = mom.b;
 
     float depth = u_Depth.Load(int3(SvgfGuide(pixel), 0)).r;
-    if (depth >= 1.0)            // sky — passthrough, no variance
+    if (depth >= 1.0)            // sky: passthrough, no variance
     {
         outAtrous[pixel] = float4(color, 0.0);
         return;
@@ -55,7 +55,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     float variance;
     if (histLen >= 4.0)
     {
-        // Enough history — trust the temporal moment variance the reproject already computed.
+        // Enough history: trust the temporal moment variance the reproject already computed.
         variance = max(0.0, ci.a);
     }
     else

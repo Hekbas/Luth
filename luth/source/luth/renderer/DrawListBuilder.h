@@ -11,13 +11,11 @@ namespace Luth
     struct DrawList;
     struct RenderSnapshot;
 
-    // Partitions the per-frame RenderSnapshot's mesh rows into a DrawList by
-    // Material::RenderMode. The builder is stateless; the caller owns the DrawList
-    // instance so vectors can be reused across frames.
+    // Partitions the per-frame RenderSnapshot's mesh rows into a DrawList by Material::RenderMode. The builder is
+    // stateless; the caller owns the DrawList instance so vectors can be reused across frames.
     //
-    // Invariant: BuildGPUObjectBuffer must run first. DrawListBuilder skips any
-    // snapshot row whose entity is absent from entityToSSBOIndex so
-    // dc.gpuObjectIndex / dc.entityIndex always match the live GPU indirect buffer.
+    // Invariant: BuildGPUObjectBuffer must run first. DrawListBuilder skips any snapshot row whose entity is absent
+    // from entityToSSBOIndex so dc.gpuObjectIndex / dc.entityIndex always match the live GPU indirect buffer.
     class DrawListBuilder
     {
     public:

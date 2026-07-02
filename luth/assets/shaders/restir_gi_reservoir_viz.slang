@@ -1,5 +1,5 @@
-// Debug viz — heat-maps the ReSTIR GI spatial-reuse reservoir over LDR. M (confidence / merged sample
-// count) drives the blue→green→yellow→red ramp; age dims the result, so a converged-but-stale region reads
+// Debug viz: heat-maps the ReSTIR GI spatial-reuse reservoir over LDR. M (confidence / merged sample
+// count) drives the blue->green->yellow->red ramp; age dims the result, so a converged-but-stale region reads
 // dim-red and a fresh-low-confidence region bright-blue. Empty reservoirs read near-black. Fullscreen
 // triangle; the full-res overlay pixel maps to the GI reservoir cell (half-res when half-res GI is on).
 import restir_gi_common;    // GIReservoir
@@ -32,7 +32,7 @@ float4 main([[vk::location(0)]] float2 v_TexCoord, float4 fragCoord : SV_Positio
     if (px.x >= size.x || px.y >= size.y) return float4(0.0, 0.0, 0.0, 0.85);
 
     float depth = u_SceneDepth.Load(int3(px, 0)).r;
-    if (depth >= 1.0) return float4(0.0, 0.0, 0.0, 0.85);   // sky → dark overlay
+    if (depth >= 1.0) return float4(0.0, 0.0, 0.0, 0.85);   // sky -> dark overlay
 
     // Map the full-res overlay pixel to the GI reservoir cell (half-res when half-res GI is on).
     int2 res = int2(pc.reservoirSize);
@@ -43,13 +43,13 @@ float4 main([[vk::location(0)]] float2 v_TexCoord, float4 fragCoord : SV_Positio
     float3 col;
     if (r.M == 0u)
     {
-        col = float3(0.04);                                   // empty reservoir → near-black
+        col = float3(0.04);                                   // empty reservoir -> near-black
     }
     else
     {
         float mNorm   = (pc.mCap   > 0.0) ? float(r.M)   / pc.mCap   : 0.0;
         float ageNorm = (pc.ageCap > 0.0) ? float(r.age) / pc.ageCap : 0.0;
-        float bright  = lerp(1.0, 0.2, clamp(ageNorm, 0.0, 1.0));   // stale → dim
+        float bright  = lerp(1.0, 0.2, clamp(ageNorm, 0.0, 1.0));   // stale -> dim
         col = HeatColor(mNorm) * bright;
     }
     return float4(col, 0.85);

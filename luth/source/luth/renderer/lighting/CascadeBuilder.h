@@ -10,7 +10,7 @@ namespace Luth
     // Builds per-cascade CSM data for a directional light:
     //   - PSSM split distances (Engel's practical-split weighted blend)
     //   - Per-cascade orthographic light-space matrix
-    //     (Sascha Willems–style bounding-sphere fit with 1/16-unit quantisation)
+    //     (Sascha Willems-style bounding-sphere fit with 1/16-unit quantisation)
     //   - World-space shadow-map texel size per cascade (shader scales normal bias)
     //
     // Stateless: safe to call once per frame.

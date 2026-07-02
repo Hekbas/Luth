@@ -29,7 +29,7 @@ namespace Luth
             s_Systems.emplace_back(std::move(sys));
         }
 
-        // O(1) typed lookup — typeid hash keyed, no dynamic_cast.
+        // Typed lookup: typeid hash keyed, linear slot scan, no dynamic_cast.
         template<typename T>
         static T* GetSystem() {
             const size_t h = typeid(T).hash_code();

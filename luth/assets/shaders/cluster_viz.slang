@@ -27,7 +27,7 @@ float3 HeatColor(float t)
 float4 main([[vk::location(0)]] float2 v_TexCoord) : SV_Target
 {
     float depth = u_SceneDepth.Sample(v_TexCoord).r;
-    if (depth >= 0.9999) return float4(0.0);   // sky / far plane → transparent
+    if (depth >= 0.9999) return float4(0.0);   // sky / far plane -> transparent
 
     float linDepth = (pc.nearZ * pc.farZ) / (pc.farZ - depth * (pc.farZ - pc.nearZ));
     uint slice = uint(floor(log(max(linDepth, pc.nearZ) / pc.nearZ) / log(pc.farZ / pc.nearZ) * float(k_ClusterSlicesZ)));

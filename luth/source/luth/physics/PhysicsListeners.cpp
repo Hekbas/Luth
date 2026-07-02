@@ -26,7 +26,7 @@ namespace Luth::Physics
         return m_BodyIndex[idx];
     }
 
-    // ── Callbacks ──
+    // ---- Callbacks ----
 
     JPH::ValidateResult LuthContactListener::OnContactValidate(
         const JPH::Body& /*inBody1*/, const JPH::Body& /*inBody2*/,
@@ -57,9 +57,9 @@ namespace Luth::Physics
                                                  const JPH::ContactManifold& /*manifold*/,
                                                  JPH::ContactSettings& /*ioSettings*/)
     {
-        // Re-classify every step so Body::SetIsSensor flips (or monitorable-state changes once we
-        // gain monitorable surfaces) produce the right Enter/Exit. We do NOT emit a ContactPersisted
-        // gameplay event — Tier 0 ships enter/exit only.
+        // Re-classify every step so Body::SetIsSensor flips (or monitorable-state changes once
+        // monitorable surfaces exist) produce the right Enter/Exit. No ContactPersisted gameplay
+        // event is emitted; the trigger event set is enter/exit only.
         const bool isTrigger = b1.IsSensor() || b2.IsSensor();
         EvaluateTrigger(b1.GetID(), b2.GetID(), isTrigger);
     }
@@ -82,7 +82,7 @@ namespace Luth::Physics
             EmitContactRemoved(a, b);
     }
 
-    // ── Cache evaluation ──
+    // ---- Cache evaluation ----
 
     void LuthContactListener::EvaluateTrigger(JPH::BodyID a, JPH::BodyID b, bool isTrigger)
     {
@@ -103,7 +103,7 @@ namespace Luth::Physics
         }
 
         // V1: emit OUTSIDE the lock. TryPush is wait-free; holding SpinLock across it would inflate
-        // the critical section without benefit since the cache is the source of truth — queue can
+        // the critical section without benefit since the cache is the source of truth: the queue can
         // drop without desyncing state.
         if (transitionEnter)
             EmitTriggerEnter(a, b);
@@ -111,7 +111,7 @@ namespace Luth::Physics
             EmitTriggerExit(a, b);
     }
 
-    // ── Emit helpers ──
+    // ---- Emit helpers ----
 
     void LuthContactListener::EmitContactAdded(const JPH::Body& b1, const JPH::Body& b2, const JPH::ContactManifold& m)
     {
@@ -120,8 +120,8 @@ namespace Luth::Physics
         ev.entityA = static_cast<entt::entity>(b1.GetUserData());
         ev.entityB = static_cast<entt::entity>(b2.GetUserData());
 
-        // First contact point from the manifold is representative for Tier 0; full geometry would
-        // require a vector<Vec3> or a span — defer until gameplay needs it.
+        // First contact point from the manifold is representative; full geometry would require
+        // a vector<Vec3> or a span, deferred until gameplay needs it.
         if (m.mRelativeContactPointsOn1.size() > 0)
         {
             const JPH::Vec3 pt = m.mBaseOffset + m.mRelativeContactPointsOn1[0];

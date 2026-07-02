@@ -10,14 +10,14 @@
 
 namespace Luth
 {
-    // ── Bone Matrix Buffer — global bone SSBO for GPU skinning ──
-    // Slot-based block allocator (per-entity stable offsets baked into obj.boneOffset).
-    // Bone data accumulates into a CPU staging buffer during the game stage; Update()
-    // copies the staging into a fresh per-frame GPU region (GPUTaggedPageAllocator) and
-    // writes the GAME-frame's descriptor slot. Bind sites read the RENDER-frame's slot
-    // — game writes K, render reads K-1 → distinct slots, race-free.
-    // invariant: slot count = MAX_FRAMES_IN_FLIGHT; the cycling decouples write/read by
-    // frame so the layout no longer needs UPDATE_AFTER_BIND.
+    // ---- Bone Matrix Buffer: global bone SSBO for GPU skinning ----
+    // Slot-based block allocator (per-entity stable offsets baked into obj.boneOffset). Bone data accumulates
+    // into a CPU staging buffer during the game stage; Update() copies the staging into a fresh per-frame GPU
+    // region (GPUTaggedPageAllocator) and writes the GAME-frame's descriptor slot. Bind sites read the
+    // RENDER-frame's slot: game writes K, render reads K-1, distinct slots, race-free.
+    // invariant: slot count = MAX_FRAMES_IN_FLIGHT; the cycling decouples write/read by frame. The
+    // layout keeps UPDATE_AFTER_BIND anyway: slot K is rewritten while a submit that bound it may
+    // still be pending.
 
     class BoneMatrixBuffer
     {
@@ -32,11 +32,11 @@ namespace Luth
         static void FreeBlock(u32 baseIndex);
 
         // Stages bone matrices for an entity. baseIndex from AllocateBlock().
-        // Multiple game-stage fibers may call concurrently — disjoint ranges per entity.
+        // Multiple game-stage fibers may call concurrently; disjoint ranges per entity.
         static void UploadBones(u32 baseIndex, const Mat4* matrices, u32 count);
 
-        // Allocates this frame's GPU region, copies CPU staging in, flushes, and
-        // writes the game-frame's descriptor slot. Called once per game stage.
+        // Allocates this frame's GPU region, copies CPU staging in, flushes, and writes the game-frame's
+        // descriptor slot. Called once per game stage.
         static void Update();
 
         // Returns the descriptor set for the given slot. Call sites pass
@@ -62,9 +62,9 @@ namespace Luth
 
         static void CreateDescriptors();
 
-        // CPU staging — game-stage writers fill m_CpuScratch; Update() copies it AND the previous
-        // frame's snapshot (m_PrevCpuScratch) to the dual-region GPU SSBO, then snapshots
-        // m_CpuScratch into m_PrevCpuScratch for next-frame use. Both identity-init at startup.
+        // CPU staging: game-stage writers fill m_CpuScratch; Update() copies it AND the previous frame's
+        // snapshot (m_PrevCpuScratch) to the dual-region GPU SSBO, then snapshots m_CpuScratch into
+        // m_PrevCpuScratch for next-frame use. Both identity-init at startup.
         static byte* m_CpuScratch;
         static byte* m_PrevCpuScratch;
 
@@ -73,7 +73,7 @@ namespace Luth
         static std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_DescriptorSets;
 
         static std::deque<u32> m_FreeBlocks; // Block indices (0..MAX_SKINNED_ENTITIES-1)
-        // V1: SpinLock — protects only AllocateBlock/FreeBlock (O(1) deque ops).
+        // V1: SpinLock protects only AllocateBlock/FreeBlock (O(1) deque ops).
         // UploadBones / Update don't take this lock (CPU staging is shared, writes are disjoint).
         static Luth::SpinLock m_Lock;
     };

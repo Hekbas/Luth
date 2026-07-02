@@ -1,4 +1,4 @@
-// Bloom pyramid upsample — CoD:AW 3x3 tent filter with a scatter radius, accumulated additively
+// Bloom pyramid upsample: CoD:AW 3x3 tent filter with a scatter radius, accumulated additively
 // back up the chain. Tent-filters the smaller source mip and adds it onto the larger dest mip
 // in place (the dest already holds its downsample content). see arch/rendering-pipeline.md.
 
@@ -7,7 +7,7 @@
 
 struct PC
 {
-    float2 srcTexel;   // 1 / sourceResolution — tent spacing (source is half the dest extent)
+    float2 srcTexel;   // 1 / sourceResolution; tent spacing (source is half the dest extent)
     int2   dstSize;    // dest extent, for the dispatch bounds + UV denominator
     float  radius;     // scatter: scales the tent spread (wider -> softer, broader halo)
     float  _pad0, _pad1, _pad2;

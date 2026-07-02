@@ -17,7 +17,7 @@ namespace Luth
         bool isSkinned)
     {
         // BLAS construction happens at Model::ProcessMeshData where the CPU SkinnedVertex source
-        // data is available — keeps static + skinned paths uniform at one call site.
+        // data is available; keeps static + skinned paths uniform at one call site.
         return std::make_shared<Mesh>(vb, ib, vertexCount, isSkinned);
     }
 }

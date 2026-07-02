@@ -30,11 +30,11 @@ namespace Luth
     namespace
     {
         // Build a 0-instance TLAS, persistent for the lifetime of RtSubsystem. Seeds Set 0 binding 6
-        // before any per-frame TlasBuildPass runs — rt_sun_shadows.comp statically reads `topLevelAS`
-        // at binding 6, and a null handle there violates the descriptor
-        // rules even with PARTIALLY_BOUND (validation interprets static use conservatively). The empty
-        // TLAS is geometrically valid — vkCmdBuild with instanceCount=0 is legal per spec; rayQuery
-        // against it always misses (no instances to intersect), yielding visibility=1.0.
+        // before any per-frame TlasBuildPass runs: rt_sun_shadows.comp statically reads `topLevelAS` at
+        // binding 6, and a null handle there violates the descriptor rules even with PARTIALLY_BOUND
+        // (validation interprets static use conservatively). The empty TLAS is geometrically valid;
+        // vkCmdBuild with instanceCount=0 is legal per spec, and rayQuery against it always misses
+        // (no instances to intersect), yielding visibility=1.0.
         bool BuildEmptyTlas(VkAccelerationStructureKHR& outAS,
                             VkBuffer& outStorageBuf,
                             VmaAllocation& outStorageAlloc)
@@ -118,7 +118,7 @@ namespace Luth
                 rt.vkCmdBuildAccelerationStructuresKHR(cmd, 1, &buildInfo, &pRange);
             });
 
-            // Scratch lives only for the build — ImmediateSubmit blocks until the GPU finishes,
+            // Scratch lives only for the build; ImmediateSubmit blocks until the GPU finishes,
             // so an immediate free is safe (no in-flight cmd buffer references it).
             VulkanAllocator::FreeBuffer(scratchBuf, scratchAlloc);
             return true;
@@ -130,7 +130,7 @@ namespace Luth
         LH_PROFILE_FUNCTION();
         m_Pipeline = &pipeline;
 
-        // Persistent empty TLAS — backs GetTlas() before the first per-frame TlasBuildPass runs.
+        // Persistent empty TLAS: backs GetTlas() before the first per-frame TlasBuildPass runs.
         // Kept SEPARATE from m_LastResult so the hash-skip PushDeletion in AddTlasBuildPass never
         // accidentally destroys it when a per-frame TLAS first replaces the m_LastResult slot.
         if (BuildEmptyTlas(m_PersistentEmptyTlas, m_PersistentEmptyTlasBuf, m_PersistentEmptyTlasAlloc))
@@ -139,10 +139,10 @@ namespace Luth
         }
         else
         {
-            LH_LOG(Renderer, critical, "RtSubsystem: persistent empty TLAS build failed — Set 0 binding 6 will be null on frame 0");
+            LH_LOG(Renderer, critical, "RtSubsystem: persistent empty TLAS build failed - Set 0 binding 6 will be null on frame 0");
         }
 
-        // Pass-local sampler — linear clamp-to-edge for both SceneDepth + SlimNormal reads.
+        // Pass-local sampler: linear clamp-to-edge for both SceneDepth + SlimNormal reads.
         // Out-of-range UVs (off-screen) clamp to the edge pixel; raygen guards against background
         // (depth >= 1.0) but the sampler edge behavior is the safe default.
         VkSamplerCreateInfo samplerInfo{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
@@ -192,7 +192,7 @@ namespace Luth
     void RtSubsystem::Shutdown()
     {
         LH_PROFILE_FUNCTION();
-        // Persistent empty TLAS — push to deletion queue so it retires after the last in-flight
+        // Persistent empty TLAS: push to deletion queue so it retires after the last in-flight
         // frame stops referencing it via Set 0 binding 6 (PushDeletion drains N+2 frames out).
         if (m_PersistentEmptyTlas != VK_NULL_HANDLE)
         {
@@ -226,7 +226,7 @@ namespace Luth
             m_ShadowPassSampler = VK_NULL_HANDLE;
         }
 
-        // Final per-frame TLAS — push to deletion so FlushAllDeletionQueues catches it on shutdown.
+        // Final per-frame TLAS: push to deletion so FlushAllDeletionQueues catches it on shutdown.
         // The hash-skip path inside AddTlasBuildPass only pushes when REPLACING the slot, so a
         // long-stable m_LastResult lives until shutdown without ever being deferred.
         if (m_LastResult.tlas != VK_NULL_HANDLE)
@@ -278,7 +278,7 @@ namespace Luth
         if (name != "rt_sun_shadows.slang") return false;
         m_ShadowSpv = spv;
 
-        // Defer-destroy the old pipeline — in-flight cmd buffers may still reference it.
+        // Defer-destroy the old pipeline; in-flight cmd buffers may still reference it.
         if (m_SunShadowsPipeline)
         {
             auto* oldPipe = m_SunShadowsPipeline.release();
@@ -380,14 +380,13 @@ namespace Luth
                     (void*)maskTex->GetImage(), (void*)maskTex->GetImageView(),
                     RG::ResourceState::Undefined);
                 data.mask = builder.WriteStorageImage(data.mask);
-                // SceneDepth + slimNormal are descriptor-bound to the pass-local set (set 2 b0, b1)
-                // with imageLayout = SHADER_READ_ONLY_OPTIMAL. ReadStorageImage maps to
-                // ResourceState::ComputeRead (COMPUTE_SHADER | RAY_TRACING_SHADER stages,
-                // SHADER_READ_ONLY_OPTIMAL layout) — compatible with AsyncCompute, unlike
-                // plain Read which uses FRAGMENT_SHADER_BIT and would error on this queue.
-                // Despite the name, the descriptor type is COMBINED_IMAGE_SAMPLER, not storage;
-                // the "StorageImage" suffix here is about queue affinity (same convention used
-                // by VolumetricSubsystem::AddInjectScatterPass for the cascade shadow reads).
+                // SceneDepth + slimNormal are descriptor-bound to the pass-local set (set 2 b0, b1) with
+                // imageLayout = SHADER_READ_ONLY_OPTIMAL. ReadStorageImage maps to ResourceState::ComputeRead
+                // (COMPUTE_SHADER | RAY_TRACING_SHADER stages, SHADER_READ_ONLY_OPTIMAL layout); compatible
+                // with AsyncCompute, unlike plain Read which uses FRAGMENT_SHADER_BIT and would error on this
+                // queue. Despite the name, the descriptor type is COMBINED_IMAGE_SAMPLER, not storage; the
+                // "StorageImage" suffix is about queue affinity (same convention used by
+                // VolumetricSubsystem::AddInjectScatterPass for the cascade shadow reads).
                 if (sceneDepth.IsValid()) data.depth  = builder.ReadStorageImage(sceneDepth);
                 if (slimNormal.IsValid()) data.normal = builder.ReadStorageImage(slimNormal);
                 outputHandle = data.mask;
@@ -400,10 +399,10 @@ namespace Luth
                 const u64 frameAbs = Renderer::GetFrameData()->GetRenderFrameIndex();
                 const u32 slot     = static_cast<u32>(frameAbs % MAX_FRAMES_IN_FLIGHT);
 
-                // AS-build → AS-read barrier. TlasBuildPass (same AsyncCompute primary) emits
-                // BLAS→TLAS-build barriers internally but not the final AS-write → read hop. Without
+                // AS-build -> AS-read barrier. TlasBuildPass (same AsyncCompute primary) emits
+                // BLAS->TLAS-build barriers internally but not the final AS-write -> read hop. Without
                 // this, the dispatch may sample a TLAS that's still being built. dstStage = COMPUTE_SHADER
-                // (NOT RAY_TRACING — rayQuery runs in compute; a RAY_TRACING dst here is a TDR trap).
+                // (NOT RAY_TRACING: rayQuery runs in compute; a RAY_TRACING dst here is a TDR trap).
                 VkMemoryBarrier2 asBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
                 asBarrier.srcStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
                 asBarrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
@@ -449,18 +448,18 @@ namespace Luth
             "TlasBuild",
             RG::QueueFamily::AsyncCompute,
             [&](TlasBuildData&, RG::RenderPassBuilder& builder) {
-                // No RG-tracked resources — all per-frame allocations live outside the RG
-                // (per-frame VMA + PushDeletion / tagged-heap large-one-shot scratch). The
-                // pass's actual output (m_LastResult.tlas → Set 0 binding 6 via UpdateUBO)
-                // is an engine-side side effect; SetHasSideEffect keeps the pass alive
-                // through CullDeadPasses (which otherwise drops passes with no Write/Read).
+                // No RG-tracked resources: all per-frame allocations live outside the RG (per-frame VMA +
+                // PushDeletion / tagged-heap large-one-shot scratch). The pass's actual output
+                // (m_LastResult.tlas -> Set 0 binding 6 via UpdateUBO) is an engine-side side effect;
+                // SetHasSideEffect keeps the pass alive through CullDeadPasses (which otherwise drops
+                // passes with no Write/Read).
                 builder.SetHasSideEffect();
             },
             [this](TlasBuildData&, RG::RenderPassContext& ctx) {
                 VkCommandBuffer cmd = ctx.commandBuffer;
                 const u64 frameAbs = Renderer::GetFrameData()->GetRenderFrameIndex();
 
-                // Multi-view guard — Execute runs per view; TLAS is scene-global. Second view
+                // Multi-view guard: Execute runs per view; TLAS is scene-global. Second view
                 // returns the same m_LastResult.tlas without re-recording any GPU commands.
                 if (m_LastBuildFrame == frameAbs) return;
                 m_LastBuildFrame = frameAbs;
@@ -470,15 +469,15 @@ namespace Luth
                 const RenderSnapshot& snapshot = rs->GetActiveSnapshot();
 
                 // Skinning now runs in SkinningSubsystem::AddDeformPass at frame start (graphics queue);
-                // the deformed buffers are ready for both raster and this refit. The gA→compute timeline
-                // semaphore makes the deform writes visible to this async-compute refit — no inline
+                // the deformed buffers are ready for both raster and this refit. The gA->compute timeline
+                // semaphore makes the deform writes visible to this async-compute refit; no inline
                 // compute-write barrier here. see arch/multi-queue.md
 
-                // Batched skinned-BLAS refits — one vkCmdBuildAccelerationStructuresKHR call
+                // Batched skinned-BLAS refits: one vkCmdBuildAccelerationStructuresKHR call
                 // with N infos sharing one tagged scratch (per-mesh sub-regions, no overlap).
                 TlasBuilder::RefitSkinnedBLASes(cmd, snapshot.meshes, static_cast<u32>(frameAbs));
 
-                // 4. Refit-write → TLAS-build-read barrier. Same shape as above; the TLAS build
+                // Refit-write -> TLAS-build-read barrier. Same shape as above; the TLAS build
                 // reads the freshly-refitted BLAS device addresses through the instance buffer.
                 VkMemoryBarrier2 mem2{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
                 mem2.srcStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
@@ -490,9 +489,9 @@ namespace Luth
                 dep2.pMemoryBarriers    = &mem2;
                 vkCmdPipelineBarrier2(cmd, &dep2);
 
-                // 5. TLAS build with hash-skip. When skip fires, prior TLAS + storage + geom table
-                // stay alive — we only PushDeletion when an actual rebuild replaces them. The geom
-                // table shares the TLAS lifetime exactly (same retire schedule).
+                // TLAS build with hash-skip. When skip fires, prior TLAS + storage + geom table stay
+                // alive; PushDeletion only fires when an actual rebuild replaces them. The geom table
+                // shares the TLAS lifetime exactly (same retire schedule).
                 TlasBuildResult fresh = TlasBuilder::BuildTlas(
                     cmd, snapshot.meshes, static_cast<u32>(frameAbs), m_LastResult,
                     m_Pipeline->GetMaterialSlotMap());

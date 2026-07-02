@@ -17,7 +17,7 @@ namespace Luth
         R8, RGB8, RGBA8, RGBA16F, RGBA32F,
         RG16F,
         R32_Float,                    // Compute storage (GTAO linear depth, etc.)
-        D32_Float, D24_Unorm_S8_Uint, // Added Depth formats
+        D32_Float, D24_Unorm_S8_Uint, // Depth formats
         R32_Uint,
         R16_Uint                      // Slim G-buffer material ID (16-bit, fits 16384-entry material SSBO)
     };
@@ -62,7 +62,6 @@ namespace Luth
         virtual ~Texture() = default;
 
         virtual void Bind(u32 slot = 0) const = 0;
-        //virtual void SetData(void* data, u32 size) = 0;
 
         virtual u32 GetWidth() const = 0;
         virtual u32 GetHeight() const = 0;
@@ -82,10 +81,9 @@ namespace Luth
         virtual int GetMipLevels() const = 0;
         virtual void GenerateMipmaps() = 0;
         
-        // Bindless Support
         virtual u32 GetBindlessIndex() const { return 0; }
 
-        // No path overload — the asset pipeline uses the data-taking form.
+        // No path overload; the asset pipeline uses the data-taking form.
         static std::shared_ptr<Texture> Create(u32 width, u32 height,
             TextureFormat format, const void* data = nullptr);
         static std::shared_ptr<Texture> Create(u32 width, u32 height,

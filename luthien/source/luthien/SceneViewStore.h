@@ -10,8 +10,8 @@
 namespace Luth
 {
     // Per-project persisted editor scene-view camera poses, keyed by scene UUID string. Lives at
-    // <project>/.luth/scene_views.json — gitignored, per-user, never in the committed scene asset
-    // (mirrors Unity, which keeps Scene View camera state in Library/). Editor write-throughs on
+    // <project>/.luth/scene_views.json (gitignored, per-user, never in the committed scene asset;
+    // mirrors Unity, which keeps Scene View camera state in Library/). Editor write-throughs on
     // scene save/switch/shutdown and loads the active project's file on project change.
     class SceneViewStore
     {

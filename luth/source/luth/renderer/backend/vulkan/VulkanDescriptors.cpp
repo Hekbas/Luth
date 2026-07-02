@@ -8,7 +8,7 @@
 
 namespace Luth
 {
-    // ── Bindless Descriptor Set ──
+    // ---- Bindless Descriptor Set ----
 
     void BindlessDescriptorSet::Init(VkDevice device)
     {
@@ -16,9 +16,9 @@ namespace Luth
 
         m_Device = device;
 
-        // 1. Layout — two bindings on the same set. Both partial-bound + UAB so writes can
-        //    overlap in-flight reads (binding 0 retires textures via UploadContext's fence pump;
-        //    binding 1 ad-hoc samplers may register from any thread post-Init).
+        // Layout: two bindings on the same set. Both partial-bound + UAB so writes can
+        // overlap in-flight reads (binding 0 retires textures via UploadContext's fence pump;
+        // binding 1 ad-hoc samplers may register from any thread post-Init).
         VkDescriptorSetLayoutBinding bindings[2]{};
         bindings[0].binding = 0;
         bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -47,7 +47,7 @@ namespace Luth
 
         vkCreateDescriptorSetLayout(m_Device, &layoutInfo, nullptr, &m_Layout);
 
-        // 2. Pool — one entry per descriptor type.
+        // Pool: one entry per descriptor type.
         VkDescriptorPoolSize poolSizes[2]{};
         poolSizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         poolSizes[0].descriptorCount = MAX_BINDLESS_RESOURCES;
@@ -63,7 +63,6 @@ namespace Luth
 
         vkCreateDescriptorPool(m_Device, &poolInfo, nullptr, &m_Pool);
 
-        // 3. Allocate Set
         VkDescriptorSetAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         allocInfo.descriptorPool = m_Pool;
@@ -72,10 +71,10 @@ namespace Luth
 
         vkAllocateDescriptorSets(m_Device, &allocInfo, &m_DescriptorSet);
 
-        // 4. Initialize free lists. Slot 0 of binding 0 is reserved for the null texture and
-        //    never enters the pool. The canonical sampler block occupies slots 0..N-1 of binding 1
-        //    and is also out of the LIFO. Both push descending so pop_back yields ascending
-        //    allocation order — easier to read in RenderDoc.
+        // Initialize free lists. Slot 0 of binding 0 is reserved for the null texture and
+        // never enters the pool. The canonical sampler block occupies slots 0..N-1 of binding 1
+        // and is also out of the LIFO. Both push descending so pop_back yields ascending
+        // allocation order (easier to read in RenderDoc).
         m_FreeIndices.reserve(MAX_BINDLESS_RESOURCES - 1);
         for (u32 i = MAX_BINDLESS_RESOURCES - 1; i > NULL_TEXTURE_SLOT; --i)
             m_FreeIndices.push_back(i);
@@ -84,7 +83,7 @@ namespace Luth
         for (u32 i = MAX_BINDLESS_SAMPLERS - 1; i >= NUM_CANONICAL_SAMPLERS; --i)
             m_FreeSamplerIndices.push_back(i);
 
-        // 5. Null texture + canonical samplers.
+        // Null texture + canonical samplers.
         CreateNullTexture();
         {
             VkDescriptorImageInfo imageInfo{};
@@ -199,10 +198,9 @@ namespace Luth
 
         m_NullAllocation = VulkanAllocator::AllocateImage(imageInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, m_NullImage);
 
-        // Upload white pixel
-        // Use ImmediateSubmit to transition and upload
+        // Upload the white pixel via ImmediateSubmit.
         VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
-            // 1. Transition to Transfer Dst
+            // Transition to transfer dst
             VkImageMemoryBarrier barrier{};
             barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
             barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -213,12 +211,12 @@ namespace Luth
             barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
             vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
-            // 2. Clear Color (Upload white)
+            // Clear to white
             VkClearColorValue clearColor = { 1.0f, 1.0f, 1.0f, 1.0f };
             VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
             vkCmdClearColorImage(cmd, m_NullImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearColor, 1, &range);
 
-            // 3. Transition to Shader Read
+            // Transition to shader read
             barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
             barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -279,7 +277,7 @@ namespace Luth
 
     void BindlessDescriptorSet::UnbindTexture(u32 index)
     {
-        // Skip the sentinel and the reserved null slot — neither belongs back in the pool.
+        // Skip the sentinel and the reserved null slot; neither belongs back in the pool.
         // (The sentinel never owned a descriptor; freeing slot 0 would orphan the null texture.)
         if (index == INVALID_BINDLESS_SLOT || index == NULL_TEXTURE_SLOT)
             return;
@@ -287,7 +285,7 @@ namespace Luth
         std::lock_guard<std::mutex> lock(m_Lock);
         LH_PROFILE_FUNCTION();
 
-        // Replace with null texture to be safe
+        // Rebind the null texture so the retired slot never samples a stale view
         VkDescriptorImageInfo imageInfo{};
         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         imageInfo.imageView = m_NullImageView;
@@ -333,7 +331,7 @@ namespace Luth
 
         std::lock_guard<std::mutex> lock(m_Lock);
         LH_PROFILE_FUNCTION();
-        // Restore the LinearRepeatAnisoMip canonical as the safe fallback — partial-bound covers
+        // Restore the LinearRepeatAnisoMip canonical as the safe fallback; partial-bound covers
         // the "never sampled" case, but a defined value beats an unspecified one for renderdoc.
         WriteSamplerSlot(index, m_CanonicalSamplers[(u32)CanonicalSampler::LinearRepeatAnisoMip]);
         m_FreeSamplerIndices.push_back(index);

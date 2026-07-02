@@ -12,7 +12,7 @@ namespace Luth
 {
     // Per-frame VkQueryPools for GPU timestamp profiling. Results are read with a 2-frame latency
     // because GPU N-2 is the most recent frame guaranteed to be complete on the device side.
-    // Also owns an optional pipeline-statistics pool (graphics passes only) — see the stats methods.
+    // Also owns an optional pipeline-statistics pool (graphics passes only); see the stats methods.
     class GPUTimerPool
     {
     public:
@@ -41,7 +41,7 @@ namespace Luth
         // Read results from 2 frames ago. Fills outTimesMs with per-pass durations in milliseconds.
         void ReadResults(u32 passCount, std::vector<float>& outTimesMs);
 
-        // ── Pipeline statistics (graphics passes only; async-compute queues can't run graphics stat
+        // Pipeline statistics (graphics passes only; async-compute queues can't run graphics stat
         // queries). Begin/End bracket the pass on the graphics primary and span its secondary via
         // inheritedQueries. Runtime-toggled + off by default; no-op when the device lacks support.
         bool StatsSupported() const { return m_StatsSupported; }

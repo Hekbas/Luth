@@ -12,8 +12,8 @@ namespace Luth
     inline constexpr u32 k_ShadowCascadeCount = 4;
     inline constexpr u32 k_ShadowResolution   = 2048;
 
-    // Sun shadowing path selector. RT is the default once the rt-shadows effort lands; CSM stays
-    // as opt-in compare mode. Both paths consume identical inputs (sun direction, world-space
+    // Sun shadowing path selector. RT is the default; CSM stays as opt-in compare mode.
+    // Both paths consume identical inputs (sun direction, world-space
     // position, surface normal) and produce a per-fragment shadow factor in [0,1]; the dispatch
     // happens at the pbr.frag::ComputeShadow wrapper. Mirrors the TonemapOperator compare-mode
     // precedent in PostProcessSettings.
@@ -23,7 +23,7 @@ namespace Luth
         RtShadows = 1,
     };
 
-    // ── Light data structs (mirrored in pbr.frag Set 3 LightSSBO) ──
+    // ---- Light data structs (mirrored in pbr.frag Set 3 LightSSBO) ----
 
     struct DirectionalLightData {
         Vec3 direction;   // 12
@@ -39,7 +39,7 @@ namespace Luth
         float     intensity;   // 4
     };  // 32 bytes
 
-    // Three vec3 force three 16-B slots under std430; the 4th scalar (cosOuter) needs a fourth → 64 B.
+    // Three vec3 force three 16-B slots under std430; the 4th scalar (cosOuter) needs a fourth -> 64 B.
     // First 48 B mirror PointLightData's vec3+float pairing; cosOuter + pad ride the last slot.
     // Cone cosines (not angles) so the shader's smoothstep edge test is a bare dot-product compare.
     struct SpotLightData {
@@ -61,26 +61,26 @@ namespace Luth
         std::vector<SpotLightData>  spots;
     };
 
-    // ── Forward+ clustered lighting ──
+    // ---- Forward+ clustered lighting ----
     // invariant: cluster tile + slice counts must match the GLSL constants in cluster_build.slang,
     // light_assign.slang, and pbr.frag's ComputeClusterID. SSBO bindings on Set 3 b0-b2 (see arch/rendering-pipeline.md).
 
     inline constexpr u32 k_ClusterTilesX        = 16;
     inline constexpr u32 k_ClusterTilesY        =  9;
-    // 48 slices sized so each cluster spans ~2.7 atlas slices (128 atlas slices total) — keeps
+    // 48 slices sized so each cluster spans ~2.7 atlas slices (128 atlas slices total); keeps
     // fog Z-banding below the visible threshold.
     inline constexpr u32 k_ClusterSlicesZ       = 48;
     inline constexpr u32 k_ClusterCount         = k_ClusterTilesX * k_ClusterTilesY * k_ClusterSlicesZ;  // 6912
     inline constexpr u32 k_MaxLightsPerCluster  = 128;
 
     // Set 3 binding 0 layout: { LightSSBOHeader; PointLightData points[pointLightCount]; SpotLightData spots[spotLightCount]; }
-    // One contiguous tagged-heap region per frame — header at 0, points at 48, spots at 48 + pointCount*32.
+    // One contiguous tagged-heap region per frame: header at 0, points at 48, spots at 48 + pointCount*32.
     // PointLightData / DirectionalLightData are already std430-compatible (vec3 + float pairs in 16B slots).
     struct LightSSBOHeader {
         DirectionalLightData dirLight;          // 32 B
         u32                  pointLightCount;   //  4 (offset 32)
         u32                  spotLightCount;    //  4 (offset 36)
-        u32                  _pad[2];           //  8 (std430 array boundary — points[] starts at offset 48)
+        u32                  _pad[2];           //  8 (std430 array boundary; points[] starts at offset 48)
     };
     static_assert(sizeof(LightSSBOHeader) == 48, "LightSSBOHeader std430 layout");
     static_assert(sizeof(DirectionalLightData) == 32, "DirectionalLightData std430 layout");
@@ -94,9 +94,8 @@ namespace Luth
     };
     static_assert(sizeof(GPUCluster) == 8, "GPUCluster std430 layout");
 
-    // Per-frame directional-light shadow config, snapshot from the first
-    // Component::DirectionalLight each frame. Sticky — last-known values remain
-    // when no directional light is present.
+    // Per-frame directional-light shadow config, snapshot from the first Component::DirectionalLight
+    // each frame. Sticky: last-known values remain when no directional light is present.
     struct DirectionalLightShadowParams
     {
         Vec4 shadowBias            = Vec4(0.005f, 0.008f, 0.012f, 0.02f);

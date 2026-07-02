@@ -1,11 +1,11 @@
-// PPLL store — shades each transparent fragment once (the shared body) and pushes the result onto the
+// PPLL store: shades each transparent fragment once (the shared body) and pushes the result onto the
 // pixel's linked list. No color attachments; depth-test-no-write against the opaque depth. oit_resolve
 // sorts + composites next. see arch/rendering-pipeline.md
 import globals;
 import pbr_transparent_shading;
 import oit_common;
 
-// Set 6 b1/b2 — PPLL store targets (b0 fog atlas is in the shared module).
+// Set 6 b1/b2: PPLL store targets (b0 fog atlas is in the shared module).
 [[vk::binding(1, 6)]] [[vk::image_format("r32ui")]] RWTexture2D<uint> oitHeads;
 [[vk::binding(2, 6)]] RWByteAddressBuffer oitNodes;   // { uint count; uint pad[3]; OITNode nodes[]; }
 
@@ -23,7 +23,7 @@ struct VIn   // matches pbr.vert
     [[vk::location(9)]] nointerpolation uint entityID;
 };
 
-// Depth test BEFORE the shader so occluded fragments never shade or store (legal — no depth writes here).
+// Depth test BEFORE the shader so occluded fragments never shade or store (legal; no depth writes here).
 [shader("fragment")]
 [earlydepthstencil]
 void main(VIn i, bool frontFacing : SV_IsFrontFace, float4 fragCoord : SV_Position)
@@ -33,7 +33,7 @@ void main(VIn i, bool frontFacing : SV_IsFrontFace, float4 fragCoord : SV_Positi
 
     uint idx;
     oitNodes.InterlockedAdd(0u, 1u, idx);   // atomic count++ at byte offset 0
-    if (idx >= pc.nodeCapacity) return;      // pool exhausted — fragment dropped
+    if (idx >= pc.nodeCapacity) return;      // pool exhausted: fragment dropped
 
     uint prev;
     InterlockedExchange(oitHeads[int2(fragCoord.xy)], idx, prev);   // publish as the new head

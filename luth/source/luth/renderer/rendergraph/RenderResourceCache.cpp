@@ -124,7 +124,6 @@ namespace Luth::RG
             }
         }
 
-        // Create new if not found
         LH_LOG(Renderer, warn, "Allocating new transient texture: {0} ({1}x{2})", desc.name, desc.width, desc.height);
 
         PooledResource res;
@@ -140,7 +139,6 @@ namespace Luth::RG
         imageInfo.mipLevels = 1;
         imageInfo.arrayLayers = 1;
 
-        // Map format
         if (resolved.format == TextureFormat::RGBA8_Unorm) imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
         else if (resolved.format == TextureFormat::BGRA8_Unorm) imageInfo.format = VK_FORMAT_B8G8R8A8_UNORM;
         else if (resolved.format == TextureFormat::R8_Unorm) imageInfo.format = VK_FORMAT_R8_UNORM;
@@ -156,13 +154,12 @@ namespace Luth::RG
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         imageInfo.usage = resolved.usage;
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-        // Transient images may end up as compute-pass outputs sampled by a later graphics pass — CONCURRENT keeps
+        // Transient images may end up as compute-pass outputs sampled by a later graphics pass; CONCURRENT keeps
         // those cross-queue cases legal without per-resource opt-in. Single-family GPUs collapse back to EXCLUSIVE.
         VulkanContext::Get().ApplyConcurrentSharing(imageInfo);
 
         res.allocation = VulkanAllocator::AllocateImage(imageInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, res.image);
 
-        // Create View
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image = res.image;
@@ -196,7 +193,6 @@ namespace Luth::RG
 
     PooledBuffer RenderResourceCache::GetBuffer(const BufferDesc& desc)
     {
-        // Find a matching buffer in the pool (same size and usage)
         for (auto it = m_BufferPool.begin(); it != m_BufferPool.end(); ++it)
         {
             if (it->desc.size == desc.size && it->desc.usage == desc.usage)
@@ -208,7 +204,6 @@ namespace Luth::RG
             }
         }
 
-        // Create new buffer
         LH_LOG(Renderer, warn, "Allocating new transient buffer: {0} ({1} bytes)", desc.name, desc.size);
 
         PooledBuffer buf;

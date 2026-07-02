@@ -1,19 +1,19 @@
-// ReSTIR DI — spatial reuse (Bitterli 2020). Each pixel merges its own reservoir with a few random
+// ReSTIR DI spatial reuse (Bitterli 2020). Each pixel merges its own reservoir with a few random
 // neighbours inside a disk, rejecting geometrically dissimilar ones (linear depth + normal). Punctual
-// point lights store a light INDEX, so the shift map is identity and there is NO Jacobian — the
-// neighbour's light target is simply re-evaluated at this pixel. Reads the temporal output (in) and
-// writes a separate output (out) — neighbours must be read un-modified, so this can't be in-place.
+// point lights store a light INDEX, so the shift map is identity and there is NO Jacobian: the
+// neighbour's light target is re-evaluated at this pixel. Reads the temporal output (in) and
+// writes a separate output (out); neighbours must be read un-modified, so this can't be in-place.
 // AsyncCompute. see arch/rendering-pipeline.md
 import globals;
 import restir_common;
-import restir_di_target;    // #154 RestirTargetPdf
+import restir_di_target;    // RestirTargetPdf
 
 [[vk::binding(0, 1)]] ByteAddressBuffer g_Lights;
 [[vk::binding(0, 2)]] Sampler2D u_Depth;
 [[vk::binding(1, 2)]] Sampler2D u_Normal;
 [[vk::binding(2, 2)]] StructuredBuffer<Reservoir> resIn;
 [[vk::binding(6, 2)]] RWStructuredBuffer<Reservoir> resOut;
-[[vk::binding(7, 2)]] Sampler2D u_SlimRoughness;   // #154 combined diffuse+spec target
+[[vk::binding(7, 2)]] Sampler2D u_SlimRoughness;   // combined diffuse+spec target
 
 struct PC
 {
@@ -62,7 +62,7 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     Reservoir r     = resIn[flatIdx];
     float     depth = u_Depth.Load(int3(GbufCoord(pixel), 0)).r;
-    if (depth >= 1.0) { resOut[flatIdx] = r; return; }   // sky — pass through
+    if (depth >= 1.0) { resOut[flatIdx] = r; return; }   // sky; pass through
 
     float3 N        = OctDecode(u_Normal.Load(int3(GbufCoord(pixel), 0)).rg);
     float2 uv       = (float2(pixel) + 0.5) / float2(size);
@@ -93,11 +93,11 @@ void main(uint3 tid : SV_DispatchThreadID)
         Reservoir nr = resIn[uint(np.y) * uint(size.x) + uint(np.x)];
         if (nr.lightIndex == RESTIR_NO_LIGHT || nr.M == 0u) continue;
 
-        // Re-evaluate the neighbour's selected light at THIS pixel (punctual → no Jacobian).
+        // Re-evaluate the neighbour's selected light at THIS pixel (punctual -> no Jacobian).
         PointLightData pl = LoadPoint(nr.lightIndex);
         float3 L; float dist;
         float3 Li   = PointLightRadiance(pl, worldPos, L, dist);
-        float  pHat = RestirTargetPdf(N, V, L, Li, rough);   // (#154 combined target)
+        float  pHat = RestirTargetPdf(N, V, L, Li, rough);   // (combined target)
         ReservoirMerge(c, nr.lightIndex, pHat, nr.W, nr.M, RandFromSeed(seed));
     }
 

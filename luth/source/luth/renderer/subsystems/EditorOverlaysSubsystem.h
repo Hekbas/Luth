@@ -18,12 +18,11 @@ namespace Luth
     struct ViewResources;
     struct SelectionMaskOutput;
 
-    // Owns the editor-only overlay resources and passes: SelectionMask
-    // (rigid + skinned graphics pipelines on Sets 0-4), Outline (fullscreen
-    // pass with its own descriptor set), Grid (fullscreen pass with its own
-    // descriptor set + GlobalUBO at binding 0).
-    // invariant: Init() must precede BuildPipelines(geoLayouts) — Selection
-    // pipelines consume the shared 6-layout vector (only Sets 0-4 in practice).
+    // Owns the editor-only overlay resources and passes: SelectionMask (rigid + skinned graphics pipelines
+    // on Sets 0-4), Outline (fullscreen pass with its own descriptor set), Grid (fullscreen pass with its
+    // own descriptor set + GlobalUBO at binding 0).
+    // invariant: Init() must precede BuildPipelines(geoLayouts); Selection pipelines consume the shared
+    // 6-layout vector (only Sets 0-4 in practice).
     class EditorOverlaysSubsystem
     {
     public:
@@ -77,7 +76,7 @@ namespace Luth
         VkDescriptorSetLayout       m_GridDescSetLayout = VK_NULL_HANDLE;
         VkSampler                   m_GridDepthSampler  = VK_NULL_HANDLE;
 
-        // Own copy of fullscreen.vert (PostProcess loads it too — both via idempotent
+        // Own copy of the fullscreen vert SPIR-V (PostProcess loads it too; both via idempotent
         // ShaderLibrary::LoadEngine, then OnShaderReloaded refreshes both subsystems' copies).
         std::vector<u32> m_FullscreenVertSpv;
     };

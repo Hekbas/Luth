@@ -19,9 +19,8 @@ namespace Luth
 
 namespace Luth::RG
 {
-    // Record types for the Frame Debugger. CapturedPipelineState, CapturedDrawCall, and
-    // CapturedFrame mirror what live recording emitted so the editor can scroll through passes
-    // and draws and replay individual ones from frozen state.
+    // Record types for the Frame Debugger. CapturedPipelineState, CapturedDrawCall, and CapturedFrame mirror what
+    // live recording emitted so the editor can scroll through passes and draws and replay individual ones from frozen state.
     // Pipeline state captured at draw time (not hardcoded)
     struct CapturedPipelineState
     {
@@ -75,9 +74,8 @@ namespace Luth::RG
         u32 groupCountZ = 0;
     };
 
-    // invariant: every Replay* entry calls HasViewResources(targets, viewResourcesId)
-    // before reading these — FrameTargets pointer alone isn't safe (panel close +
-    // re-allocation can hand back the same address with different content).
+    // invariant: every Replay* entry calls HasViewResources(targets, viewResourcesId) before reading these;
+    // FrameTargets pointer alone isn't safe (panel close + re-allocation can hand back the same address with different content).
     struct CapturedViewState
     {
         FrameTargets* targets         = nullptr;
@@ -95,10 +93,9 @@ namespace Luth::RG
         u32 drawCallCount   = 0;
         float gpuTimeMs     = -1.0f;
 
-        // Graph index of this pass in the source RenderGraph. Used to look
-        // up CapturedFrame::passArchives, which is keyed by graph index
-        // (sparse — empty slots for culled passes / passes without tracked
-        // RT writes), while CapturedFrame::passes is dense (push-order).
+        // Graph index of this pass in the source RenderGraph. Used to look up CapturedFrame::passArchives, which is
+        // keyed by graph index (sparse: empty slots for culled passes / passes without tracked RT writes), while
+        // CapturedFrame::passes is dense (push-order).
         u32 graphPassIndex = 0;
 
         CapturedPipelineState pipelineState;
@@ -108,7 +105,6 @@ namespace Luth::RG
         bool isDepthTarget = false;
     };
 
-    // The complete captured frame data
     struct CapturedFrame
     {
         std::vector<CapturedDrawCall> drawCalls;
@@ -117,53 +113,46 @@ namespace Luth::RG
         float totalGpuTimeMs = 0.0f;
         bool  valid          = false;
 
-        // Per-pass archives plus capture-time camera state. invariant: ArchivedImage destruction
-        // is the OWNER's responsibility (FrameDebugger). Clear() does NOT free GPU resources —
-        // call FrameDebugger::DestroyArchives first.
+        // Per-pass archives plus capture-time camera state. invariant: ArchivedImage destruction is the OWNER's
+        // responsibility (FrameDebugger). Clear() does NOT free GPU resources; call FrameDebugger::DestroyArchives first.
         //
-        // archivedImages owns the staging copies of tracked render targets, captured post-pass
-        // during Execute by the FrameDebugger sink. passArchives is indexed by RenderGraph pass
-        // index and holds the indices into archivedImages of all archives produced by that pass
-        // (typically 0-4 per pass).
+        // archivedImages owns the staging copies of tracked render targets, captured post-pass during Execute by
+        // the FrameDebugger sink. passArchives is indexed by RenderGraph pass index and holds the indices into
+        // archivedImages of all archives produced by that pass (typically 0-4 per pass).
         //
-        // captureViewProj is the camera viewProj at the moment of capture; the Frozen path
-        // compares it against the live viewProj to trigger auto-recapture on camera movement.
+        // captureViewProj is the camera viewProj at the moment of capture; the Frozen path compares it against
+        // the live viewProj to trigger auto-recapture on camera movement.
         std::vector<ArchivedImage>     archivedImages;
         std::vector<std::vector<u32>>  passArchives;
         Mat4                       captureViewProj = Mat4(1.0f);
 
-        // Render-frame index at BeginCapture — pins descriptor-set slot for
-        // Frozen replay (per-frame cycling — see arch/rendering-pipeline.md).
+        // Render-frame index at BeginCapture; pins the descriptor-set slot for Frozen replay (per-frame cycling, see arch/rendering-pipeline.md).
         u32 capturedRenderFrameIndex = 0;
 
-        // Editor IBL intensities at capture time. Compared each Frozen tick
-        // alongside captureViewProj to trigger recapture when the user edits
-        // Sun/Sky settings while inspecting.
+        // Editor IBL intensities at capture time. Compared each Frozen tick alongside captureViewProj to trigger
+        // recapture when the user edits Sun/Sky settings while inspecting.
         float capturedIblIntensity    = 1.0f;
         float capturedSkyboxIntensity = 1.0f;
 
         // Resolved selection set at capture (root + descendants), populated by
-        // EditorOverlaysSubsystem::CollectSelectedHandles. ReplaySelectionMask
-        // reads this directly — m_CurrentView's RenderView is stack-allocated
-        // and gone by the time the user scrubs.
+        // EditorOverlaysSubsystem::CollectSelectedHandles. ReplaySelectionMask reads this directly;
+        // m_CurrentView's RenderView is stack-allocated and gone by the time the user scrubs.
         std::vector<entt::entity> capturedSelectionHandles;
 
-        // Hierarchical event tree built at capture finalize from passes / drawCalls plus the
-        // prefix registry in FrameEventTree.cpp.
+        // Hierarchical event tree built at capture finalize from passes / drawCalls plus the prefix registry in FrameEventTree.cpp.
         EventNode                       rootEvent;
 
-        // CSM cascade snapshot. Stamped from the RenderingSystem's m_Cached* values at
-        // FinalizeCapture so the cascade detail panel shows GPU-true values from the captured
-        // frame, not whatever the editor has currently dialled in. Indices 0..3 = cascade index.
+        // CSM cascade snapshot. Stamped from the RenderingSystem's m_Cached* values at FinalizeCapture so the
+        // cascade detail panel shows GPU-true values from the captured frame, not whatever the editor has
+        // currently dialled in. Indices 0..3 = cascade index.
         Vec4 cascadeSplitsViewZ = Vec4(0.0f);  // Per-cascade far view-Z (absolute)
         Vec4 shadowBias         = Vec4(0.0f);  // Per-cascade depth bias
         Vec4 shadowNormalBias   = Vec4(0.0f);  // Per-cascade normal bias (texels)
         Vec4 cascadeTexelSize   = Vec4(0.0f);  // World-space texel footprint
         Mat4 lightSpaceMatrix[4]{};                 // Per-cascade light viewProj
 
-        // Captured-view metadata + GPU-true Set 0 binding sources for replay.
-        // invariant: replay must render against these, not live state — when
-        // capturedSource == Game and the live scene view runs after capture,
+        // Captured-view metadata + GPU-true Set 0 binding sources for replay. invariant: replay must render
+        // against these, not live state; when capturedSource == Game and the live scene view runs after capture,
         // m_CurrentViewResources points at the scene view, not the captured one.
         CapturedViewState        capturedView;
         std::vector<u8>          capturedGlobalUboBytes;   // GlobalUniforms snapshot
@@ -172,9 +161,8 @@ namespace Luth::RG
         std::shared_ptr<Texture> capturedBRDF;
         std::shared_ptr<Texture> capturedGTAOFinal;
 
-        // Metadata-only reset. GPU-owned archives are NOT touched; the owner
-        // (FrameDebugger) must call DestroyArchives separately to free them.
-        // BeginCapture orchestrates both in the right order.
+        // Metadata-only reset. GPU-owned archives are NOT touched; the owner (FrameDebugger) must call
+        // DestroyArchives separately to free them. BeginCapture orchestrates both in the right order.
         void Clear()
         {
             drawCalls.clear();

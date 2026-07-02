@@ -1,4 +1,4 @@
-// Volumetric fog inject — density pass. Per voxel: accumulate fog density + tint from all sources
+// Volumetric fog inject, density pass. Per voxel: accumulate fog density + tint from all sources
 // (FogVolume rows + analytic distance + analytic height), normalize tint as the density-weighted color
 // average, then modulate density by 3D Worley-FBM noise. Writes vec4(density, tint.rgb) to volDensity.
 // see arch/rendering-pipeline.md
@@ -6,7 +6,7 @@ import globals;
 
 [[vk::binding(0, 1)]] [[vk::image_format("rgba16f")]] RWTexture3D<float4> volDensity;
 // FogVolumeBuffer = header { uint count; uint3 _pad } (16 B) then FogVolumeRow[] (112 B std430 each) at
-// offset 16. Read via raw byte offsets — a header + flexible array can't be a StructuredBuffer.
+// offset 16. Read via raw byte offsets; a header + flexible array can't be a StructuredBuffer.
 [[vk::binding(1, 1)]] ByteAddressBuffer g_Fog;
 [[vk::binding(2, 1)]] Sampler3D volNoise3D;
 
@@ -30,7 +30,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     int3 voxel  = int3(tid);
     if (any(voxel >= volDim)) return;
 
-    // Voxel center → world via inverse-projection + invView push.
+    // Voxel center -> world via inverse-projection + invView push.
     float2 uv    = (float2(voxel.xy) + 0.5) / float2(volDim.xy);
     float2 ndcXY = uv * 2.0 - 1.0;
     float  viewZ = SliceToViewZ(voxel.z, ubo.nearZ, ubo.farZ);
@@ -42,13 +42,13 @@ void main(uint3 tid : SV_DispatchThreadID)
     float  density    = 0.0;
     float3 colorAccum = float3(0.0);
 
-    // 1. Local FogVolume rows (header at 0; rows at 16 + i*112). Fields used: worldToVolume, extents,
-    //    type, color, density, falloffStart, falloffEnd (affectsAmbient/_pad unused here).
+    // Local FogVolume rows (header at 0; rows at 16 + i*112). Fields used: worldToVolume, extents,
+    // type, color, density, falloffStart, falloffEnd (affectsAmbient/_pad unused here).
     uint count = g_Fog.Load(0u);
     for (uint i = 0u; i < count; ++i)
     {
         uint b = 16u + i * 112u;
-        // worldToVolume — 4 column-major glm columns → transpose the row-ctor to columns.
+        // worldToVolume: 4 column-major glm columns, transpose the row-ctor to columns.
         float4 c0 = asfloat(g_Fog.Load4(b +  0u));
         float4 c1 = asfloat(g_Fog.Load4(b + 16u));
         float4 c2 = asfloat(g_Fog.Load4(b + 32u));
@@ -86,7 +86,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         colorAccum += vColor * dContrib;
     }
 
-    // 2. Analytic distance fog — uniform density past dfStart.
+    // Analytic distance fog: uniform density past dfStart.
     float  dfDensityRaw = ubo.distanceFogColorDensity.a;
     float  dfEnabled    = ubo.distanceFogParams.z;
     float  dfStart      = ubo.distanceFogParams.x;
@@ -96,7 +96,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     density    += dfDensity_v;
     colorAccum += dfColor * dfDensity_v;
 
-    // 3. Analytic height fog — exponential profile below the reference height.
+    // Analytic height fog: exponential profile below the reference height.
     float  hfDensityRaw = ubo.heightFogColorDensity.a;
     float  hfEnabled    = ubo.heightFogParams.z;
     float  hfRefH       = ubo.heightFogParams.x;
@@ -110,7 +110,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     density = max(density, 0.0);
     float3 tint = (density > 1e-4) ? colorAccum / density : float3(1.0);
 
-    // 3D Worley-FBM noise modulates density in world space (REPEAT sampler tiles the 128³ atlas). Tint is
+    // 3D Worley-FBM noise modulates density in world space (REPEAT sampler tiles the 128^3 atlas). Tint is
     // captured BEFORE noise so colour stays stable.
     float noiseStrength = ubo.volNoiseParams.y;
     if (noiseStrength > 1e-4 && density > 1e-4)

@@ -90,14 +90,13 @@ namespace Luth
         json["alpha_from_diffuse"] = static_cast<int>(m_AlphaFromDiffuse);
         json["cull_mode"] = static_cast<int>(m_CullMode);
 
-        // Serialize color
         json["color"] = { m_GPUData.color.r, m_GPUData.color.g, m_GPUData.color.b, m_GPUData.color.a };
 
-        // Serialize emissive (rgb = linear factor, a = HDR strength) — direct GPUData field like color.
+        // Emissive (rgb = linear factor, a = HDR strength); direct GPUData field like color.
         json["emissive"] = { m_GPUData.emissive.r, m_GPUData.emissive.g,
                              m_GPUData.emissive.b, m_GPUData.emissive.a };
 
-        // Serialize metalness/roughness — direct GPUData fields (the u_* uniform channel is dead).
+        // Metalness/roughness: direct GPUData fields (the u_* uniform channel is dead).
         json["metalness"] = m_GPUData.metalness;
         json["roughness"] = m_GPUData.roughness;
 
@@ -204,7 +203,7 @@ namespace Luth
             m_GPUData.color = Vec4(c[0], c[1], c[2], c[3]);
         }
 
-        // Metalness/roughness — direct fields; fall back to the legacy (dead) u_* uniform JSON so
+        // Metalness/roughness: direct fields; fall back to the legacy (dead) u_* uniform JSON so
         // materials imported before these became direct fields recover their factors.
         f32 legacyMetal = m_GPUData.metalness, legacyRough = m_GPUData.roughness;
         if (m_CachedUniformJSON.is_object())
@@ -235,7 +234,7 @@ namespace Luth
         {
             // Migration for files predating the emissive field. Preserve the prior "emissive texture
             // emits at full" behavior so existing emissive-textured assets don't go dark in the RT
-            // path; default to no emission otherwise. Gated on key-absence only — never overrides a
+            // path; default to no emission otherwise. Gated on key-absence only; never overrides a
             // deliberate factor from a newer save (those always carry the "emissive" key).
             bool hasEmissiveTex = false;
             for (const auto& m : m_Maps)

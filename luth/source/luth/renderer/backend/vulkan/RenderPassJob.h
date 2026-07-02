@@ -28,7 +28,7 @@ namespace Luth
 
         static void Execute(RenderPassJob* job)
         {
-            // 1. Acquire Command Buffer from per-thread pool
+            // Acquire a command buffer from the per-thread pool
             auto* ctx = JobSystem::GetCurrentJobContext();
             if (!ctx->CommandPool) return;
             
@@ -36,7 +36,7 @@ namespace Luth
             VkCommandBuffer cmd = allocator->GetBuffer(VK_COMMAND_BUFFER_LEVEL_SECONDARY);
             job->CommandBuffer = cmd;
 
-            // 2. Setup Inheritance for Dynamic Rendering
+            // Inheritance info for dynamic rendering.
             // Stack array avoids per-frame heap allocation (max 8 color attachments is generous).
             static constexpr u32 k_MaxColorAttachments = 8;
             VkFormat colorFormats[k_MaxColorAttachments];
@@ -66,7 +66,6 @@ namespace Luth
             if (VulkanContext::Get().SupportsPipelineStats())
                 inheritanceInfo.pipelineStatistics = GPUTimerPool::k_StatsFlags;
             
-            // 3. Begin Recording
             VkCommandBufferBeginInfo beginInfo{};
             beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
             beginInfo.flags = VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT | VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -74,16 +73,13 @@ namespace Luth
 
             vkBeginCommandBuffer(cmd, &beginInfo);
 
-            // 4. User Recording
             if (job->RecordFunction)
             {
                 job->RecordFunction(cmd);
             }
 
-            // 5. End Recording
             vkEndCommandBuffer(cmd);
             
-            // 6. Release Allocator back to pool
             ctx->CommandPool->Release(allocator);
         }
     };

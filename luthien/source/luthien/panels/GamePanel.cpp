@@ -49,7 +49,7 @@ namespace Luth
     // Populate CameraParams + aspect ratio from the first
     // <Camera, WorldTransform> entity. Returns false if none.
     //
-    // Projection stays Y-up — RenderPipeline::UpdateGlobalUniforms applies
+    // Projection stays Y-up; RenderPipeline::UpdateGlobalUniforms applies
     // the Vulkan Y-flip uniformly for every view. IBL/skybox intensities
     // read from EditorSettings so both views share the Render panel sliders.
     static bool BuildCameraFromScene(entt::registry& reg, CameraParams& out, float& outAspect)
@@ -88,7 +88,7 @@ namespace Luth
 
     void GamePanel::OnGather(EditorSnapshotBuilder& builder)
     {
-        // No state to capture beyond the placeholder fragment — Game viewport is
+        // No state to capture beyond the placeholder fragment; Game viewport is
         // fully ImGui-driven against the live RenderingSystem game-camera target.
         builder.Add<GameViewportSnapshot>();
     }
@@ -107,7 +107,7 @@ namespace Luth
             const bool haveBackend = Renderer::GetBackend() && Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan;
 
             // Resolve the camera before BeginViewport so the viewport can
-            // lock to its aspect (letterbox/pillarbox). No camera → free
+            // lock to its aspect (letterbox/pillarbox). No camera -> free
             // aspect fallback for the placeholder text.
             CameraParams camera;
             float camAspect = 0.0f;

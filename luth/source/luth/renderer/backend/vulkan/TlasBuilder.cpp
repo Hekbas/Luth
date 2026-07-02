@@ -26,7 +26,7 @@ namespace Luth
 
         // CONTRACT: row-major transpose of glm column-major. VkAccelerationStructureInstanceKHR's
         // transform field is a 3x4 row-major matrix (VkTransformMatrixKHR := float[3][4]); our
-        // worldMatrix is glm::mat4 (column-major). A naive memcpy ships silently-wrong bounds —
+        // worldMatrix is glm::mat4 (column-major). A naive memcpy ships silently-wrong bounds;
         // validation layer doesn't catch it and rays miss geometry.
         VkTransformMatrixKHR ToVkTransform(const Mat4& m)
         {
@@ -37,10 +37,10 @@ namespace Luth
             return out;
         }
 
-        // Cheap u64 mix over the full world matrix — rotation + scale + translation. Mirrors
+        // Cheap u64 mix over the full world matrix: rotation + scale + translation. Mirrors
         // PathTraceSubsystem::ComputeResetHash so a static-mesh rotate/scale (no translation delta)
-        // still rebuilds; ~10 µs for ~100 instances. materialUUID is folded in because the geometry
-        // table carries each instance's material slot — a runtime material reassignment on a static
+        // still rebuilds; ~10 us for ~100 instances. materialUUID is folded in because the geometry
+        // table carries each instance's material slot: a runtime material reassignment on a static
         // mesh must force a rebuild or GI would shade the secondary hit with the stale material's
         // albedo. see arch/rendering-pipeline.md
         u64 HashInstances(std::span<const MeshDrawSnapshot> instances)
@@ -50,7 +50,7 @@ namespace Luth
             {
                 h ^= static_cast<u64>(inst.entity);
                 h *= 0x100000001b3ull;
-                // Full world matrix (16 floats) — rotation + scale + translation.
+                // Full world matrix (16 floats): rotation + scale + translation.
                 const f32* wm = &inst.worldMatrix[0][0];
                 for (int j = 0; j < 16; ++j)
                 {
@@ -61,8 +61,8 @@ namespace Luth
                 h *= 0x100000001b3ull;
                 h ^= inst.materialUUID.GetHalf0(); h *= 0x100000001b3ull;
                 h ^= inst.materialUUID.GetHalf1(); h *= 0x100000001b3ull;
-                // Fold RenderMode so an in-place opaque<->cutout edit (same UUID) forces a rebuild —
-                // the per-instance TLAS opaque flag (ST1) depends on it.
+                // Fold RenderMode so an in-place opaque<->cutout edit (same UUID) forces a rebuild;
+                // the per-instance TLAS opaque flag depends on it.
                 if (inst.materialUUID.IsValid())
                     if (auto mat = AssetManager::GetAsset<Material>(inst.materialUUID))
                     { h ^= static_cast<u64>(mat->GetRenderMode()); h *= 0x100000001b3ull; }
@@ -70,10 +70,10 @@ namespace Luth
             return h;
         }
 
-        // GPU geometry-table entry — one per packed TLAS instance, indexed by instanceCustomIndex.
+        // GPU geometry-table entry: one per packed TLAS instance, indexed by instanceCustomIndex.
         // Mirrors the GtGeomEntry buffer_reference struct in common/material.slang (std430, 24 B).
         // Static meshes point vertexBDA at the original VB; skinned meshes point it at the per-mesh
-        // deformed vertex buffer — both the 52 B Vertex layout — so ray hits read post-skin
+        // deformed vertex buffer (both the 52 B Vertex layout) so ray hits read post-skin
         // normals/tangents/UVs, not bind pose. Stride is sizeof(Vertex) for both.
         struct GPUGeometryEntry
         {
@@ -135,7 +135,7 @@ namespace Luth
         }
         if (entries.empty()) return;
 
-        // AS-build scratch must be DEVICE_LOCAL — the tagged heap is HOST_VISIBLE (the CPU->GPU data
+        // AS-build scratch must be DEVICE_LOCAL: the tagged heap is HOST_VISIBLE (the CPU->GPU data
         // path) and NVIDIA's RT accelerator TDRs on it; PushDeletion retires it N+2. see arch/memory.md
         VkBufferCreateInfo scratchCi{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
         scratchCi.size        = totalScratch;
@@ -231,8 +231,8 @@ namespace Luth
 
         // Pack instance buffer + the parallel geometry table in ONE loop so instanceCustomIndex (the
         // packed index) indexes the table 1:1. One VkAccelerationStructureInstanceKHR per resolved mesh
-        // with a non-null BLAS — meshes still uploading or with build failures get skipped.
-        // CONTRACT (rt-renderer C.3): instanceCustomIndex was the entity id (read by no shader); it is
+        // with a non-null BLAS; meshes still uploading or with build failures get skipped.
+        // CONTRACT: instanceCustomIndex was the entity id (read by no shader); it is
         // now the geometry-table index. restir_gi_initial.comp fetches {vertexBDA, indexBDA, materialSlot,
         // stride} from the table to shade the secondary hit's real material. see arch/rendering-pipeline.md
         std::vector<VkAccelerationStructureInstanceKHR> packed;
@@ -244,8 +244,8 @@ namespace Luth
             ResolvedMesh r = Resolve(inst);
             if (!r.blas || r.blas->GetDeviceAddress() == 0) continue;
 
-            // Resolve the material once: slot (geom table) + render mode → visibility mask + opaque flag.
-            // Transparent/Fade pack with the GLASS mask only — shadow-class rays cull to SOLID (glass
+            // Resolve the material once: slot (geom table) + render mode -> visibility mask + opaque flag.
+            // Transparent/Fade pack with the GLASS mask only: shadow-class rays cull to SOLID (glass
             // never blocks light), world-class rays (GI bounce / reflections / PT) trace SOLID|GLASS and
             // auto-confirm glass as a surface: emissive glass feeds the GI bounce and shows in reflections
             // (unblended approximation). Masks mirror common/material.slang's GT_VIS_*. HashInstances
@@ -307,11 +307,11 @@ namespace Luth
 
         if (packed.empty())
         {
-            // Empty TLAS — return null handle; Set 0 binding 6 will bind VK_NULL_HANDLE this frame.
+            // Empty TLAS: return null handle; Set 0 binding 6 will bind VK_NULL_HANDLE this frame.
             return result;
         }
 
-        // Per-frame instance buffer (mapped-sequential write — small data, no benefit from staging).
+        // Per-frame instance buffer (mapped-sequential write; small data, no benefit from staging).
         const VkDeviceSize instanceBytes = packed.size() * sizeof(VkAccelerationStructureInstanceKHR);
         VkBufferCreateInfo instCi{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
         instCi.size  = instanceBytes;
@@ -328,7 +328,7 @@ namespace Luth
         instAddr.buffer = instBuffer;
         const VkDeviceAddress instBda = vkGetBufferDeviceAddress(device, &instAddr);
 
-        // Instance buffer retires N+2 — by then this frame's TLAS build has long completed.
+        // Instance buffer retires N+2; by then this frame's TLAS build has long completed.
         VulkanContext::Get().PushDeletion([instBuffer, instAlloc]() {
             VulkanAllocator::FreeBuffer(instBuffer, instAlloc);
         });
@@ -336,7 +336,7 @@ namespace Luth
         // Geometry table (host-visible SSBO, BDA-deref'd by restir_gi_initial.comp). UNLIKE the
         // instance buffer it is NOT retired here: it shares the TLAS lifetime (read every frame the
         // TLAS is bound, including hash-skipped frames). Caller PushDeletion-s the prior table only
-        // when a rebuild replaces it — same handling as result.storageBuffer.
+        // when a rebuild replaces it (same handling as result.storageBuffer).
         const VkDeviceSize geomBytes = geomEntries.size() * sizeof(GPUGeometryEntry);
         VkBufferCreateInfo geomCi{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
         geomCi.size        = geomBytes;
@@ -349,7 +349,7 @@ namespace Luth
             // Geom-table alloc failed (host-visible OOM / fragmentation). Abort the build: return an
             // empty result so GetTlas() falls back to the persistent empty TLAS. Binding a REAL TLAS
             // with a null table BDA would let a committed hit deref a null buffer_reference in
-            // restir_gi_initial.comp (device lost). Nothing to free — only the instance buffer was
+            // restir_gi_initial.comp (device lost). Nothing to free: only the instance buffer was
             // allocated this call, and it is already PushDeletion-queued above.
             return TlasBuildResult{};
         }
@@ -363,7 +363,7 @@ namespace Luth
         // Vulkan's vkCmdBuildAccelerationStructuresKHR may keep pointers to the geometry / build /
         // range structs until the command executes on the GPU; stack-local versions would die after
         // BuildTlas returns and subsequent passes' stack frames could clobber the bytes. The block
-        // is freed via PushDeletion (N+2 frames out — same lifetime as the storage buffer).
+        // is freed via PushDeletion (N+2 frames out, same lifetime as the storage buffer).
         struct BuildCtx
         {
             VkAccelerationStructureBuildGeometryInfoKHR buildInfo{
@@ -375,7 +375,7 @@ namespace Luth
         };
         auto* ctx_ = new BuildCtx;
 
-        // Geometry desc for the TLAS — INSTANCES type points at our packed instance buffer.
+        // Geometry desc for the TLAS: INSTANCES type points at the packed instance buffer.
         ctx_->geom.geometryType                          = VK_GEOMETRY_TYPE_INSTANCES_KHR;
         ctx_->geom.geometry.instances.sType              = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
         ctx_->geom.geometry.instances.arrayOfPointers    = VK_FALSE;
@@ -399,7 +399,7 @@ namespace Luth
             &primitiveCount,
             &sizes);
 
-        // Per-frame TLAS storage (VMA, PushDeletion — drains N+2). CONCURRENT so RtSunShadowsPass
+        // Per-frame TLAS storage (VMA, PushDeletion; drains N+2). CONCURRENT so RtSunShadowsPass
         // raygen can read it from the AsyncCompute queue without a queue-family-ownership transfer.
         VkBufferCreateInfo storageCi{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
         storageCi.size        = sizes.accelerationStructureSize;
@@ -409,8 +409,8 @@ namespace Luth
         result.storageAlloc = VulkanAllocator::AllocateBuffer(
             storageCi, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, result.storageBuffer);
 
-        // AS-build scratch must be DEVICE_LOCAL — the tagged-heap path
-        // (AllocateMappedSequentialBuffer) returns HOST_VISIBLE memory, the documented CPU→GPU
+        // AS-build scratch must be DEVICE_LOCAL: the tagged-heap path
+        // (AllocateMappedSequentialBuffer) returns HOST_VISIBLE memory, the documented CPU->GPU
         // data path; wrong tool for GPU-only scratch (NVIDIA's RT hardware accelerator can TDR
         // on HOST_VISIBLE scratch). Mirrors BuildEmptyTlas's pattern. PushDeletion N+2 retires
         // it on the same schedule as the persistent instance buffer.
@@ -456,7 +456,7 @@ namespace Luth
         ctx_->pRange = &ctx_->range;
         rt.vkCmdBuildAccelerationStructuresKHR(cmd, 1, &ctx_->buildInfo, &ctx_->pRange);
 
-        // Heap context retires N+2 frames out — by then the GPU has long finished the build.
+        // Heap context retires N+2 frames out; by then the GPU has long finished the build.
         VulkanContext::Get().PushDeletion([ctx_]() { delete ctx_; });
 
         return result;

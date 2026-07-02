@@ -25,13 +25,13 @@ namespace Luth
 
         AssetType GetType() const override { return AssetType::PhysicsMaterial; }
 
-        // JSON round-trip mirroring Material — survives the importer's main-thread Deserialize hop.
+        // JSON round-trip mirroring Material; survives the importer's main-thread Deserialize hop.
         void Serialize  (nlohmann::json& json) const;
         void Deserialize(const nlohmann::json& json);
 
-        // Engine baseline for entities with materialUUID == UUID::Invalid() or for body builds
-        // before AssetManager has finished loading the user-shipped Default.physmat. Static-storage
-        // so callers can hold the reference across frames.
+        // Engine baseline for entities with materialUUID == UUID::Invalid() or for body builds before AssetManager
+        // has finished loading the user-shipped Default.physmat. Static-storage so callers can hold the reference
+        // across frames.
         static const PhysicsMaterial& Default();
     };
 }

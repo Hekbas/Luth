@@ -18,7 +18,7 @@
 
 namespace Luth::RG
 {
-    // ── Builder ──
+    // ---- Builder ----
 
     ResourceHandle RenderPassBuilder::Read(ResourceHandle resource)
     {
@@ -122,7 +122,7 @@ namespace Luth::RG
         return buffer;
     }
 
-    // ── RenderGraph — Construction & Registration ──
+    // ---- RenderGraph: Construction & Registration ----
 
     RenderGraph::RenderGraph(Memory::LinearAllocator& allocator)
         : m_Allocator(allocator)
@@ -268,7 +268,7 @@ namespace Luth::RG
         return newHandle;
     }
 
-    // ── Compile — Cull → Lifetimes → Barriers ──
+    // ---- Compile: Cull -> Lifetimes -> Barriers ----
 
     void RenderGraph::Compile()
     {
@@ -303,8 +303,8 @@ namespace Luth::RG
             if (!pass.colorAttachments.empty() || pass.hasDepth)
                 pass.culled = false;
 
-            // Passes that mutate engine-side state outside the RG (e.g., TlasBuildPass writing
-            // RtSubsystem::m_LastResult) must be kept alive even with no Write/Read declarations.
+            // Passes that mutate engine-side state outside the RG (e.g., TlasBuildPass writing RtSubsystem::m_LastResult)
+            // must be kept alive even with no Write/Read declarations.
             if (pass.hasSideEffect)
                 pass.culled = false;
 
@@ -322,10 +322,8 @@ namespace Luth::RG
                 if (buf.external) { pass.culled = false; break; }
             }
 
-            // If alive, un-cull passes that produce what this pass reads.
-            // Track `found` per producer search so an already-alive intervening
-            // pass doesn't short-circuit before we locate the actual writer of
-            // this resource.
+            // If alive, un-cull passes that produce what this pass reads. Track `found` per producer search so an
+            // already-alive intervening pass doesn't short-circuit before locating the actual writer of this resource.
             if (!pass.culled)
             {
                 for (const auto& readHandle : pass.reads)
@@ -396,7 +394,7 @@ namespace Luth::RG
         }
     }
 
-    // Defined after the state→Vulkan mapping below; forward-declared for the SolveBarriers trace.
+    // Defined after the state->Vulkan mapping below; forward-declared for the SolveBarriers trace.
     static const char* ToString(ResourceState s);
     static const char* ToString(BarrierReason r);
 
@@ -423,7 +421,7 @@ namespace Luth::RG
             auto& pass = m_Passes[passIdx];
             if (pass.culled) continue;
 
-            // Cross-queue handoff detection — the cross-queue semaphore at submit time provides the actual memory
+            // Cross-queue handoff detection: the cross-queue semaphore at submit time provides the actual memory
             // dependency, so the reader's pre-barrier needs TOP_OF_PIPE / NONE on the src side (the writer's stage
             // mask would be graphics-only when emitted on the compute primary). Drives Execute's emission.
             auto isCrossQueue = [&](u32 lastWriter) -> bool {
@@ -476,7 +474,7 @@ namespace Luth::RG
                 }
             }
 
-            // Buffer write barriers — same WAW policy as images.
+            // Buffer write barriers: same WAW policy as images.
             for (size_t i = 0; i < pass.bufferWrites.size(); ++i)
             {
                 BufferHandle handle = pass.bufferWrites[i];
@@ -494,7 +492,7 @@ namespace Luth::RG
             }
         }
 
-        // External finalState (e.g., swapchain → Present) — postBarrier on the last writer.
+        // External finalState (e.g., swapchain -> Present): postBarrier on the last writer.
         for (size_t i = 0; i < m_Resources.size(); ++i)
         {
             ResourceNode& res = m_Resources[i];
@@ -508,7 +506,7 @@ namespace Luth::RG
             res.currentState = res.finalState;
         }
 
-        // Barrier trace (LUTH_RG_TRACE) — re-emitted once per topology change (pass-count proxy); shows every solved barrier.
+        // Barrier trace (LUTH_RG_TRACE): re-emitted once per topology change (pass-count proxy); shows every solved barrier.
         static const bool s_trace = std::getenv("LUTH_RG_TRACE") != nullptr;
         if (s_trace)
         {
@@ -516,7 +514,7 @@ namespace Luth::RG
             if (m_Passes.size() != s_lastSig)
             {
                 s_lastSig = m_Passes.size();
-                LH_LOG(Renderer, info, "[RG] barrier trace — {} passes", m_Passes.size());
+                LH_LOG(Renderer, info, "[RG] barrier trace - {} passes", m_Passes.size());
                 for (u32 i = 0; i < m_Passes.size(); ++i)
                 {
                     const auto& p = m_Passes[i];
@@ -538,7 +536,7 @@ namespace Luth::RG
         }
     }
 
-    // ── State → Vulkan Mapping ──
+    // ---- State -> Vulkan Mapping ----
 
     std::pair<VkPipelineStageFlags2, VkAccessFlags2> RenderGraph::GetStateInfo(ResourceState state)
     {
@@ -552,9 +550,9 @@ namespace Luth::RG
             case ResourceState::TransferSrc:            return { VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT };
             case ResourceState::ShaderResource:         return { VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT };
             case ResourceState::Present:                return { VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0 };
-            // Stage mask widened to include RT-pipeline shaders so a raygen-shader storage-image
-            // write (or read) emits a barrier whose srcStage/dstStage matches the actual writer/
-            // reader pipeline. Mirrors how AccelerationStructureRead unions consumer stages.
+            // Stage mask widened to include RT-pipeline shaders so a raygen-shader storage-image write (or read)
+            // emits a barrier whose srcStage/dstStage matches the actual writer/reader pipeline. Mirrors how
+            // AccelerationStructureRead unions consumer stages.
             case ResourceState::ComputeRead:            return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
                                                               | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
                                                                 VK_ACCESS_2_SHADER_READ_BIT };
@@ -562,15 +560,15 @@ namespace Luth::RG
                                                               | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
                                                                 VK_ACCESS_2_SHADER_WRITE_BIT };
             // Storage-image read that must stay GENERAL (imageLoad on a UAV-style storage descriptor).
-            // Same stage/access as ComputeRead — only GetLayout differs (GENERAL, no SHADER_READ_ONLY
-            // transition), so a ComputeWrite→ComputeReadStorage hand-off emits a RAW barrier with no
+            // Same stage/access as ComputeRead; only GetLayout differs (GENERAL, no SHADER_READ_ONLY
+            // transition), so a ComputeWrite->ComputeReadStorage hand-off emits a RAW barrier with no
             // layout change. Used for storage images threaded across compute passes (SVGF chain).
             case ResourceState::ComputeReadStorage:     return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
                                                               | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
                                                                 VK_ACCESS_2_SHADER_READ_BIT };
             case ResourceState::StorageBufferRead:      return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT };
             case ResourceState::StorageBufferWrite:     return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT };
-            // Fragment-stage storage (PPLL). Write carries READ too — the store path is RMW
+            // Fragment-stage storage (PPLL). Write carries READ too; the store path is RMW
             // (imageAtomicExchange on heads, atomicAdd on the node counter).
             case ResourceState::FragmentStorageRead:    return { VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT };
             case ResourceState::FragmentStorageWrite:   return { VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT };
@@ -579,8 +577,8 @@ namespace Luth::RG
                 return { VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
                          VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR };
             case ResourceState::AccelerationStructureRead:
-                // Superset stage covers ray-query consumers in frag/compute shaders + future
-                // RT-pipeline raygen reads. Tightened per-pass when B.3 lands the first reader.
+                // Superset stage covers ray-query consumers in frag/compute shaders + RT-pipeline raygen reads;
+                // tighten per-pass if a single-consumer case ever warrants it.
                 return { VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
                        | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
                        | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
@@ -605,7 +603,7 @@ namespace Luth::RG
             case ResourceState::ComputeReadStorage:     return VK_IMAGE_LAYOUT_GENERAL;
             case ResourceState::FragmentStorageRead:    return VK_IMAGE_LAYOUT_GENERAL;
             case ResourceState::FragmentStorageWrite:   return VK_IMAGE_LAYOUT_GENERAL;
-            // Buffer states have no image layout — return UNDEFINED (never used for image barriers)
+            // Buffer states have no image layout; return UNDEFINED (never used for image barriers)
             default:                                    return VK_IMAGE_LAYOUT_UNDEFINED;
         }
     }
@@ -646,7 +644,7 @@ namespace Luth::RG
         }
     }
 
-    // ── Barrier inspector capture ──
+    // ---- Barrier inspector capture ----
     static std::atomic<bool> s_BarrierCapture{ false };
     void RenderGraph::SetBarrierCapture(bool e) { s_BarrierCapture.store(e, std::memory_order_relaxed); }
     bool RenderGraph::BarrierCapture()          { return s_BarrierCapture.load(std::memory_order_relaxed); }
@@ -730,23 +728,20 @@ namespace Luth::RG
         }
     }
 
-    // ── Execute — two-phase: parallel secondary recording, serial primary emission ──
+    // ---- Execute: two-phase (parallel secondary recording, serial primary emission) ----
     //
-    // Phase 1: dispatch one RenderPassJob per graphics pass against a single
-    //          counter; render fiber yields once per frame regardless of pass
-    //          count. SetSerialize(true) falls back to per-pass dispatch+wait
-    //          when pass lambdas touch shared state (FrameDebugger capture).
-    // Phase 2: emit primary cmd buffer in pass order — batched barriers,
-    //          compute exec inline / graphics BeginRendering + ExecuteCommands
-    //          + EndRendering. Barrier order and pass-order semantics preserved.
+    // Phase 1: dispatch one RenderPassJob per graphics pass against a single counter; render fiber yields once
+    //          per frame regardless of pass count. SetSerialize(true) falls back to per-pass dispatch+wait when
+    //          pass lambdas touch shared state (FrameDebugger capture).
+    // Phase 2: emit primary cmd buffer in pass order: batched barriers, compute exec inline / graphics
+    //          BeginRendering + ExecuteCommands + EndRendering. Barrier order and pass-order semantics preserved.
     //
     // Compute passes bypass phase 1 (would serialize on primary anyway).
 
     namespace {
         struct PassExecState
         {
-            // Phase-1 attachments info has to outlive the WaitForCounter so
-            // phase 2 can read it; can't be stack-local to the build loop.
+            // Phase-1 attachments info has to outlive the WaitForCounter so phase 2 can read it; can't be stack-local to the build loop.
             static constexpr u32 k_MaxColorAtt = 8;
             AttachmentInfo colorAttachmentsBuf[k_MaxColorAtt];
             u32 colorAttachmentCount = 0;
@@ -762,11 +757,11 @@ namespace Luth::RG
         AllocatePhysicalResources();
 
         // Timer query pool is shared across queues per arch/multi-queue.md (timestampValidBits compatibility
-        // asserted at startup). Reset is fine on either queue — using gA keeps the cmd ordering predictable.
+        // asserted at startup). Reset is fine on either queue; using gA keeps the cmd ordering predictable.
         if (timers) timers->ResetForFrame(recorders.gA);
 
         // hasComputeWork = "did any pass route to compute"; returned to SubmitView so it can skip the compute
-        // submit when the graph stays graphics-only. seenAsyncCompute drives the graphics-A→graphics-B split:
+        // submit when the graph stays graphics-only. seenAsyncCompute drives the graphics-A->graphics-B split:
         // graphics passes before the first AsyncCompute pass go to gA; after, gB. Inter-frame the split resets.
         bool hasComputeWork  = false;
         bool seenAsyncCompute = false;
@@ -774,7 +769,7 @@ namespace Luth::RG
         // Indexed by m_Passes index; slots for culled / compute passes stay default-constructed and unused.
         std::vector<PassExecState> passStates(m_Passes.size());
 
-        // ── Phase 1: secondary cmd buffer recording ──
+        // ---- Phase 1: secondary cmd buffer recording ----
         const bool serializeDispatch = m_SerializeDispatch;
         JobSystem::Counter recordCounter;
 
@@ -857,7 +852,7 @@ namespace Luth::RG
         if (!serializeDispatch)
             JobSystem::WaitForCounter(&recordCounter);
 
-        // ── Phase 2: primary cmd buffer emission (pass order) ──
+        // ---- Phase 2: primary cmd buffer emission (pass order) ----
         u32 timerPassIdx = 0;
 
         for (size_t i = 0; i < m_Passes.size(); ++i)
@@ -867,7 +862,7 @@ namespace Luth::RG
 
             LH_PROFILE_SCOPE_DYNAMIC(pass.name);
 
-            // Per-pass primary selection: AsyncCompute → compute; Graphics → gA before first AsyncCompute, gB after.
+            // Per-pass primary selection: AsyncCompute -> compute; Graphics -> gA before first AsyncCompute, gB after.
             // First AsyncCompute encountered also flips hasComputeWork (returned to SubmitView) and seenAsyncCompute
             // (drives the gA/gB split for subsequent graphics passes).
             VkCommandBuffer primaryCmd;
@@ -884,7 +879,7 @@ namespace Luth::RG
 
             // GPU-side breadcrumb (VK_NV_device_diagnostic_checkpoints). The driver retains the
             // marker pointer and surfaces the LAST-EXECUTED one on TDR via vkGetQueueCheckpointDataNV.
-            // Marker is the interned pass name's c_str() — stable for the process lifetime so the
+            // Marker is the interned pass name's c_str(), stable for the process lifetime so the
             // dump path can resolve it back to a human-readable string. No-op when extension absent.
             auto& vkCtx = VulkanContext::Get();
             if (vkCtx.HasCheckpoints())
@@ -893,7 +888,7 @@ namespace Luth::RG
                 vkCtx.GetCheckpointFn().vkCmdSetCheckpointNV(primaryCmd, marker);
             }
 
-            // RenderDoc/Nsight/Aftermath pass label — RAII closes it on every exit path; no-op when debug-utils off.
+            // RenderDoc/Nsight/Aftermath pass label; RAII closes it on every exit path; no-op when debug-utils off.
             const auto& dbgFn = vkCtx.GetDebugUtilsFn();
             if (dbgFn.vkCmdBeginDebugUtilsLabelEXT)
             {
@@ -908,14 +903,14 @@ namespace Luth::RG
                 ~PassLabelScope() { if (end) end(cmd); }
             } passLabelScope{ primaryCmd, dbgFn.vkCmdBeginDebugUtilsLabelEXT ? dbgFn.vkCmdEndDebugUtilsLabelEXT : nullptr };
 
-            // Per-pass GPU zone — brackets the same region as the debug-utils label. AsyncCompute passes record
+            // Per-pass GPU zone; brackets the same region as the debug-utils label. AsyncCompute passes record
             // into the compute-queue Tracy context; graphics into the graphics-queue context (collected per frame).
             LH_PROFILE_GPU_ZONE_TRANSIENT(___tracyGpuPass,
                 (pass.queueFamily == QueueFamily::AsyncCompute) ? vkCtx.GetComputeTracyCtx() : vkCtx.GetGraphicsTracyCtx(),
                 primaryCmd, pass.name.c_str());
 
             // Batched pre-barriers (image + buffer combined into one call). Cross-queue handoffs detected during
-            // SolveBarriers carry b.crossQueueSrc — in that case the src stage / access become TOP_OF_PIPE / NONE
+            // SolveBarriers carry b.crossQueueSrc; in that case the src stage / access become TOP_OF_PIPE / NONE
             // since the cross-queue semaphore at submit time already supplies the memory dependency per spec.
             static constexpr u32 k_MaxBarriers = 16;
             LH_CORE_ASSERT(pass.preBarriers.size() <= k_MaxBarriers, "Too many image barriers per pass!");
@@ -1087,7 +1082,7 @@ namespace Luth::RG
         return hasComputeWork;
     }
 
-    // ── Graph introspection (dump + trace edge lookup) ──
+    // ---- Graph introspection (dump + trace edge lookup) ----
 
     u32 RenderGraph::FindLastWriter(ResourceHandle handle, u32 beforePass) const
     {
@@ -1186,7 +1181,7 @@ namespace Luth::RG
         return s;
     }
 
-    // ── Physical Resource Management ──
+    // ---- Physical Resource Management ----
 
     void RenderGraph::AllocatePhysicalResources()
     {

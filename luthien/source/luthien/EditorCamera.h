@@ -7,7 +7,7 @@ namespace Luth
 {
     struct EditorSettings;
 
-    // Serializable scene-view camera pose. These four orbit fields fully determine the view —
+    // Serializable scene-view camera pose. These four orbit fields fully determine the view;
     // m_Position is recomputed from them (see EditorCamera::ApplyPose), matching the
     // m_Position == CalculatePosition() invariant the input modes maintain. FOV/clips stay
     // global prefs (EditorSettings), so they are not stored per scene.

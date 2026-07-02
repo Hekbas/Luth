@@ -20,7 +20,7 @@ namespace Luth::Memory
 
     TaggedPageAllocator& TaggedPageAllocator::Get()
     {
-        // Function-local static — initialized on first call, destroyed at static-shutdown.
+        // Function-local static: initialized on first call, destroyed at static-shutdown.
         // App pairs Init/Shutdown with MemoryTracker so RecordAlloc/Free observers stay in scope.
         static TaggedPageAllocator s_Instance;
         return s_Instance;
@@ -58,7 +58,7 @@ namespace Luth::Memory
 
     void* TaggedPageAllocator::Allocate(ThreadCache& cache, u64 size, u64 alignment)
     {
-        // 1. Try to allocate from the active page in the cache
+        // Try the active page in the cache first
         Page* page = cache.ActivePage;
 
         if (page)
@@ -94,7 +94,7 @@ namespace Luth::Memory
     {
         SpinLockGuard lock(m_Lock);
 
-        // Linear scan — pages-per-tag is small (~10-20). Index-based loop because
+        // Linear scan: pages-per-tag is small (~10-20). Index-based loop because
         // pop_back invalidates iterators under MSVC's _ITERATOR_DEBUG_LEVEL=2.
         for (size_t i = 0; i < m_UsedPages.size(); )
         {
@@ -154,7 +154,7 @@ namespace Luth::Memory
     {
         // Assumes lock is held
         page->Used = 0;
-        page->Tag = 0; // Clear tag
+        page->Tag = 0;
         m_FreePages.push_back(page);
     }
 }

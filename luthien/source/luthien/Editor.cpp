@@ -58,7 +58,7 @@
 
 namespace Luth
 {
-    // Cached so Style → Save Current As can round-trip the live style.
+    // Cached so Style > Save Current As can round-trip the live style.
     static std::optional<StyleFile> s_CurrentStyle;
 
     static void ApplyStyleFile(std::optional<StyleFile> sf)
@@ -83,28 +83,26 @@ namespace Luth
         s_Window = window;
         LH_LOG(Editor, info, "Initializing Luth Editor");
 
-        // Settings must be loaded first so InitImGui can apply the persisted style,
-        // which populates io.Fonts before the Vulkan font atlas is built.
+        // Settings load first so InitImGui can apply the persisted style, which populates io.Fonts
+        // before the Vulkan font atlas is built.
         LoadSettings();
         InitImGui(window);
         ProjectLauncher::Init();
         InitPanels();
         ApplyPersistence();
 
-        // Snapshot the live ImGui dock layout into layouts/Default.ini on first
-        // run so Window > Reset Layout always has a fallback target. Deferred
-        // to end of first Render — ImGui hasn't built dock state yet.
+        // Snapshot the live ImGui dock layout into layouts/Default.ini on first run so
+        // Window > Reset Layout always has a fallback target. Deferred to end of first Render;
+        // ImGui hasn't built dock state yet.
         s_NeedDefaultLayoutSave = !fs::exists("layouts/Default.ini");
 
-        // Auto-apply the persisted active workspace at end of first Render. Panels
-        // exist by then; ImGui dock state has built. Empty string skips (fresh user
-        // before any save).
+        // Auto-apply the persisted active workspace at end of first Render. Panels exist by then;
+        // ImGui dock state has built. Empty string skips (fresh user before any save).
         s_NeedActiveWorkspaceLoad = !s_Settings.activeLayout.empty();
 
-        // Forward AssetDatabase file-watch flushes onto the EventBus as typed
-        // AssetChangedSignals so panels (Project/Resource/Inspector/ThumbnailCache)
-        // can react via subscriptions instead of polling. The dirty-UUID list is
-        // all the AssetDatabase callback API exposes, so we publish Modified for
+        // Forward AssetDatabase file-watch flushes onto the EventBus as typed AssetChangedSignals so
+        // panels (Project/Resource/Inspector/ThumbnailCache) react via subscriptions instead of polling.
+        // The dirty-UUID list is all the AssetDatabase callback API exposes, so publish Modified for
         // everything; subscribers that need to distinguish import-vs-delete query
         // AssetDatabase::Exists(uuid) themselves.
         AssetDatabase::AddChangeCallback([]() {
@@ -114,10 +112,9 @@ namespace Luth
             }
         });
 
-        // Reactive dirty-marking driven by signals (replaces a previous polling
-        // scheme). Every EntityCommand publishes HierarchyChangedSignal; this
-        // handler bumps the dirty flag exactly when user edits land. Scene LOAD
-        // bypasses commands, so the dirty flag stays clean across open/close.
+        // Reactive dirty-marking driven by signals. Every EntityCommand publishes
+        // HierarchyChangedSignal; this handler bumps the dirty flag exactly when user edits land.
+        // Scene LOAD bypasses commands, so the dirty flag stays clean across open/close.
         EventBus::Subscribe<HierarchyChangedSignal>(BusType::MainThread,
             [](Event&) { Editor::MarkDirty(); });
 
@@ -137,8 +134,8 @@ namespace Luth
         io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
         LH_LOG(Editor, trace, " - Enabled docking + multi-viewport");
 
-        // Apply persisted style BEFORE CreateFontsTexture: LoadFonts populates
-        // io.Fonts. Window-chrome colors belong here too since Matrix tints them.
+        // Apply persisted style BEFORE CreateFontsTexture: LoadFonts populates io.Fonts.
+        // Window-chrome colors belong here too since Matrix tints them.
         if (!s_Settings.activeStylePath.empty() && fs::exists(s_Settings.activeStylePath))
             ApplyStyleFromFile(s_Settings.activeStylePath);
         else
@@ -248,7 +245,7 @@ namespace Luth
 
     void Editor::Shutdown()
     {
-        // Sync panel state → settings before saving
+        // Sync panel state into settings before saving.
         if (auto* sp = GetPanel<ScenePanel>()) {
             sp->GetEditorCamera().SyncToSettings(s_Settings);
             s_Settings.showControlsOverlay = sp->GetShowControlsOverlay();
@@ -266,30 +263,27 @@ namespace Luth
         EditorAutoSave::Shutdown();
 
         LH_LOG(Editor, trace, "Cleaning up {} panels", s_Panels.size());
-        // Run OnShutdown before destroying — gives panels a chance to detach from
-        // engine subsystems (Log sinks, EventBus subscriptions) while the rest of
-        // the editor is still alive. Without this hop, a post-clear LH_CORE_* call
-        // would walk dangling sink pointers.
+        // Run OnShutdown before destroying so panels detach from engine subsystems (Log sinks,
+        // EventBus subscriptions) while the rest of the editor is still alive. Without this hop,
+        // a post-clear LH_CORE_* call would walk dangling sink pointers.
         for (auto& panel : s_Panels) panel->OnShutdown();
         ComponentDrawerRegistry::Shutdown();
         s_PanelRegistry.clear();
         s_Panels.clear();
         UI::ClearTextureCache();
 
-        // Drain any pending fenced deletions while ImGui Vulkan is still alive.
-        // PushDeletion lambdas (UI::GetTextureID stale-eviction, ThumbnailCache
-        // Invalidate/Drain) call ImGui_ImplVulkan_RemoveTexture; if they fire
-        // later from App::Close → Renderer::FlushDeletionQueues, the ImGui
-        // backend has already torn down → null-deref crash on the descriptor
-        // pool. invariant: must run before ImGui_ImplVulkan_Shutdown below.
+        // Drain any pending fenced deletions while ImGui Vulkan is still alive. PushDeletion lambdas
+        // (UI::GetTextureID stale-eviction, ThumbnailCache Invalidate/Drain) call
+        // ImGui_ImplVulkan_RemoveTexture; if they fire later from App::Close ->
+        // Renderer::FlushDeletionQueues, the ImGui backend has already torn down, null-deref crash on
+        // the descriptor pool. invariant: must run before ImGui_ImplVulkan_Shutdown below.
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan)
             VulkanContext::Get().FlushAllDeletionQueues();
 
         if (Renderer::GetBackend()->GetAPI() == RenderBackend::API::Vulkan) {
-            // Clear GLFW callbacks that forward to ImGui BEFORE destroying
-            // the backend. We installed these manually (install_callbacks=false),
-            // so ImGui_ImplGlfw_Shutdown won't remove them. Without this,
-            // Win32 focus messages during Vulkan teardown dispatch into freed
+            // Clear GLFW callbacks that forward to ImGui BEFORE destroying the backend. These were
+            // installed manually (install_callbacks=false), so ImGui_ImplGlfw_Shutdown won't remove
+            // them. Without this, Win32 focus messages during Vulkan teardown dispatch into freed
             // ImGui backend data.
             if (s_Window) {
                 GLFWwindow* win = (GLFWwindow*)s_Window->GetNativeWindow();
@@ -369,10 +363,10 @@ namespace Luth
         Panel* panel = static_cast<Panel*>(args.data);
         LH_PROFILE_SCOPE_DYNAMIC_CSTR(panel->GetWindowID());
 
-        // Reset the panel's scratch first thing — Reset() rewinds the bump pointer
-        // without freeing pages, so the prior frame's m_SnapshotFragment is invalid
-        // from this line onward. Null it explicitly so a thrown OnGather doesn't
-        // leave a dangling pointer for the snapshot-assembly phase to read.
+        // Reset the panel's scratch first: Reset() rewinds the bump pointer without freeing pages,
+        // so the prior frame's m_SnapshotFragment is invalid from this line onward. Null it
+        // explicitly so a thrown OnGather doesn't leave a dangling pointer for the snapshot-assembly
+        // phase to read.
         panel->m_GatherAlloc.Reset();
         panel->m_SnapshotFragment = nullptr;
         panel->m_FragmentType = std::type_index(typeid(void));
@@ -420,8 +414,8 @@ namespace Luth
 
     void Editor::DrawCrashedPlaceholder(Panel* panel)
     {
-        // Reuse the panel's window ID so docking persists; an unresponsive panel
-        // becomes a clearly-marked stub that the user can revive after fixing.
+        // Reuse the panel's window ID so docking persists; an unresponsive panel becomes a
+        // clearly-marked stub that the user can revive after fixing.
         if (panel->BeginWindow(panel->GetWindowID()))
         {
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
@@ -452,12 +446,11 @@ namespace Luth
         EditorAutoSave::Tick();
         UI::ThumbnailCache::Drain();
 
-        // ── Gather phase ─────────────────────────────────────────────────────────
-        // Dispatch one gather job per visible panel. Workers run concurrently while
-        // main is still on this thread; we busy-spin (V2-isolated) before assembling
-        // the snapshot. Visibility reflects last frame's ImGui state via
-        // Panel::BeginWindow — first frame after a panel becomes visible runs OnDraw
-        // against an empty snapshot fragment, then re-gathers next frame.
+        // ---- Gather phase ----
+        // Dispatch one gather job per visible panel. Workers run concurrently while main is still on
+        // this thread; busy-spin (V2-isolated) before assembling the snapshot. Visibility reflects
+        // last frame's ImGui state via Panel::BeginWindow: first frame after a panel becomes visible
+        // runs OnDraw against an empty snapshot fragment, then re-gathers next frame.
         JobSystem::Counter gatherCounter;
         const bool launcherOpen = ProjectLauncher::IsVisible();
         if (!launcherOpen)
@@ -471,7 +464,7 @@ namespace Luth
             JobSystem::WaitForCounter(&gatherCounter);
         }
 
-        // ── Snapshot assembly (single-threaded post-wait, no contention) ────────
+        // ---- Snapshot assembly (single-threaded post-wait, no contention) ----
         EditorSnapshot snapshot;
         for (auto& panel : s_Panels)
         {
@@ -479,11 +472,10 @@ namespace Luth
                 snapshot.m_Fragments[panel->m_FragmentType] = panel->m_SnapshotFragment;
         }
 
-        // Create dockspace
         static bool dockspaceOpen = true;
         static ImGuiDockNodeFlags dockspaceFlags = ImGuiDockNodeFlags_None;
 
-        // Fullscreen parent window for dockspace
+        // Fullscreen host window backing the dockspace.
         ImGuiViewport* viewport = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(viewport->WorkPos);
         ImGui::SetNextWindowSize(viewport->WorkSize);
@@ -506,22 +498,17 @@ namespace Luth
         ImGui::Begin("DockSpaceHost", &dockspaceOpen, hostWindowFlags);
         ImGui::PopStyleVar(3);
 
-        // Menu bar
         DrawMenuBar();
 
-        // Create dockspace
         ImGuiID dockspaceID = ImGui::GetID("MainDockSpace");
         ImGui::DockSpace(dockspaceID, ImVec2(0.0f, 0.0f), dockspaceFlags);
 
-        // Keyboard shortcuts
         ProcessShortcuts();
 
         // Dirty bumps arrive via the HierarchyChangedSignal subscription installed in Init.
 
-        // Update window title
         UpdateWindowTitle();
 
-        // Show launcher or normal editor
         if (ProjectLauncher::IsVisible())
         {
             ProjectLauncher::Render();
@@ -539,8 +526,8 @@ namespace Luth
             }
         }
 
-        // Preferences window — drawn outside the dockspace's panel loop so
-        // it floats independently and is not tied to any dock node.
+        // Preferences window: drawn outside the dockspace's panel loop so it floats independently
+        // and is not tied to any dock node.
         EditorSettingsWindow::Draw();
 
         // Check if a model import completed with unresolved or reduced-fidelity textures
@@ -578,9 +565,9 @@ namespace Luth
             s_NeedDefaultLayoutSave = false;
         }
 
-        // Persisted active workspace — runs after the snapshot so a built-in Default
-        // overrides whatever ImGui's first-frame state was. One-frame flash of the
-        // un-docked default state is acceptable on fresh installs.
+        // Persisted active workspace: runs after the snapshot so a built-in Default overrides
+        // whatever ImGui's first-frame state was. One-frame flash of the un-docked default state is
+        // acceptable on fresh installs.
         if (s_NeedActiveWorkspaceLoad)
         {
             LoadWorkspace(s_Settings.activeLayout);
@@ -619,17 +606,14 @@ namespace Luth
         ImGuiStyle& style = ImGui::GetStyle();
         ImVec4* colors = style.Colors;
     
-        // Seed with current time
         static std::mt19937 rng(std::chrono::system_clock::now().time_since_epoch().count());
         std::uniform_real_distribution<float> dist(0.0f, 1.0f);
         std::uniform_real_distribution<float> colorDist(0.2f, 0.8f);
         std::uniform_real_distribution<float> propDist(0.5f, 3.0f);
 
-        // Generate random base hue
         float hue = dist(rng);
         ImVec4 baseColor = ImColor::HSV(hue, 0.7f, 0.7f);
     
-        // Random style properties
         style.WindowRounding = propDist(rng);
         style.ChildRounding = propDist(rng);
         style.FrameRounding = propDist(rng);
@@ -640,7 +624,6 @@ namespace Luth
         style.WindowBorderSize = dist(rng) > 0.5f ? 1.0f : 0.0f;
         style.FrameBorderSize = dist(rng) > 0.3f ? 1.0f : 0.0f;
     
-        // Random color scheme
         colors[ImGuiCol_Text]             = ImVec4(dist(rng), dist(rng), dist(rng), 1.00f);
         colors[ImGuiCol_WindowBg]         = ImColor::HSV(hue, 0.2f, 0.2f);
         colors[ImGuiCol_ChildBg]          = ImColor::HSV(hue, 0.25f, 0.25f);
@@ -661,20 +644,18 @@ namespace Luth
         colors[ImGuiCol_HeaderHovered]    = ImColor::HSV(hue, 0.6f, 0.4f);
         colors[ImGuiCol_HeaderActive]     = ImColor::HSV(hue, 0.7f, 0.5f);
     
-        // Random spacing/padding
         style.WindowPadding = ImVec2(propDist(rng), propDist(rng));
         style.FramePadding = ImVec2(propDist(rng), propDist(rng));
         style.ItemSpacing = ImVec2(propDist(rng), propDist(rng));
         style.ItemInnerSpacing = ImVec2(propDist(rng), propDist(rng));
 
-        // Random window transparency
         style.Alpha = 0.8f + dist(rng) * 0.2f;
 
         LH_LOG(Editor, info, "Applied random style - Hue: {0}, WindowRounding: {1}",
                     hue, style.WindowRounding);
     }
 
-    // ── Scene Management ──
+    // ---- Scene Management ----
 
     void Editor::SetActiveScene(std::shared_ptr<Scene> scene)
     {
@@ -690,10 +671,9 @@ namespace Luth
         if (auto* sp = GetPanel<ScenePanel>())
             sp->SetContext(scene);
 
-        // The auto-load-from-lastSceneUUID flow used to live here, but
-        // SetActiveScene fires from App::App() before LoadProject populates
-        // AssetDatabase — Exists() always returned false. Auto-load now runs
-        // in OnProjectChanged, after the database is live.
+        // The auto-load-from-lastSceneUUID flow used to live here, but SetActiveScene fires from
+        // App::App() before LoadProject populates AssetDatabase, so Exists() always returned false.
+        // Auto-load now runs in OnProjectChanged, after the database is live.
     }
 
     void Editor::NewScene()
@@ -703,7 +683,6 @@ namespace Luth
         // Persist the outgoing scene's camera before clearing.
         CaptureSceneView();
 
-        // Clear all entities
         s_ActiveScene->Clear();
         CommandHistory::Clear();
 
@@ -772,8 +751,8 @@ namespace Luth
                 }
             }
 
-            // Surface a fresher autosave if we crashed mid-edit on this scene.
-            // Covers auto-load (OnProjectChanged) AND manual File > Open paths.
+            // Surface a fresher autosave after a crash mid-edit on this scene. Covers auto-load
+            // (OnProjectChanged) AND manual File > Open paths.
             EditorAutoSave::ScanForRecovery(s_ScenePath);
         }
     }
@@ -790,7 +769,6 @@ namespace Luth
         if (SceneSerializer::Save(*s_ActiveScene, s_ScenePath)) {
             s_IsDirty = false;
 
-            // Ensure .meta file exists
             fs::path metaPath = s_ScenePath;
             metaPath += ".meta";
             if (!fs::exists(metaPath)) {
@@ -821,7 +799,7 @@ namespace Luth
         s_IsDirty = dirty;
     }
 
-    // ── Settings & Layout ──
+    // ---- Settings & Layout ----
 
     void Editor::LoadSettings()
     {
@@ -831,8 +809,8 @@ namespace Luth
 
     void Editor::SaveSettings()
     {
-        // Mirror live panel visibility into the settings map. Skipping this would
-        // lose Window-menu toggles between the toggle and the next save trigger.
+        // Mirror live panel visibility into the settings map. Skipping this would lose Window-menu
+        // toggles between the toggle and the next save trigger.
         for (auto& panel : s_Panels)
             s_Settings.panelOpen[panel->GetWindowID()] = panel->m_Open;
 
@@ -857,7 +835,7 @@ namespace Luth
         if (!sp) return;
 
         s_SceneViews.Set(uuid.ToString(), sp->GetEditorCamera().CapturePose());
-        s_SceneViews.Save(SceneViewsPath());   // write-through — tiny file, crash-safe
+        s_SceneViews.Save(SceneViewsPath());   // write-through: tiny file, crash-safe
     }
 
     void Editor::RestoreSceneView(const std::string& sceneUUID)
@@ -872,7 +850,7 @@ namespace Luth
     namespace
     {
         // Built-ins live alongside other engine assets; user copies under cwd-relative
-        // runtime/layouts/ (existing first-run snapshot path — no migration).
+        // runtime/layouts/ (existing first-run snapshot path, no migration).
         std::filesystem::path BuiltinDir() { return FileSystem::EngineAssetsPath("workspaces"); }
         std::filesystem::path UserDir()    { return std::filesystem::path("layouts"); }
 
@@ -886,8 +864,8 @@ namespace Luth
     {
         namespace fs = std::filesystem;
 
-        // Persist outgoing user workspace's panel visibility before switching so
-        // mid-session toggles aren't lost. Built-in outgoing is a no-op.
+        // Persist outgoing user workspace's panel visibility before switching so mid-session toggles
+        // aren't lost. Built-in outgoing is a no-op.
         if (!s_Settings.activeLayout.empty() && s_Settings.activeLayout != name)
             SaveActiveWorkspaceSidecar();
 
@@ -904,9 +882,8 @@ namespace Luth
             return false;
         }
 
-        // Sidecar may be absent on legacy .ini-only workspaces — Workspace::LoadJson
-        // returns false in that case and leaves panelOpen unchanged so we don't
-        // clobber the in-memory visibility set.
+        // Sidecar may be absent on legacy .ini-only workspaces: Workspace::LoadJson returns false in
+        // that case and leaves panelOpen unchanged so the in-memory visibility set isn't clobbered.
         if (Workspace::LoadJson(jsonPath, s_Settings.panelOpen))
             ApplyPersistence();
 
@@ -935,7 +912,7 @@ namespace Luth
         namespace fs = std::filesystem;
 
         if (fs::exists(BuiltinIni(name))) {
-            LH_LOG(Editor, warn, "Cannot overwrite built-in workspace '{}' — pick a different name", name);
+            LH_LOG(Editor, warn, "Cannot overwrite built-in workspace '{}' - pick a different name", name);
             return false;
         }
 
@@ -943,8 +920,8 @@ namespace Luth
         const fs::path jsonPath = UserJson(name);
         if (!fs::exists(UserDir())) fs::create_directories(UserDir());
 
-        // Snapshot live panel visibility at call time — s_Settings.panelOpen may
-        // be stale relative to current m_Open state.
+        // Snapshot live panel visibility at call time; s_Settings.panelOpen may be stale relative to
+        // current m_Open state.
         std::unordered_map<std::string, bool> snap;
         for (auto& panel : s_Panels)
             snap[panel->GetWindowID()] = panel->m_Open;
@@ -1019,8 +996,8 @@ namespace Luth
 
     bool Editor::ResetWorkspaceToBuiltin()
     {
-        // LoadWorkspace prefers built-in path over user copy, so reloading the active
-        // name effectively snaps back to the shipped baseline (or last-saved if none).
+        // LoadWorkspace prefers built-in path over user copy, so reloading the active name snaps
+        // back to the shipped baseline (or last-saved if none).
         return LoadWorkspace(s_Settings.activeLayout);
     }
 
@@ -1043,10 +1020,10 @@ namespace Luth
             for (const auto& e : fs::directory_iterator(UserDir())) {
                 if (e.path().extension() != ".ini") continue;
                 const std::string name = e.path().stem().string();
-                // Built-in shadows silently — SaveWorkspaceAs refuses colliding names,
-                // so the only way a user copy collides is the first-run Default snapshot
-                // (intentional fallback, not user error). Warning here would spam the
-                // log every frame from the Window > Workspaces menu.
+                // Built-in shadows silently: SaveWorkspaceAs refuses colliding names, so the only way
+                // a user copy collides is the first-run Default snapshot (intentional fallback, not
+                // user error). Warning here would spam the log every frame from the
+                // Window > Workspaces menu.
                 if (seen.count(name)) continue;
                 out.push_back({ name, false });
             }
@@ -1064,8 +1041,8 @@ namespace Luth
         namespace fs = std::filesystem;
         if (s_Settings.activeLayout.empty()) return;
 
-        // Built-in workspaces are read-only — visibility tweaks made while a built-in
-        // is active persist in-session only. User must "Save Current As..." to fork.
+        // Built-in workspaces are read-only: visibility tweaks made while a built-in is active
+        // persist in-session only. User must "Save Current As..." to fork.
         if (fs::exists(BuiltinIni(s_Settings.activeLayout))) return;
 
         if (!fs::exists(UserDir())) fs::create_directories(UserDir());
@@ -1118,10 +1095,10 @@ namespace Luth
             }
         }
 
-        // Delete — fires when an entity-editing context holds input: Hierarchy focused, or the
-        // Scene viewport focused/hovered. Centralized here (not per-panel) so the two can't
-        // double-fire, gated on !WantTextInput so it doesn't delete while renaming/typing. Runs
-        // before panels draw → no scene-tree iteration active, so the delete is immediate.
+        // Delete fires when an entity-editing context holds input: Hierarchy focused, or the Scene
+        // viewport focused/hovered. Centralized here (not per-panel) so the two can't double-fire,
+        // gated on !WantTextInput so it doesn't delete while renaming/typing. Runs before panels
+        // draw, so no scene-tree iteration is active and the delete is immediate.
         if (!ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Delete, false))
         {
             auto* hier  = GetPanel<HierarchyPanel>();
@@ -1234,7 +1211,7 @@ namespace Luth
             }
 
             if (ImGui::BeginMenu("View")) {
-                // Style submenu — deferred to next BeginFrame (font atlas can't change mid-frame)
+                // Style submenu: deferred to next BeginFrame (font atlas can't change mid-frame)
                 if (ImGui::BeginMenu("Style")) {
                     auto deferBuiltin = [](const char* name) {
                         bool active = s_Settings.activeStylePath.empty()
@@ -1270,7 +1247,7 @@ namespace Luth
             ImGui::EndMenuBar();
         }
 
-        // Texture remap popup — deferred open from menu
+        // Texture remap popup: deferred open from menu
         if (s_ShowTextureRemapDialog) {
             const ImportReport& report = ModelImporter::GetLastImportReport();
             if (report.HasUnresolved())
@@ -1278,8 +1255,8 @@ namespace Luth
             s_ShowTextureRemapDialog = false;
         }
 
-        // Workspace Save / Rename / Delete popups — rendered outside menu scope
-        // so ImGui can track them; deferred-open pattern from Save Layout precedent.
+        // Workspace Save / Rename / Delete popups rendered outside menu scope so ImGui can track
+        // them; deferred-open pattern from Save Layout precedent.
         if (s_ShowSaveWorkspacePopup) {
             ImGui::OpenPopup("Save Workspace");
             s_ShowSaveWorkspacePopup = false;
@@ -1304,8 +1281,8 @@ namespace Luth
             ImGui::EndPopup();
         }
 
-        // Rename input pre-fills with the active name on open so the user can edit
-        // in place rather than retyping. Static buf is re-seeded each open.
+        // Rename input pre-fills with the active name on open so the user can edit in place rather
+        // than retyping. Static buf is re-seeded each open.
         static char s_RenameBuf[128] = "";
         if (s_ShowRenameWorkspacePopup) {
             std::snprintf(s_RenameBuf, sizeof(s_RenameBuf), "%s", s_Settings.activeLayout.c_str());
@@ -1369,7 +1346,7 @@ namespace Luth
             title += "*";
         }
         if (EditorAutoSave::IsNoticeActive()) {
-            title += " — ";
+            title += " - ";
             title += EditorAutoSave::GetLastNotice();
         }
 
@@ -1386,9 +1363,9 @@ namespace Luth
 
     void Editor::OnProjectChanged()
     {
-        // invariant: thumbnails belong to the outgoing project's UUID space —
-        // dropped before any reload so PushDeletion fences against the current
-        // ImGui pool, and the new project starts with an empty cache.
+        // invariant: thumbnails belong to the outgoing project's UUID space; dropped before any
+        // reload so PushDeletion fences against the current ImGui pool, and the new project starts
+        // with an empty cache.
         UI::ThumbnailCache::Clear();
 
         // Reload editor settings from the new project directory
@@ -1398,7 +1375,6 @@ namespace Luth
         // below restores it at the camera it was left at.
         s_SceneViews.Load(SceneViewsPath());
 
-        // Clear scene state
         s_ScenePath.clear();
         s_IsDirty = false;
 
@@ -1413,10 +1389,9 @@ namespace Luth
         if (auto* hp = GetPanel<HierarchyPanel>())
             hp->SetContext(s_ActiveScene);
 
-        // Auto-load last scene now that AssetDatabase is populated for the
-        // new project. SetActiveScene runs at App::App() before LoadProject,
-        // so it can't do this — see comment in SetActiveScene. OpenScene
-        // fires the autosave recovery scan as a side effect.
+        // Auto-load last scene now that AssetDatabase is populated for the new project. SetActiveScene
+        // runs at App::App() before LoadProject, so it can't do this (see comment in SetActiveScene).
+        // OpenScene fires the autosave recovery scan as a side effect.
         if (s_ActiveScene && !s_Settings.lastSceneUUID.empty())
         {
             UUID uuid = UUID::FromString(s_Settings.lastSceneUUID);
@@ -1429,10 +1404,9 @@ namespace Luth
             s_Settings.lastSceneUUID.clear();
         }
 
-        // Reload the skybox now that the project's asset paths are live.
-        // RenderingSystem::ctor runs before any project is loaded, so its IBL
-        // init falls back to engine-assets (which don't ship an HDR). Once the
-        // project root is set, re-resolve the settings path and reload.
+        // Reload the skybox now that the project's asset paths are live. RenderingSystem::ctor runs
+        // before any project is loaded, so its IBL init falls back to engine-assets (which don't ship
+        // an HDR). Once the project root is set, re-resolve the settings path and reload.
         if (auto rs = SystemRegistry::GetSystem<RenderingSystem>();
             rs && !s_Settings.skyboxPath.empty())
         {
@@ -1443,14 +1417,14 @@ namespace Luth
                 rs->ReloadSkybox(skyboxAbsPath);
         }
 
-        // Re-hydrate thumbnail cache from the new project's <project>/.luth/thumbnails/.
-        // AssetDatabase has been fully reloaded by LoadProject by this point, so
-        // orphan-GC has the stable registry it needs.
+        // Re-hydrate thumbnail cache from the new project's <project>/.luth/thumbnails/. AssetDatabase
+        // has been fully reloaded by LoadProject by this point, so orphan-GC has the stable registry
+        // it needs.
         UI::ThumbnailCache::ScanDiskCache();
 
-        // Broadcast project switch to panels. Path stays empty when called from
-        // shutdown / unload (no project loaded yet); subscribers should treat
-        // empty path as "project unloaded" rather than "default project."
+        // Broadcast project switch to panels. Path stays empty when called from shutdown / unload
+        // (no project loaded yet); subscribers should treat empty path as "project unloaded" rather
+        // than "default project."
         const std::string projPath = FileSystem::ProjectPath().string();
         const std::string projName = FileSystem::ProjectPath().filename().string();
         EventBus::Enqueue<ProjectChangedSignal>(BusType::MainThread, projPath, projName);

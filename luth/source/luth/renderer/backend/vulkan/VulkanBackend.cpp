@@ -21,9 +21,9 @@ namespace Luth
         CreateFrameCommandBuffers();
         CreateComputeFrameCommandBuffers();
 
-        // Command allocator pools — one ring per queue family. Compute pool feeds future fiber-recorded compute
+        // Command allocator pools: one ring per queue family. Compute pool feeds future fiber-recorded compute
         // secondaries; today's compute passes record inline so the pool sits idle. CommandAllocatorPool's ctor is
-        // already parameterized by queueFamilyIndex — single-family GPUs alias compute family to graphics family
+        // already parameterized by queueFamilyIndex; single-family GPUs alias compute family to graphics family
         // and the second pool becomes a duplicate over the same family (no Vulkan rule against this).
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
@@ -33,7 +33,7 @@ namespace Luth
             m_ComputeCommandAllocatorPools[i]->Init();
         }
 
-        // GPU half of the Onion/Garlic split — depends on VulkanContext + VulkanAllocator being live.
+        // GPU half of the Onion/Garlic split; depends on VulkanContext + VulkanAllocator being live.
         Memory::GPUTaggedPageAllocator::Get().Init();
     }
 
@@ -43,7 +43,7 @@ namespace Luth
 
         vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
 
-        // Heap pages are device-mapped — shut them down while the device is still alive.
+        // Heap pages are device-mapped; shut them down while the device is still alive.
         Memory::GPUTaggedPageAllocator::Get().Shutdown();
 
         DestroySyncObjects();
@@ -74,14 +74,14 @@ namespace Luth
 
         // Wait for GPU to finish with this frame's resources from previous cycle.
         // Per-view 3-submit means m_FrameTimeline is signaled twice per view (gA + gB) and m_ComputeTimeline once
-        // per view-with-compute; both are no longer simply frameIndex+1. The per-frame ring caches the LAST value
+        // per view-with-compute; both no longer equal frameIndex+1. The per-frame ring caches the LAST value
         // of each timeline at end of the previous frame N-2; AcquireImage waits on exactly those.
         if (frameIndex >= MAX_FRAMES_IN_FLIGHT)
         {
-            // +1: per-frame UAB descriptor slots are read at renderFrameIndex%N — one frame ahead of the
+            // +1: per-frame UAB descriptor slots are read at renderFrameIndex%N, one frame ahead of the
             // cmd-buffer slot (gameFrameIndex%N) the cmd-buffer reset gates. Wait the slot's prior DESCRIPTOR
             // reader (frame N-3), not just its cmd-buffer prior user (N-4), so a game-stage slot rewrite can't
-            // race an older in-flight reader under GPU-behind load (skinned-pose ghost). Monotone ⇒ still
+            // race an older in-flight reader under GPU-behind load (skinned-pose ghost). Monotone, so it still
             // covers cmd-buffer reset. see arch/multi-queue.md
             const u32 retiringSlot = (u32)((frameIndex - MAX_FRAMES_IN_FLIGHT + 1) % MAX_FRAMES_IN_FLIGHT);
             const u64 gfxWait     = m_LastGraphicsValuePerFrame[retiringSlot];
@@ -92,12 +92,12 @@ namespace Luth
 
             // Direct ND reclaim (HasFrameCompleted): the submit labeled L consumed all data tagged L-1, so
             // free tag (label-1) for each consuming frame `label` that is GPU-complete. Bound at frameIndex-1
-            // (frame `frameIndex` hasn't submitted → stale cache slot). The block-wait above guarantees label
+            // (frame `frameIndex` hasn't submitted; stale cache slot). The block-wait above guarantees label
             // (frameIndex - MAX_FRAMES_IN_FLIGHT + 1) is complete, so this never frees less than the legacy
             // FreeTag(frameIndex-4); a faster GPU retires newer labels too. see arch/memory.md
             for (u64 label = m_LastReclaimedLabel + 1; label + 1 <= frameIndex; ++label)
             {
-                if (!IsFrameComplete(label)) break;  // labels complete in order — stop at the first that isn't
+                if (!IsFrameComplete(label)) break;  // labels complete in order; stop at the first that isn't
                 const u32 freeTag = static_cast<u32>(label - 1);
                 Memory::TaggedPageAllocator   ::Get().FreeTag(freeTag);
                 Memory::GPUTaggedPageAllocator::Get().FreeTag(freeTag);
@@ -105,16 +105,16 @@ namespace Luth
             }
         }
 
-        // Flush deletions AFTER we know the GPU is done with this frame's resources
+        // Flush deletions AFTER the GPU is done with this frame's resources
         VulkanContext::Get().FlushDeletionQueue();
 
-        // Reset Command Allocator Pools for THIS frame — both queue families.
+        // Reset Command Allocator Pools for THIS frame, both queue families.
         m_CommandAllocatorPools[m_CurrentFrameIndex]->ResetAll();
         m_ComputeCommandAllocatorPools[m_CurrentFrameIndex]->ResetAll();
 
         // Reset every per-view primary cmd buffer for THIS frame across all three queue streams. Views that don't
         // render this frame leave their cmd buffers untouched (still get reset for cleanliness); compute and gB
-        // primaries are reset every frame even when no pass routes there — recording empty is valid Vulkan.
+        // primaries are reset every frame even when no pass routes there; recording empty is valid Vulkan.
         for (u32 v = 0; v < MAX_VIEWS_PER_FRAME; ++v)
         {
             vkResetCommandBuffer(m_GAPrimaries     [m_CurrentFrameIndex][v], 0);
@@ -148,7 +148,7 @@ namespace Luth
         const bool firstView = (viewSlot == 0);
         if (firstView) m_CurrentFrameLastComputeValue = 0;
 
-        // ── graphics-A submit ──
+        // ---- graphics-A submit ----
         // Subsequent views wait the previous view's gB at EARLY_FRAGMENT_TESTS (inter-view depth ordering). First view
         // waits the PREVIOUS frame's compute at ALL_COMMANDS: a persistent resource (shadow map) written here by ShadowPass
         // must not race the previous frame's async-compute still reading it. imageAvailable is waited on the last gB now.
@@ -192,9 +192,9 @@ namespace Luth
         gaInfo.signalSemaphoreInfoCount = 1;
         gaInfo.pSignalSemaphoreInfos    = &gaSignal;
         if (!VulkanContext::Get().SubmitGraphics2(gaInfo, VK_NULL_HANDLE))
-            LH_LOG(Renderer, error, "VulkanBackend::SubmitView — graphics-A submit failed (frame {}, view {}).", frameIndex, viewSlot);
+            LH_LOG(Renderer, error, "VulkanBackend::SubmitView - graphics-A submit failed (frame {}, view {}).", frameIndex, viewSlot);
 
-        // ── async-compute submit ──
+        // ---- async-compute submit ----
         // Only fires when the view's RG routed any pass to AsyncCompute. Compute waits the gA value at ALL_COMMANDS
         // (not COMPUTE_SHADER): gates the reader's TOP_OF_PIPE-src cross-queue layout transition of gA outputs. see arch/multi-queue.md
         u64 computeSignalValue = 0;
@@ -243,14 +243,14 @@ namespace Luth
             cInfo.signalSemaphoreInfoCount = 1;
             cInfo.pSignalSemaphoreInfos    = &cSignal;
             if (!VulkanContext::Get().SubmitCompute2(cInfo, VK_NULL_HANDLE))
-                LH_LOG(Renderer, error, "VulkanBackend::SubmitView — compute submit failed (frame {}, view {}).", frameIndex, viewSlot);
+                LH_LOG(Renderer, error, "VulkanBackend::SubmitView - compute submit failed (frame {}, view {}).", frameIndex, viewSlot);
             m_CurrentFrameLastComputeValue = computeSignalValue;
         }
 
-        // ── graphics-B submit ──
-        // hasComputeWork: wait the compute signal at ALL_COMMANDS — gates gB's TOP_OF_PIPE-src cross-queue layout
+        // ---- graphics-B submit ----
+        // hasComputeWork: wait the compute signal at ALL_COMMANDS; gates gB's TOP_OF_PIPE-src cross-queue layout
         // transition of compute outputs (a narrower FRAGMENT_SHADER wait would not). see arch/multi-queue.md
-        // !hasComputeWork: wait the just-signaled gA value at ALL_GRAPHICS — same primary's prior submit (intra-queue).
+        // !hasComputeWork: wait the just-signaled gA value at ALL_GRAPHICS (same primary's prior submit, intra-queue).
         VkSemaphoreSubmitInfo gbWaits[2]{};
         gbWaits[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
         if (hasComputeWork)
@@ -267,7 +267,8 @@ namespace Luth
         }
         u32 gbWaitCount = 1;
 
-        // Last view runs ImGuiPass (only swapchain writer) — acquire wait at ALL_COMMANDS, since the UNDEFINED->COLOR transition is at TOP_OF_PIPE (COLOR_OUTPUT wouldn't gate it).
+        // Last view runs ImGuiPass (only swapchain writer): acquire wait at ALL_COMMANDS, since the UNDEFINED->COLOR
+        // transition is at TOP_OF_PIPE (COLOR_OUTPUT wouldn't gate it).
         if (isLastView)
         {
             gbWaits[1].sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
@@ -306,7 +307,7 @@ namespace Luth
         gbInfo.signalSemaphoreInfoCount = gbSignalCount;
         gbInfo.pSignalSemaphoreInfos    = gbSignals;
         if (!VulkanContext::Get().SubmitGraphics2(gbInfo, VK_NULL_HANDLE))
-            LH_LOG(Renderer, error, "VulkanBackend::SubmitView — graphics-B submit failed (frame {}, view {}).", frameIndex, viewSlot);
+            LH_LOG(Renderer, error, "VulkanBackend::SubmitView - graphics-B submit failed (frame {}, view {}).", frameIndex, viewSlot);
 
         // Cache per-frame final timeline values + present on the last view. AcquireImage reads these caches when
         // gating GPU-N-2 page reclaim (skips compute wait when the per-frame value is 0).
@@ -362,7 +363,7 @@ namespace Luth
         m_ComputeTimeline.Init(0);
         m_NextAcquireSemIndex = 0;
 
-        // Timelines just reset to 0 (resize rebuild) — clear the per-frame value caches + submit counters so
+        // Timelines just reset to 0 (resize rebuild); clear the per-frame value caches + submit counters so
         // AcquireImage doesn't block-wait or reclaim against a stale pre-resize value. see arch/multi-queue.md
         m_LastGraphicsValuePerFrame.fill(0);
         m_LastComputeValuePerFrame.fill(0);
@@ -409,9 +410,9 @@ namespace Luth
             LH_LOG(Renderer, critical, "Failed to create primary command pool!");
         }
 
-        // Allocate gA + gB per-view rings from the graphics pool. Total = MAX_VIEWS_PER_FRAME × MAX_FRAMES_IN_FLIGHT
+        // Allocate gA + gB per-view rings from the graphics pool. Total = MAX_VIEWS_PER_FRAME x MAX_FRAMES_IN_FLIGHT
         // primaries per ring (= 12 at current constants). Single allocate call per ring, then strided assignment
-        // into the 2D arrays — Vulkan returns the buffers in alloc-order, which we map view-major within each frame.
+        // into the 2D arrays; Vulkan returns the buffers in alloc-order, mapped view-major within each frame.
         constexpr u32 perRing = MAX_VIEWS_PER_FRAME * MAX_FRAMES_IN_FLIGHT;
         std::array<VkCommandBuffer, perRing> gaFlat{};
         std::array<VkCommandBuffer, perRing> gbFlat{};

@@ -6,10 +6,9 @@
 
 namespace Luth::JobSystem
 {
-    // Stack region backing a custom fiber. The guard page sits at the low end so a stack
-    // overflow (stack grows down on x86_64) faults instead of corrupting an adjacent
-    // allocation. UsableBottom is the lowest address a frame can validly touch;
-    // StackTop is the high address used as the initial RSP target by make_fcontext.
+    // Stack region backing a custom fiber. The guard page sits at the low end so a stack overflow (stack grows
+    // down on x86_64) faults instead of corrupting an adjacent allocation. UsableBottom is the lowest address a
+    // frame can validly touch; StackTop is the high address used as the initial RSP target by make_fcontext.
     struct FiberStack
     {
         void*  Region        = nullptr; // VirtualAlloc'd base (low address)
@@ -19,12 +18,11 @@ namespace Luth::JobSystem
         void*  StackTop      = nullptr; // high address; initial RSP
     };
 
-    // Allocate `usableSize` bytes of stack plus a low-end guard page via VirtualAlloc.
-    // Returns a fully-populated FiberStack on success; a zero-initialised one on failure
-    // (logs LH_CORE_CRITICAL).
+    // Allocate `usableSize` bytes of stack plus a low-end guard page via VirtualAlloc. Returns a
+    // fully-populated FiberStack on success; a zero-initialised one on failure (logs critical).
     FiberStack AllocateFiberStack(size_t usableSize);
 
-    // Release a stack previously returned by AllocateFiberStack. No-op on a default-
-    // constructed FiberStack. Resets `stack` to zero-init.
+    // Release a stack previously returned by AllocateFiberStack. No-op on a default-constructed
+    // FiberStack. Resets `stack` to zero-init.
     void FreeFiberStack(FiberStack& stack);
 }

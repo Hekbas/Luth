@@ -21,7 +21,7 @@ struct ImGuiContext;
 
 namespace Luth::JobSystem
 {
-    struct JobArgs;   // luth/jobs/JobSystem.h — full def only needed in Editor.cpp
+    struct JobArgs;   // luth/jobs/JobSystem.h; full def only needed in Editor.cpp
 }
 
 namespace Luth
@@ -34,11 +34,11 @@ namespace Luth
     struct EditorSignal;
 
     // Editor panel base. Gather/Draw lifecycle:
-    //   OnInit       — once after construction; subscribe to signals here.
-    //   OnGather     — worker fiber, no ImGui, no Vk; fills m_SnapshotFragment.
-    //   OnDraw       — main thread, the only place ImGui calls are legal; reads frozen snapshot.
-    //   OnEvent      — main thread between frames (EventBus drain); panel-state mutations.
-    //   OnShutdown   — editor teardown.
+    //   OnInit       once after construction; subscribe to signals here.
+    //   OnGather     worker fiber, no ImGui, no Vk; fills m_SnapshotFragment.
+    //   OnDraw       main thread, the only place ImGui calls are legal; reads frozen snapshot.
+    //   OnEvent      main thread between frames (EventBus drain); panel-state mutations.
+    //   OnShutdown   editor teardown.
     class Panel
     {
     public:
@@ -50,7 +50,7 @@ namespace Luth
         virtual void OnEvent(const EditorSignal& /*signal*/) {}
         virtual void OnShutdown() {}
 
-        // Introspection — Editor populates these; panels read.
+        // Introspection: Editor populates these; panels read.
         bool IsVisible() const { return m_Visible; }
         bool IsFocused() const { return m_Focused; }
         bool IsDocked()  const { return m_Docked;  }
@@ -86,7 +86,7 @@ namespace Luth
         friend class EditorSnapshotBuilder;   // writes m_GatherAlloc / m_SnapshotFragment / m_FragmentType
 
         // m_Open is the persistent user choice (Window menu, close X). m_Visible
-        // is per-frame ImGui state (collapsed / off-screen tab / etc.).
+        // is per-frame ImGui state (collapsed, off-screen tab, etc.).
         bool m_Open    = true;
         bool m_Visible = true;
         bool m_Focused = false;
@@ -94,7 +94,7 @@ namespace Luth
         int  m_WindowFlags = 0;
         const char* m_WindowID = "Panel";
 
-        // Error-boundary state — see Editor::DrawPanelGuarded.
+        // Error-boundary state; see Editor::DrawPanelGuarded.
         bool m_Crashed = false;
         u8   m_CrashStreak = 0;
 
@@ -132,12 +132,12 @@ namespace Luth
             return it != s_PanelRegistry.end() ? static_cast<T*>(it->second) : nullptr;
         }
 
-        // Deferred style change — applied on next BeginFrame (font atlas can't
+        // Deferred style change, applied on next BeginFrame (font atlas can't
         // rebuild mid-frame). Accepts a built-in name (Custom/Bubblegum/Matrix/
         // Rider) or an absolute JSON path.
         static void LoadStyle(const std::string& nameOrPath);
 
-        // Easter egg — randomised color palette. Unrelated to LoadStyle.
+        // Easter egg: randomised color palette. Unrelated to LoadStyle.
         static void SetRandomStyle();
 
         static ImFont*  GetMainFont()        { return m_MainFont; }
@@ -203,7 +203,7 @@ namespace Luth
         // so per-workspace visibility tweaks persist without an explicit Save As.
         static void SaveActiveWorkspaceSidecar();
 
-        // Per-scene editor-camera pose persistence (SceneViewStore → <project>/.luth/scene_views.json).
+        // Per-scene editor-camera pose persistence (SceneViewStore -> <project>/.luth/scene_views.json).
         // Capture writes through on scene save/switch/shutdown; restore runs after a scene loads.
         // A scene with no path (unsaved) has no UUID key and is skipped.
         static void CaptureSceneView();
@@ -216,7 +216,7 @@ namespace Luth
 
         // Gather thunk dispatched onto worker fibers. Resets the panel's scratch,
         // calls OnGather, catches exceptions, dumps a stack trace, and bumps
-        // m_CrashStreak. m_CrashStreak >= 3 → m_Crashed, panel goes dark until reset.
+        // m_CrashStreak. m_CrashStreak >= 3 -> m_Crashed, panel goes dark until reset.
         static void GatherJobThunk(JobSystem::JobArgs args);
 
         // Main-thread guard around panel->OnDraw. Mirrors GatherJobThunk's catch
@@ -251,19 +251,19 @@ namespace Luth
         // Deferred style change (fonts can't be rebuilt mid-frame)
         static inline std::string s_PendingStyle;
 
-        // Workspace popup state — Save / Rename / Delete are deferred from the menu
+        // Workspace popup state: Save / Rename / Delete are deferred from the menu
         // scope so ImGui can track the popup window outside BeginMenuBar.
         static inline bool s_ShowSaveWorkspacePopup   = false;
         static inline bool s_ShowRenameWorkspacePopup = false;
         static inline bool s_ShowDeleteWorkspaceConfirm = false;
 
-        // First-run default-layout snapshot — set in Init when layouts/Default.ini
+        // First-run default-layout snapshot: set in Init when layouts/Default.ini
         // is missing, consumed at end of the first Render once ImGui has populated
         // dock state.
         static inline bool s_NeedDefaultLayoutSave = false;
 
-        // Deferred LoadWorkspace(activeLayout) — set in Init, consumed at end of the
-        // first Render so panels and ImGui dock state exist before we apply.
+        // Deferred LoadWorkspace(activeLayout): set in Init, consumed at end of the
+        // first Render so panels and ImGui dock state exist before it applies.
         static inline bool s_NeedActiveWorkspaceLoad = false;
 
         // Texture remap dialog state (deferred open from menu)

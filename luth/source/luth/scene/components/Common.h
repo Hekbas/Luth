@@ -46,6 +46,6 @@ namespace Luth::Component
     struct Disabled {};
 
     // Presence marks a skeleton-joint entity (created by Scene::InstantiateModel for a
-    // skinned model). Pure marker, no data — the editor keys the bone icon off it.
+    // skinned model). Pure marker, no data; the editor keys the bone icon off it.
     struct Bone {};
 }

@@ -46,13 +46,13 @@ namespace Luth
         OverlaySource GetOverlaySource();
 
     private:
-        // Live mode — pass-level view over the current graph snapshot.
+        // Live mode: pass-level view over the current graph snapshot.
         void DrawLiveView(const RG::RenderGraphSnapshot& snapshot);
         void DrawLiveControlBar(const RG::RenderGraphSnapshot& snapshot, int nonCulledCount);
         void DrawLivePassTree(const RG::RenderGraphSnapshot& snapshot);
         void DrawLivePassDetails(const RG::RenderGraphSnapshot& snapshot);
 
-        // Capture mode — hierarchical EventNode tree over a frozen capture.
+        // Capture mode: hierarchical EventNode tree over a frozen capture.
         void DrawCaptureView(const RG::CapturedFrame& capture);
         void DrawCaptureControlBar(const RG::CapturedFrame& capture);
         void DrawEventNode(const RG::CapturedFrame& capture, const RG::EventNode& node, int depthCounter);
@@ -86,7 +86,7 @@ namespace Luth
         VkImageView      m_DepthPreviewViewCached   = VK_NULL_HANDLE;
         VkDescriptorSet  m_DepthPreviewDescSet      = VK_NULL_HANDLE;
 
-        // Slim G-buffer decoder preview — separate descriptor cache so it doesn't compete
+        // Slim G-buffer decoder preview: separate descriptor cache so it doesn't compete
         // with the depth preview's binding.
         VkImageView      m_SlimPreviewViewCached    = VK_NULL_HANDLE;
         VkDescriptorSet  m_SlimPreviewDescSet       = VK_NULL_HANDLE;

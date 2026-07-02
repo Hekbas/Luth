@@ -1,9 +1,9 @@
-// ReSTIR GI — final shading. Reads each pixel's resolved GI reservoir and writes the demodulated
+// ReSTIR GI final shading. Reads each pixel's resolved GI reservoir and writes the demodulated
 // indirect-diffuse irradiance. AsyncCompute.
 //
 // CONTRACT: stores DEMODULATED indirect irradiance  E = L_o * NdotL_v * W  (no primary albedo, no 1/PI).
-// pbr.slang remodulates:  Lo += E * (albedo * (1-metallic) / PI). SVGF (S4) denoises E before remodulation
-// — same contract as the DI path. L_o already contains the secondary surface's albedo + cosine; only the
+// pbr.slang remodulates:  Lo += E * (albedo * (1-metallic) / PI). SVGF denoises E before remodulation,
+// same contract as the DI path. L_o already contains the secondary surface's albedo + cosine; only the
 // PRIMARY-vertex cosine (NdotL_v) and W are applied here. Reads the spatial-reuse output at b6.
 // see arch/rendering-pipeline.md
 import globals;

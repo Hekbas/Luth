@@ -3,7 +3,7 @@
 #include "luth/memory/MemoryTracker.h"
 #include "luth/core/diagnostics/Profiler.h"
 
-// Tracked allocation macros — opt-in, per call-site category tagging.
+// Tracked allocation macros: opt-in, per call-site category tagging.
 // Usage:
 //   auto* ctx = LH_NEW(Memory::Category::Rendering, VulkanContext);
 //   LH_DELETE(Memory::Category::Rendering, ctx);

@@ -12,7 +12,7 @@ namespace Luth
         nlohmann::json JsonData;
     };
 
-    // Imports .lhmat material assets. The .lhmat is itself JSON, so the importer is essentially
+    // Imports .lhmat material assets. The .lhmat is itself JSON, so the importer is
     // a copy + validate pass that pins the JSON for later main-thread deserialization.
     class MaterialImporter : public AssetImporter
     {

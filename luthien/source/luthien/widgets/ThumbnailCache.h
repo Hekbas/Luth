@@ -15,7 +15,7 @@ namespace Luth::UI
     // descriptors so subsequent frames hit.
     //
     // invariant: asset-domain (UUID-keyed). widgets/TexturePreview.cpp's
-    // s_TextureCache is runtime-domain (raw Texture* keyed) — distinct
+    // s_TextureCache is runtime-domain (raw Texture* keyed): distinct
     // abstractions that coexist by intent.
     class ThumbnailCache
     {
@@ -43,7 +43,7 @@ namespace Luth::UI
         // Drop everything. Used on project unload + size-change.
         static void Clear();
 
-        // Walk <project>/.luth/thumbnails/ — orphan PNGs (UUID not in DB) are
+        // Walk <project>/.luth/thumbnails/: orphan PNGs (UUID not in DB) are
         // deleted, the rest are async-loaded into the cache. Called from
         // Editor::OnProjectChanged after Clear(). No-op when no project.
         static void ScanDiskCache();

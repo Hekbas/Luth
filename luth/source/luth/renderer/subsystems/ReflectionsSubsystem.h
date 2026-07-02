@@ -14,7 +14,7 @@ namespace Luth
     class FrameTargets;
     struct ViewResources;
 
-    // RT specular reflections (rt-renderer D.1). A rayQuery-in-compute pass that casts one GGX-VNDF
+    // RT specular reflections. A rayQuery-in-compute pass that casts one GGX-VNDF
     // reflection ray per opaque pixel from the slim G-buffer (oct normal + roughness + depth), shades the
     // hit via the bindless geometry table + NEE, and writes a DEMODULATED specular-radiance image (rgb)
     // + hitDist (a). A dedicated specular denoiser cleans it; pbr.frag re-modulates it into the split-sum
@@ -36,7 +36,7 @@ namespace Luth
         // b3 slim roughness (SHADER_READ_ONLY samplers). Written once at view alloc / resize.
         void WriteView(ViewResources& vr, FrameTargets& targets);
 
-        // Reflection trace dispatch → writes the demodulated reflection image. Returns its handle
+        // Reflection trace dispatch -> writes the demodulated reflection image. Returns its handle
         // (invalid when disabled / no view). AsyncCompute, after the TLAS build. Reads the slim G-buffer
         // (handles threaded for RG barrier ordering).
         RG::ResourceHandle AddPasses(RG::RenderGraph& rg,
@@ -63,7 +63,7 @@ namespace Luth
 
         std::unique_ptr<VKComputePipeline> m_ReflPipeline;
         VkDescriptorSetLayout              m_SetLayout = VK_NULL_HANDLE;  // Set 2 (pass-local)
-        VkSampler                          m_Sampler   = VK_NULL_HANDLE;  // linear clamp — slim G-buffer reads
+        VkSampler                          m_Sampler   = VK_NULL_HANDLE;  // linear clamp for slim G-buffer reads
         std::vector<u32>                   m_Spv;
 
         std::unique_ptr<VKComputePipeline> m_UpscalePipeline;             // half-res bilateral upscale

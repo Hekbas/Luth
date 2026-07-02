@@ -28,14 +28,12 @@ namespace Luth
         // Tear down the preview textures. Called from RenderPipeline::Shutdown before the Vulkan device is destroyed.
         void Shutdown();
 
-        // Lazily create the debug-blit shader + descriptor resources. Safe to
-        // call repeatedly; returns early once already initialised. Called
-        // from Execute's capture branch and from BlitArchivedDepthToPreview.
+        // Lazily create the debug-blit shader + descriptor resources. Safe to call repeatedly; returns early once
+        // already initialised. Called from Execute's capture branch and from BlitArchivedDepthToPreview.
         void InitDebugBlitResources();
 
-        // Adds a final blit pass that copies `inputHandle` into LDROutput.
-        // Used when scrubbing stops before PostProcess executes — without it
-        // the HDR SceneColor (or depth ShadowMap) would never reach ImGui.
+        // Adds a final blit pass that copies `inputHandle` into LDROutput. Used when scrubbing stops before
+        // PostProcess executes; without it the HDR SceneColor (or depth ShadowMap) would never reach ImGui.
         RG::ResourceHandle AddDebugBlitPass(RG::RenderGraph& rg, RG::ResourceHandle inputHandle, bool isDepth);
 
         // Per-draw replay then copy. Re-executes the captured pass up to draw `localDrawIdx`
@@ -75,16 +73,14 @@ namespace Luth
         void EnsureSlimPreviewTexture(u32 width, u32 height);
         void DestroySlimPreviewTexture();
 
-        // Validate the captured view's FrameTargets is still alive (panel not closed)
-        // and matches the identity stamped at FinalizeCapture. On mismatch, auto-exits
-        // capture (state→Inactive, archives freed) and surfaces a notice via EditorHooks.
-        // Returns true if the captured view is still usable.
+        // Validate the captured view's FrameTargets is still alive (panel not closed) and matches the identity
+        // stamped at FinalizeCapture. On mismatch, auto-exits capture (state -> Inactive, archives freed) and
+        // surfaces a notice via EditorHooks. Returns true if the captured view is still usable.
         bool ValidateCapturedView();
 
-        // Per-pass replay helpers. Each renders draws[0..localDrawIdx] into a
-        // pass-appropriate target then blits/copies into m_PerDrawPreviewImage
-        // and updates m_PerDrawPreviewKey on success. Unsupported pass names
-        // leave the preview untouched; the caller falls back to pass-archive.
+        // Per-pass replay helpers. Each renders draws[0..localDrawIdx] into a pass-appropriate target then
+        // blits/copies into m_PerDrawPreviewImage and updates m_PerDrawPreviewKey on success. Unsupported
+        // pass names leave the preview untouched; the caller falls back to pass-archive.
         void ReplayGeometry      (u32 passIdx, u32 localDrawIdx);
         void ReplayShadow        (u32 passIdx, u32 localDrawIdx, int cascadeIdx);
         void ReplayDepthPrepass  (u32 passIdx, u32 localDrawIdx);
@@ -108,7 +104,7 @@ namespace Luth
         u32           m_DepthPreviewHeight = 0;
         u64           m_DepthPreviewKey    = UINT64_MAX;
 
-        // Slim G-buffer decoder preview (RGBA8 — shared by all 4 slim attachments via mode push).
+        // Slim G-buffer decoder preview (RGBA8, shared by all 4 slim attachments via mode push).
         // Cache key = (archiveIdx << 32) | (mode << 16) | scaleBucket, so flipping between modes
         // for the same archive re-decodes lazily without churning the texture allocation.
         VkImage       m_SlimPreviewImage  = VK_NULL_HANDLE;

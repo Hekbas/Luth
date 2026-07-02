@@ -1,11 +1,11 @@
-// ReSTIR DI — temporal reuse (Bitterli 2020). Reprojects each pixel to the previous frame via the motion
+// ReSTIR DI temporal reuse (Bitterli 2020). Reprojects each pixel to the previous frame via the motion
 // vector and merges the previous final reservoir into this frame's RIS candidate with confidence weights
 // (M-capped). The reservoir self-carries its origin pixel's geometry in the _pad fields (raw depth + oct
 // normal), so validation needs no separate previous-frame G-buffer. Runs between initial and shade.
 // AsyncCompute. see arch/rendering-pipeline.md
 import globals;
 import restir_common;       // Reservoir + merge/PCG/oct + PointLightRadiance
-import restir_di_target;    // RestirTargetPdf (#154)
+import restir_di_target;    // RestirTargetPdf
 
 [[vk::binding(0, 1)]] ByteAddressBuffer g_Lights;
 [[vk::binding(0, 2)]] Sampler2D u_CurrDepth;
@@ -13,12 +13,12 @@ import restir_di_target;    // RestirTargetPdf (#154)
 [[vk::binding(2, 2)]] RWStructuredBuffer<Reservoir> curr;       // this frame's RIS candidate (read + write)
 [[vk::binding(4, 2)]] StructuredBuffer<Reservoir> prevRes;      // previous frame's final reservoirs
 [[vk::binding(5, 2)]] Sampler2D u_Motion;
-[[vk::binding(7, 2)]] Sampler2D u_SlimRoughness;   // #154 combined diffuse+spec target
+[[vk::binding(7, 2)]] Sampler2D u_SlimRoughness;   // combined diffuse+spec target
 
 struct PC
 {
     float4x4 invViewProj;
-    uint     mCap;             // history clamp multiplier — prev.M <= mCap * curr.M (Bitterli ~20)
+    uint     mCap;             // history clamp multiplier: prev.M <= mCap * curr.M (Bitterli ~20)
     uint     frameSeed;
     float    depthThreshold;   // relative linear-depth tolerance for history validation
     float    normalThreshold;  // min dot(prevN, currN)
@@ -60,7 +60,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     uint flatIdx = uint(pixel.y) * uint(size.x) + uint(pixel.x);
 
     float depth = u_CurrDepth.Load(int3(GbufCoord(pixel), 0)).r;
-    if (depth >= 1.0) return;   // sky — leave the (empty) candidate untouched
+    if (depth >= 1.0) return;   // sky; leave the (empty) candidate untouched
 
     Reservoir r     = curr[flatIdx];   // this frame's RIS candidate (visibility folded by restir_initial)
     float2 octN     = u_CurrNormal.Load(int3(GbufCoord(pixel), 0)).rg;
@@ -97,7 +97,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         PointLightData pl = LoadPoint(pr.lightIndex);
         float3 L; float dist;
         float3 Li   = PointLightRadiance(pl, worldPos, L, dist);
-        float  pHat = RestirTargetPdf(N, V, L, Li, rough);   // re-evaluate prev's light at THIS pixel (#154)
+        float  pHat = RestirTargetPdf(N, V, L, Li, rough);   // re-evaluate prev's light at THIS pixel
         // Relative history clamp (Bitterli 2020): prev confidence capped to mCap x the current frame's M.
         ReservoirMerge(c, pr.lightIndex, pHat, pr.W, min(pr.M, pc.mCap * r.M), RandFromSeed(seed));
     }

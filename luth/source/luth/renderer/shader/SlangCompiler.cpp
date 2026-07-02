@@ -16,12 +16,12 @@ namespace Luth
         // invariant: a FRESH global session per compile, never shared. slang::IGlobalSession is not safe for
         // concurrent module loading; the asset pipeline compiles .slang on multiple threads, so a shared
         // session races (key-already-exists corruption + crashes). Per-compile isolation is the lock-free fix
-        // (no worker-thread OS-sync blocking — see arch/fiber-system.md). createGlobalSession is thread-safe.
+        // (no worker-thread OS-sync blocking; see arch/fiber-system.md). createGlobalSession is thread-safe.
         bool CreateGlobal(Slang::ComPtr<slang::IGlobalSession>& out)
         {
             if (SLANG_FAILED(slang::createGlobalSession(out.writeRef())) || !out)
             {
-                LH_LOG(Shaders, error, "Slang: createGlobalSession failed — prebuilt DLLs missing or core module not found");
+                LH_LOG(Shaders, error, "Slang: createGlobalSession failed - prebuilt DLLs missing or core module not found");
                 return false;
             }
             static std::once_flag s_ready;
@@ -99,7 +99,7 @@ namespace Luth
             target.flags = kDefaultTargetFlags;             // SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY
             target.floatingPointMode = SLANG_FLOATING_POINT_MODE_PRECISE;
             if (target.profile == SLANG_PROFILE_UNKNOWN)
-                LH_LOG(Shaders, warn, "Slang: profile 'spirv_1_5' unknown on this build — emitting at target default");
+                LH_LOG(Shaders, warn, "Slang: profile 'spirv_1_5' unknown on this build - emitting at target default");
 
             slang::CompilerOptionEntry opts[] = {
                 { slang::CompilerOptionName::DebugInformation,
@@ -108,8 +108,8 @@ namespace Luth
                   { slang::CompilerOptionValueKind::Int, SLANG_OPTIMIZATION_LEVEL_NONE, 0, nullptr, nullptr } },
                 { slang::CompilerOptionName::VulkanUseEntryPointName,
                   { slang::CompilerOptionValueKind::Int, 1, 0, nullptr, nullptr } },
-                // 41012 = "profile auto-upgraded to include the caps the entry point needs" — always
-                // benign for our hot-path shaders (rayQuery + the texture caps beyond bare spirv_1_5);
+                // 41012 = "profile auto-upgraded to include the caps the entry point needs"; always
+                // benign for the hot-path shaders (rayQuery + the texture caps beyond bare spirv_1_5);
                 // spirv-val is the real correctness gate. Suppress so it can't read as an engine error.
                 { slang::CompilerOptionName::DisableWarning,
                   { slang::CompilerOptionValueKind::String, 0, 0, "41012", nullptr } },
@@ -246,7 +246,7 @@ namespace Luth
         slang::IModule* module = PrepareModule(sourcePath, global, session);
         if (!module) return out;
 
-        // No such entry → not a single-'main' shader (a multi-entry probe, or a module). Skip quietly so
+        // No such entry -> not a single-'main' shader (a multi-entry probe, or a module). Skip quietly so
         // the importer can treat it as "not a single-stage asset" rather than a compile error.
         Slang::ComPtr<slang::IEntryPoint> ep;
         if (SLANG_FAILED(module->findEntryPointByName(entryPoint, ep.writeRef())) || !ep)
@@ -299,8 +299,8 @@ namespace Luth
         if (!module) return result;
 
         Slang::ComPtr<slang::IBlob> diag;
-        // Compose EVERY entry into one program so link-time specialization spans the stages — the exact
-        // shape Phase 2's shared IMaterial eval needs. getEntryPointCode below emits each stage from it.
+        // Compose EVERY entry into one program so link-time specialization spans the stages: the exact
+        // shape the shared IMaterial eval needs. getEntryPointCode below emits each stage from it.
         std::vector<Slang::ComPtr<slang::IEntryPoint>> eps;
         std::vector<slang::IComponentType*> parts;
         parts.push_back(module);
@@ -335,7 +335,7 @@ namespace Luth
         }
 
         // Emit one blob per requested entry (entry index i == entries[i]; the module contributes none).
-        // A stage that mis-emits leaves an empty blob — that IS the slang#9578 signal the caller checks.
+        // A stage that mis-emits leaves an empty blob; that IS the slang#9578 signal the caller checks.
         for (size_t i = 0; i < entries.size(); ++i)
         {
             Slang::ComPtr<slang::IBlob> spirv;
@@ -363,7 +363,7 @@ namespace Luth
         slang::IModule* module = PrepareModule(sourcePath, global, session);
         if (!module) return out;
 
-        // A bare module's program layout exposes its public type decls — no entry point / link needed.
+        // A bare module's program layout exposes its public type decls; no entry point / link needed.
         Slang::ComPtr<slang::IBlob> diag;
         slang::ProgramLayout* layout = module->getLayout(0, diag.writeRef());
         if (!layout) { LogDiag(diag, sourcePath); return out; }
@@ -381,7 +381,7 @@ namespace Luth
             return out;
         }
 
-        // Default ParameterCategory = Uniform → byte offsets/size matching the std140/std430 GPU view.
+        // Default ParameterCategory = Uniform -> byte offsets/size matching the std140/std430 GPU view.
         out.size = tl->getSize();
         unsigned n = tl->getFieldCount();
         out.fields.reserve(n);

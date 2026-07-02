@@ -8,12 +8,12 @@
 
 namespace Luth
 {
-    // In-process Slang -> SPIR-V compiler, coexisting with the libshaderc ShaderCompiler (no removals).
-    // Owns a lazily-created process-global slang::IGlobalSession — nothing loads slang-compiler.dll until
-    // the first call, so the slang-spike stays zero-cost while its toggle is off. Each Compile spins a
-    // fresh per-compile ISession (column-major matrices + precise fp to keep the GLSL A/B comparable;
-    // debug info on for RenderDoc source correlation). Synchronous on the calling fiber, mirroring
-    // ShaderCompiler — compiles are serialized at subsystem init, not a frame hot path. Phase-0 gate #156.
+    // In-process Slang -> SPIR-V compiler; the engine's only shader compiler. Nothing loads
+    // slang-compiler.dll until the first call. Each compile spins a fresh global session + ISession
+    // (shared sessions race under concurrent module loads; see the invariant in the .cpp) with
+    // column-major matrices + precise fp and debug info for RenderDoc source correlation. Synchronous
+    // on the calling fiber, mirroring ShaderCompiler; compiles are serialized at subsystem init, not a
+    // frame hot path.
     class SlangCompiler
     {
     public:
@@ -24,7 +24,7 @@ namespace Luth
                                         const char* entryPoint = "main",
                                         ShaderStage stage = ShaderStage::Unknown);
 
-        // Compile + recover the entry's pipeline stage from the linked program's reflection (free — the
+        // Compile + recover the entry's pipeline stage from the linked program's reflection (free; the
         // link already happened). The asset importer needs this because a .slang stage lives in the
         // [shader("...")] attribute, not the extension that GLSL stages infer from. A missing entry or an
         // unreflectable stage yields an empty result so the importer skips quietly instead of erroring.
@@ -32,9 +32,9 @@ namespace Luth
         static CompileOutput CompileReflectStage(const std::filesystem::path& sourcePath,
                                                  const char* entryPoint = "main");
 
-        // Link-time-specialization probe (#156 item 6 / slang#9578): compose ALL the named entry points
-        // into ONE linked program, then emit SPIR-V per entry — the "one body, link-specialized per
-        // stage" shape. Returns one blob per request, in order; a failed entry yields an empty blob.
+        // Compose ALL the named entry points into ONE linked program, then emit SPIR-V per entry: the
+        // "one body, link-specialized per stage" shape (slang#9578). Returns one blob per request, in
+        // order; a failed entry yields an empty blob.
         struct EntryReq { const char* name; ShaderStage stage; };
         static std::vector<std::vector<u32>> CompileModuleEntries(
             const std::filesystem::path& sourcePath, const std::vector<EntryReq>& entries);
@@ -42,7 +42,7 @@ namespace Luth
         // Reflect a named struct's std140/std430 field layout from a .slang module: per-field byte offset
         // (Uniform category) in declaration order + total size. Feeds MaterialLayoutGuard's cross-check
         // against the C++ mirror. ok=false means the module/type couldn't be reflected (treat as skip, not
-        // a layout mismatch) — diagnostics logged. No entry point needed; reflects module-scope types.
+        // a layout mismatch); diagnostics logged. No entry point needed; reflects module-scope types.
         struct StructLayout
         {
             struct Field { std::string name; size_t offset; };
@@ -52,8 +52,8 @@ namespace Luth
         };
         static StructLayout ReflectStructLayout(const std::filesystem::path& sourcePath, const char* typeName);
 
-        // True once the global session creates successfully (prebuilt DLLs loaded + core module found).
-        // First call pays the slang-compiler.dll load; safe to probe behind the spike toggle.
+        // True once a global session creates successfully (prebuilt DLLs loaded + core module found).
+        // First call pays the slang-compiler.dll load.
         static bool Available();
     };
 }

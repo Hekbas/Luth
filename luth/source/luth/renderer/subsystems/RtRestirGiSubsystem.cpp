@@ -16,7 +16,7 @@
 namespace Luth
 {
     namespace {
-        // Sizes the reservoir allocation only — the GPU layout lives in restir_gi_common.glsl's
+        // Sizes the reservoir allocation only; the GPU layout lives in restir_gi_common.slang's
         // GIReservoir struct; any field change must update both. see arch/rendering-pipeline.md
         struct GPUGIReservoir {
             f32 samplePosX, samplePosY, samplePosZ, W;
@@ -34,11 +34,11 @@ namespace Luth
             i32  gbufferScale;   // 1 = full-res; 2 = half-res GI (G-buffer reads remap to full)
             i32  dispatchW;      // GI working (dispatch) resolution
             i32  dispatchH;
-            u64  geomTableBDA;   // S3: geometry-table BDA; stays 8-aligned at offset 88
+            u64  geomTableBDA;   // geometry-table BDA; stays 8-aligned at offset 88
         };
         static_assert(sizeof(GiPC) == 96, "GiPC must match restir_gi_initial.slang push_constant (shade reads the 88 B prefix)");
 
-        // Temporal-pass push constants — same 80 B footprint as GiPC (one shared pcRange), different
+        // Temporal-pass push constants: same 80 B footprint as GiPC (one shared pcRange), different
         // fields. mCap + maxReservoirAge bit-packed so invViewProj + 4 scalars fit 80 B.
         struct GiTemporalPC {
             Mat4 invViewProj;
@@ -52,7 +52,7 @@ namespace Luth
         };
         static_assert(sizeof(GiTemporalPC) == 92, "GiTemporalPC must match restir_gi_temporal.slang push_constant");
 
-        // Spatial-pass push constants — 80 B (shared pcRange). neighbours+radius bit-packed.
+        // Spatial-pass push constants: 80 B (shared pcRange). neighbours+radius bit-packed.
         struct GiSpatialPC {
             Mat4 invViewProj;
             u32  neighboursRadius;   // neighbours (low 16) | radius (high 16)
@@ -92,7 +92,7 @@ namespace Luth
         m_Pipeline = &pipeline;
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // Linear clamp-to-edge — same shape as the DI pass sampler for SceneDepth/SlimNormal.
+        // Linear clamp-to-edge, same shape as the DI pass sampler for SceneDepth/SlimNormal.
         VkSamplerCreateInfo sampCI{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
         sampCI.magFilter    = VK_FILTER_LINEAR;
         sampCI.minFilter    = VK_FILTER_LINEAR;
@@ -102,10 +102,9 @@ namespace Luth
         sampCI.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         vkCreateSampler(device, &sampCI, nullptr, &m_Sampler);
 
-        // Set 2 (pass-local) — identical 7-binding shape to the DI subsystem so S1/S2 drop in without a
-        // layout change. b0 depth sampler, b1 slimNormal sampler, b2 reservoir CURR (r/w SSBO), b3 GI
-        // storage image, b4 reservoir PREV (read SSBO), b5 motion sampler, b6 spatial-output reservoir.
-        // S0 shaders only use b0/b1/b2/b3. b2/b4 swap each frame.
+        // Set 2 (pass-local): identical 7-binding shape to the DI subsystem. b0 depth sampler, b1
+        // slimNormal sampler, b2 reservoir CURR (r/w SSBO), b3 GI storage image, b4 reservoir PREV
+        // (read SSBO), b5 motion sampler, b6 spatial-output reservoir. b2/b4 swap each frame.
         VkDescriptorSetLayoutBinding bindings[7]{};
         bindings[0].binding         = 0;
         bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -137,7 +136,7 @@ namespace Luth
         bindings[6].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
 
         // b2/b4 (curr/prev reservoirs) are rewritten per-frame by WriteReservoirBindings while other
-        // cycled slots may still be pending on the GPU — UAB satisfies VUID-vkUpdateDescriptorSets-
+        // cycled slots may still be pending on the GPU; UAB satisfies VUID-vkUpdateDescriptorSets-
         // None-03047. b0/b1/b3/b5/b6 are stable per-view, written once at WriteView time.
         VkDescriptorBindingFlags bindingFlags[7] = {
             0,                                            // b0 depth sampler
@@ -180,7 +179,7 @@ namespace Luth
             m_Pipeline->GetLighting().GetSetLayout(),
             m_SetLayout,
         };
-        // Initial adds set 3 = Material SSBO + set 4 = bindless textures (S3 secondary-hit material).
+        // Initial adds set 3 = Material SSBO + set 4 = bindless textures (secondary-hit material fetch).
         // Only the initial pass shades L_o; the others are L_o-agnostic and keep the 3-set layout.
         const std::vector<VkDescriptorSetLayout> initialLayouts = {
             m_Pipeline->GetGlobal().GetSetLayout(),
@@ -202,7 +201,7 @@ namespace Luth
             m_ShadeSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
 
         // Reservoir debug-viz graphics pipeline (ShadeMode::RestirGiReservoir). One set: b0 depth
-        // sampler, b1 spatial-reservoir SSBO. Fullscreen triangle → heat-map blended over LDR.
+        // sampler, b1 spatial-reservoir SSBO. Fullscreen triangle -> heat-map blended over LDR.
         {
             VkDescriptorSetLayoutBinding vb[2]{};
             vb[0].binding = 0; vb[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; vb[0].descriptorCount = 1; vb[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -345,7 +344,7 @@ namespace Luth
 
         if (isInitial)
         {
-            // Initial keeps its 5-set layout (Material + bindless) — mirror Init.
+            // Initial keeps its 5-set layout (Material + bindless), mirroring Init.
             const std::vector<VkDescriptorSetLayout> initialLayouts = {
                 m_Pipeline->GetGlobal().GetSetLayout(),
                 m_Pipeline->GetLighting().GetSetLayout(),
@@ -415,12 +414,12 @@ namespace Luth
         giInfo.imageView   = giView;
         giInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-        // b6 spatial-output reservoir — single per-view buffer, stable like b0/b1/b3/b5 (S0 ignores it).
+        // b6 spatial-output reservoir: single per-view buffer, stable like b0/b1/b3/b5.
         VkDescriptorBufferInfo spatialInfo{
             vr.restirGiSpatial.buffer, vr.restirGiSpatial.offset, vr.restirGiSpatial.size };
 
         // Stable per-view bindings only: b0 depth, b1 normal, b3 GI, b5 motion, b6 spatial out. b2/b4
-        // (reservoirs) swap each frame — WriteReservoirBindings owns them.
+        // (reservoirs) swap each frame; WriteReservoirBindings owns them.
         VkWriteDescriptorSet writes[5 * MAX_FRAMES_IN_FLIGHT]{};
         u32 n = 0;
         for (u32 slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot)
@@ -534,8 +533,8 @@ namespace Luth
         // Build invViewProj + frameSeed once; initial/shade share GiPC, temporal uses GiTemporalPC
         // (same 80 B footprint / shared pcRange, different fields).
         const Mat4 invVP = Math::Inverse(m_Pipeline->GetGlobal().GetCachedViewProj());
-        // GI working resolution (half when RestirGiSettings::halfResolution) — derive from restirGiDI's
-        // extent (the Commit-2 sizing source of truth). G-buffer reads remap to full res in-shader.
+        // GI working resolution (half when RestirGiSettings::halfResolution): derive from restirGiDI's
+        // extent (the alloc-time sizing source of truth). G-buffer reads remap to full res in-shader.
         auto giTex0 = std::static_pointer_cast<VKTexture>(preflightVr->restirGiDI);
         const i32 giW2    = giTex0 ? static_cast<i32>(giTex0->GetWidth())  : static_cast<i32>(preflightVr->width);
         const i32 giH2    = giTex0 ? static_cast<i32>(giTex0->GetHeight()) : static_cast<i32>(preflightVr->height);
@@ -550,8 +549,8 @@ namespace Luth
         pc.dispatchW       = giW2;
         pc.dispatchH       = giH2;
         // Geometry-table BDA read at preflight, paired with the same m_LastResult that GlobalSubsystem
-        // binds to Set 0 b6 — so the table's instanceCustomIndex mapping matches the bound TLAS. Zero
-        // until the first real TLAS build (only the empty TLAS exists → all rays miss → never deref'd).
+        // binds to Set 0 b6, so the table's instanceCustomIndex mapping matches the bound TLAS. Zero
+        // until the first real TLAS build (only the empty TLAS exists -> all rays miss -> never deref'd).
         pc.geomTableBDA    = m_Pipeline->GetRt().GetGeometryTableBDA();
 
         GiTemporalPC tpc{};
@@ -574,9 +573,9 @@ namespace Luth
         spc.dispatchW        = giW2;
         spc.dispatchH        = giH2;
 
-        // Initial pass — cosine-sampled 1-bounce path + single-light NEE, writes the CURR reservoir at
+        // Initial pass: cosine-sampled 1-bounce path + single-light NEE, writes the CURR reservoir at
         // b2. The curr buffer is imported ONCE here; its handle threads into shade's ReadBuffer so the
-        // RG chains the initial→shade RAW barrier.
+        // RG chains the initial->shade RAW barrier.
         struct GiInitialData {
             RG::ResourceHandle depth;
             RG::ResourceHandle normal;
@@ -600,7 +599,7 @@ namespace Luth
                 ViewResources*  vr  = m_Pipeline->GetCurrentViewResources();
                 if (!vr || vr->restirGiDescSet[0] == VK_NULL_HANDLE) return;
 
-                // AS-build → AS-read barrier. dstStageMask is COMPUTE_SHADER (NOT RAY_TRACING) —
+                // AS-build -> AS-read barrier. dstStageMask is COMPUTE_SHADER (NOT RAY_TRACING):
                 // rayQuery executes in the compute stage; a RAY_TRACING dst here is a TDR trap.
                 VkMemoryBarrier2 asBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
                 asBarrier.srcStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
@@ -615,7 +614,7 @@ namespace Luth
                 const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 m_InitialPipeline->Bind(cmd);
                 // Set 3 = Material SSBO (render-frame slot, same convention as the PBR pass), Set 4 =
-                // bindless textures — for the secondary-hit material fetch. Both only deref'd on a
+                // bindless textures, for the secondary-hit material fetch. Both only deref'd on a
                 // committed hit, so a stale/empty slot on a miss is harmless.
                 VkDescriptorSet sets[5] = {
                     vr->globalDescriptorSet[slot],
@@ -634,11 +633,11 @@ namespace Luth
                 vkCmdDispatch(cmd, groupX, groupY, 1);
             });
 
-        // Temporal pass — reprojects via motion + merges last frame's PREV reservoir into the CURR
+        // Temporal pass: reprojects via motion + merges last frame's PREV reservoir into the CURR
         // candidate in-place, reweighted by the reconnection Jacobian. PREV is a SEPARATE read-only
-        // ImportBuffer (last frame's curr, no within-frame producer — cross-frame like taaHistory).
-        // CURR threads through reservoirHandle (read+write) so the RG inserts the initial→temporal RAW
-        // barrier. No AS barrier — temporal traces no rays.
+        // ImportBuffer (last frame's curr, no within-frame producer; cross-frame like taaHistory).
+        // CURR threads through reservoirHandle (read+write) so the RG inserts the initial->temporal RAW
+        // barrier. No AS barrier; temporal traces no rays.
         struct GiTemporalData {
             RG::ResourceHandle depth;
             RG::ResourceHandle normal;
@@ -657,7 +656,7 @@ namespace Luth
                 RG::BufferDesc prevBd{ "RestirGiReservoirPrev", prevRes.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
                 // Import in the state it was LEFT in last frame (StorageBufferWrite), NOT Undefined: the
                 // RG only makes last frame's write available if the read barrier's src carries a real
-                // access mask. Undefined → srcAccessMask=0 → no availability → the cross-frame read sees
+                // access mask. Undefined -> srcAccessMask=0 -> no availability -> the cross-frame read sees
                 // stale/zero data and temporal never accumulates. see arch/rendering-pipeline.md
                 data.reservoirPrev = rg.ImportBuffer(prevBd, (void*)prevRes.buffer, RG::ResourceState::StorageBufferWrite);
                 data.reservoirPrev = builder.ReadBuffer(data.reservoirPrev);
@@ -688,13 +687,13 @@ namespace Luth
                 vkCmdDispatch(cmd, groupX, groupY, 1);
             });
 
-        // Spatial pass — merges each pixel's temporal-output reservoir (b2, read-only) with a few random
+        // Spatial pass: merges each pixel's temporal-output reservoir (b2, read-only) with a few random
         // disk neighbours into a SEPARATE single output (b6), each reused neighbour reweighted by the
         // reconnection Jacobian + RTXDI BASIC bias correction. Reads b2 read-only (neighbour reads must
-        // see un-modified values — never in-place) so the temporal ping-pong stays intact as next frame's
+        // see un-modified values, never in-place) so the temporal ping-pong stays intact as next frame's
         // history. The curr handle ends here: ReadBuffer(reservoirHandle) is its last consumer
-        // (temporal→spatial RAW barrier). The spatial buffer is imported ONCE; its handle (spatialHandle)
-        // threads into shade's ReadBuffer. Undefined import is correct — the spatial buffer is fully
+        // (temporal->spatial RAW barrier). The spatial buffer is imported ONCE; its handle (spatialHandle)
+        // threads into shade's ReadBuffer. Undefined import is correct: the spatial buffer is fully
         // overwritten each frame and consumed same-frame, no cross-frame read. No AS barrier (no rays).
         struct GiSpatialData {
             RG::ResourceHandle depth;
@@ -739,9 +738,9 @@ namespace Luth
                 vkCmdDispatch(cmd, groupX, groupY, 1);
             });
 
-        // Shade pass — reads the SPATIAL-output reservoir (b6, threaded via spatialHandle so the RG
-        // inserts the spatial→shade barrier) + depth/normal, writes the demodulated GI image. The
-        // shader's b6 is the spatial result, bound per-view by WriteView — do NOT rebind here.
+        // Shade pass: reads the SPATIAL-output reservoir (b6, threaded via spatialHandle so the RG
+        // inserts the spatial->shade barrier) + depth/normal, writes the demodulated GI image. The
+        // shader's b6 is the spatial result, bound per-view by WriteView; do NOT rebind here.
         struct GiShadeData {
             RG::ResourceHandle depth;
             RG::ResourceHandle normal;
@@ -829,8 +828,8 @@ namespace Luth
         if (!preflightVr || preflightVr->giReservoirVizDescSet == VK_NULL_HANDLE
             || !preflightVr->restirGiSpatial.buffer) return ldrInput;
 
-        // Settings captured by value → stable at record time. mCap approximates the max merged M
-        // (temporal cap × the spatial neighbour fan-in + the pixel's own sample).
+        // Settings captured by value -> stable at record time. mCap approximates the max merged M
+        // (temporal cap x the spatial neighbour fan-in + the pixel's own sample).
         const RestirGiSettings& s = m_Pipeline->GetSystem().GetRestirGiSettings();
 
         struct VizData { RG::ResourceHandle output; RG::ResourceHandle depth; };

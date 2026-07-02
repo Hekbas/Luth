@@ -42,27 +42,26 @@ namespace Luth
         u32 bindlessIndex = 0; 
     };
 
-    // GPU-friendly Material Data Structure (Std140/Std430)
-    // This matches the shader struct.
+    // GPU-friendly material data (std430); must match the shader-side struct.
     //
     // flags layout (u32):
     //   bits 0-7   : HAS_* per map (NORMAL=0, METALROUGH=1, OCCLUSION=2, DIFFUSE=3,
     //                EMISSIVE=4, ALPHA=5, SPECULAR=6, THICKNESS=7)
     //   bits 8-15  : node-graph eval variant (0 = stock decode; RT megakernel dispatch)
-    //   bits 16-23 : UV index per map (2 bits each — DIFFUSE@16, NORMAL@18,
+    //   bits 16-23 : UV index per map (2 bits each: DIFFUSE@16, NORMAL@18,
     //                METALROUGH@20, OCCLUSION@22)
     //   bits 24-31 : reserved
     struct GPUMaterialData
     {
         Vec4 color = { 1.0f, 1.0f, 1.0f, 1.0f };
 
-        // Texture Indices (Bindless — slot 0 = reserved null/white)
+        // Texture Indices (Bindless; slot 0 = reserved null/white)
         u32 diffuseIndex = 0;
         u32 normalIndex = 0;
         u32 metalRoughIndex = 0;
         u32 occlusionIndex = 0;
         u32 emissiveIndex = 0;
-        u32 alphaIndex = 0;      // reserved — written by UpdateGPUData, unsampled by any shader
+        u32 alphaIndex = 0;      // reserved; written by UpdateGPUData, unsampled by any shader
         u32 specularIndex = 0;   // (no dedicated-opacity / spec-gloss / thickness-SSS path yet)
         u32 thicknessIndex = 0;
 
@@ -76,14 +75,14 @@ namespace Luth
         // emissive texture when FLAG_HAS_EMISSIVE is set. Byte 64, std430 vec4-aligned (no padding).
         Vec4 emissive = { 0.0f, 0.0f, 0.0f, 1.0f };
     };
-    // std430 layout must stay byte-identical to material.slang's GPUMaterialData — MaterialLayoutGuard
+    // std430 layout must stay byte-identical to material.slang's GPUMaterialData; MaterialLayoutGuard
     // cross-checks the field offsets at init; a desync silently corrupts every material index > 0.
     static_assert(sizeof(GPUMaterialData) == 80, "GPUMaterialData std430 layout must stay 80 B");
 
-    // Per-material graph-constant stride (float4 slots/material). invariant: matches material.slang MAT_GRAPH_STRIDE
-    // — shader paramBase = materialIndex * MAT_GRAPH_STRIDE indexes gMatParams; drift cross-corrupts. Bounds value nodes.
+    // Per-material graph-constant stride (float4 slots/material). invariant: matches material.slang MAT_GRAPH_STRIDE;
+    // shader paramBase = materialIndex * MAT_GRAPH_STRIDE indexes gMatParams; drift cross-corrupts. Bounds value nodes.
     inline constexpr u32 MAT_GRAPH_STRIDE = 16;
-    static_assert(sizeof(Vec4) == 16, "gMatParams is StructuredBuffer<float4> — Vec4 must be 16 B std430");
+    static_assert(sizeof(Vec4) == 16, "gMatParams is StructuredBuffer<float4> - Vec4 must be 16 B std430");
 
     class Material : public Asset
     {
@@ -107,7 +106,7 @@ namespace Luth
         void SetGraphShaderUUID(const UUID& uuid) { m_GraphShaderUUID = uuid; }
 
         // Generated Lambert-over-graph fragment for the editor thumbnail/inspector preview (PreviewFetch
-        // tier — self-contained UBO). Invalid = the preview falls back to the stock Lambert shader.
+        // tier, self-contained UBO). Invalid = the preview falls back to the stock Lambert shader.
         UUID GetGraphPreviewShaderUUID() const { return m_GraphPreviewShaderUUID; }
         void SetGraphPreviewShaderUUID(const UUID& uuid) { m_GraphPreviewShaderUUID = uuid; }
 
@@ -123,7 +122,7 @@ namespace Luth
         void SetGraph(MaterialGraph graph) { m_Graph = std::move(graph); }
         bool HasGraph() const { return !m_Graph.Empty(); }
 
-        // Cached graph constants in canonical codegen order — the float4 the generated EvalGraph reads via
+        // Cached graph constants in canonical codegen order: the float4 the generated EvalGraph reads via
         // fetch.Param(k). Rebuilt off-frame on edit, memcpy'd into gMatParams each frame; empty for non-graph.
         const std::vector<Vec4>& GetGraphParams() const { return m_GraphParams; }
         void SetGraphParams(std::vector<Vec4> params) { m_GraphParams = std::move(params); }
@@ -224,17 +223,17 @@ namespace Luth
 
         const std::vector<uint8_t>& GetUniformStorage() const { return m_UniformStorage; }
         
-        // Albedo color (direct access — bypasses uniform storage)
+        // Albedo color (direct access; bypasses uniform storage)
         Vec4 GetColor() const { return m_GPUData.color; }
         void SetColor(const Vec4& color) { m_GPUData.color = color; }
 
-        // Emissive (direct access — same pattern as color). rgb = linear factor, a = HDR strength.
+        // Emissive (direct access; same pattern as color). rgb = linear factor, a = HDR strength.
         Vec3 GetEmissiveColor() const { return Vec3(m_GPUData.emissive); }
         void SetEmissiveColor(const Vec3& c) { m_GPUData.emissive = Vec4(c, m_GPUData.emissive.a); }
         f32  GetEmissiveStrength() const { return m_GPUData.emissive.a; }
         void SetEmissiveStrength(f32 s) { m_GPUData.emissive.a = s; }
 
-        // Metalness / roughness (direct access — like color/emissive; the u_* uniform channel is dead).
+        // Metalness / roughness (direct access, like color/emissive; the u_* uniform channel is dead).
         f32  GetMetalness() const { return m_GPUData.metalness; }
         void SetMetalness(f32 m) { m_GPUData.metalness = m; }
         f32  GetRoughness() const { return m_GPUData.roughness; }
@@ -273,8 +272,7 @@ namespace Luth
         nlohmann::json m_CachedUniformJSON;
 
         std::vector<MapInfo> m_Maps;
-        
-        // Cached GPU Data
+
         GPUMaterialData m_GPUData;
 
         RenderMode m_RenderMode = RenderMode::Opaque;

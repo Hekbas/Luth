@@ -33,7 +33,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     int3 voxel  = int3(tid);
     if (any(voxel >= volDim)) return;
 
-    // Voxel center → world position (mirrors inject's reconstruction).
+    // Voxel center -> world position (mirrors inject's reconstruction).
     float2 uv    = (float2(voxel.xy) + 0.5) / float2(volDim.xy);
     float2 ndcXY = uv * 2.0 - 1.0;
     float  viewZ = SliceToViewZ(voxel.z, ubo.nearZ, ubo.farZ);

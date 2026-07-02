@@ -27,12 +27,11 @@ namespace Luth
     struct GeometryOutput;
     struct SlimGBufferOutput;
 
-    // Owns Set 5 (per-draw GPU object SSBO + indirect args), the cull compute
-    // pipeline, the PBR + depth-prepass graphics pipelines, the per-frame
-    // entity↔SSBO mapping, and the geometry-side render-graph passes
+    // Owns Set 5 (per-draw GPU object SSBO + indirect args), the cull compute pipeline, the PBR + depth-prepass
+    // graphics pipelines, the per-frame entity<->SSBO mapping, and the geometry-side render-graph passes
     // (cull / depth-prepass / forward PBR).
-    // invariant: Init() must precede BuildPipelines(geoLayouts) — the Set 5
-    // layout is created in Init and consumed by the shared geoLayouts vector.
+    // invariant: Init() must precede BuildPipelines(geoLayouts); the Set 5 layout is created in Init and
+    // consumed by the shared geoLayouts vector.
     class GeometrySubsystem
     {
     public:
@@ -43,13 +42,12 @@ namespace Luth
         bool OnShaderReloaded(const std::string& name, const std::vector<u32>& spv,
                               const std::vector<VkDescriptorSetLayout>& geoLayouts);
 
-        // Per-render-stage: rebuild Object + Indirect regions in the GPU tagged
-        // heap and rewrite Set 5 + cull descriptors.
+        // Per-render-stage: rebuild Object + Indirect regions in the GPU tagged heap and rewrite Set 5 + cull descriptors.
         void BuildGPUObjectBuffer(const RenderSnapshot& snapshot);
         u32  EnsureMaterialRegistered(std::shared_ptr<Material> material);
 
         // Perf observability: meshes skipped last build because the per-frame GPU object cap
-        // (k_MaxGPUObjects) was hit — a silent draw-drop. >0 means raise the cap or add culling/LOD.
+        // (k_MaxGPUObjects) was hit (a silent draw-drop). >0 means raise the cap or add culling/LOD.
         static u32 GetDroppedObjectCount();
 
         // Render-graph contributions.
@@ -100,13 +98,13 @@ namespace Luth
         void BuildDepthPrepassPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts);
         void BuildSlimGBufferPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts);
 
-        // Maps a node-graph material's fragment-shader UUID to its SPIR-V (cached). Invalid → the stock
+        // Maps a node-graph material's fragment-shader UUID to its SPIR-V (cached). Invalid -> the stock
         // m_PBRFragSpv; an unresolved UUID also falls back to stock so a not-yet-loaded graph never stalls.
         const std::vector<u32>& ResolveFragSpv(const UUID& fragShaderUUID);
 
         RenderPipeline* m_Pipeline = nullptr;
 
-        // Set 5 — GPUObjectData SSBO descriptor (graphics).
+        // Set 5: GPUObjectData SSBO descriptor (graphics).
         VkDescriptorPool      m_ObjectSSBODescPool   = VK_NULL_HANDLE;
         VkDescriptorSetLayout m_ObjectSSBODescLayout = VK_NULL_HANDLE;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_ObjectSSBODescSet{};
@@ -116,14 +114,14 @@ namespace Luth
         Memory::GPUSubRegion m_IndirectRegion{};
         u32                  m_GPUObjectCount = 0;
 
-        // Material registry + entity→SSBO index (rebuilt each render stage).
+        // Material registry + entity->SSBO index (rebuilt each render stage).
         std::unordered_map<UUID, u32, UUIDHash>   m_MaterialSlotMap;
         std::unordered_map<entt::entity, u32>     m_EntityToSSBOIndex;
         std::vector<entt::entity>                 m_EntityLookup;
 
-        // Frame N-1's worldMatrix per entity (motion vectors). Rebuilt by atomic-replace at end
-        // of BuildGPUObjectBuffer — despawned entities drop, newly-spawned fall back to current
-        // model on next frame. Render-side state; gameplay never touches it.
+        // Frame N-1's worldMatrix per entity (motion vectors). Rebuilt by atomic-replace at end of
+        // BuildGPUObjectBuffer: despawned entities drop, newly-spawned fall back to current model on
+        // next frame. Render-side state; gameplay never touches it.
         std::unordered_map<entt::entity, Mat4>    m_PrevModelByEntity;
 
         // Cull compute pipeline + descriptor.
@@ -140,7 +138,7 @@ namespace Luth
 
         // Slim G-buffer pipelines + SPV. Opaque: depth-EQUAL against prepass depth, no depth write.
         // Cutout: shares the shaders but tests LESS_OR_EQUAL + writes its own depth (the opaque-only
-        // prepass omits cutout) + alpha-tests in slim_gbuffer.slang — so RT shadows/reflections + GTAO
+        // prepass omits cutout) + alpha-tests in slim_gbuffer.slang, so RT shadows/reflections + GTAO
         // reconstruct from the holed cutout surface, not the geometry behind it. Full PBR vtx stride.
         std::unique_ptr<VKPipeline> m_SlimGBufferPipeline;
         std::unique_ptr<VKPipeline> m_SlimGBufferSkinnedPipeline;

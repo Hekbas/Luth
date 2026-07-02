@@ -20,7 +20,7 @@ namespace Luth::Physics
 {
     // JPH::JobSystem adapter that runs Jolt's parallel work through Luth's fiber-based scheduler.
     // WaitForJobs routes through WaitForCounter so barrier waits exercise the V5 inline-execution +
-    // fiber-yield path — the whole reason for picking direct JPH::JobSystem over the built-in
+    // fiber-yield path, the whole reason for picking direct JPH::JobSystem over the built-in
     // semaphore-backed JobSystemWithBarrier.
     class LuthJobSystemForJolt final : public JPH::JobSystem
     {
@@ -45,7 +45,7 @@ namespace Luth::Physics
     private:
         static void TrampolineFn(Luth::JobSystem::JobArgs args);
 
-        // PendingJob records a job currently tracked by a barrier — populated by AddJob, removed
+        // PendingJob records a job currently tracked by a barrier: populated by AddJob, removed
         // by OnJobFinished, snapshotted by the watchdog when a wait gets stuck. Name is captured
         // from the side-table populated in CreateJob.
         struct PendingJob
@@ -64,7 +64,7 @@ namespace Luth::Physics
             void AddJobs(const JobHandle*  handles, JPH::uint num)    override;
 
             // Counter tracks pending jobs added to this barrier. Increment on AddJob (only when SetBarrier
-            // succeeds — see .cpp), decrement on OnJobFinished. WaitForJobs routes here.
+            // succeeds; see .cpp), decrement on OnJobFinished. WaitForJobs routes here.
             Luth::JobSystem::AtomicCounter Counter;
 
             // Watchdog tracking. Pending mutates only under m_PendingMutex; IsWaiting + WaitStart
@@ -87,7 +87,7 @@ namespace Luth::Physics
         std::mutex                                m_BarriersMutex;
         int                                       m_MaxConcurrency = 1;
 
-        // Job-name side-table — keyed by Job*. CreateJob inserts; FreeJob removes; LuthBarrier::AddJob
+        // Job-name side-table keyed by Job*. CreateJob inserts; FreeJob removes; LuthBarrier::AddJob
         // looks up. Lets the watchdog name stuck jobs without forcing JPH_PROFILE_ENABLED on Jolt itself.
         std::unordered_map<Job*, std::string>     m_JobNames;
         std::mutex                                m_NameMapMutex;

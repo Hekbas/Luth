@@ -18,7 +18,7 @@ namespace Luth
     void ModelViewer::Draw(Model& model)
     {
         // Header: thumbnail-on-left, name + summary on right.
-        // Interactive 3D preview pinned in the footer (sub-task O).
+        // Interactive 3D preview pinned in the footer.
         ImTextureID headerThumb = UI::ThumbnailCache::Get(model.Handle, AssetType::Model);
         const auto& headerInfo = model.GetCachedModelInfo();
         UI::InspectorHeader(headerThumb, ICON_CUBE, 48.0f, [&]() {
@@ -32,9 +32,9 @@ namespace Luth
 
         ImGui::Dummy({ 0, 4 });
 
-        // Pinned-footer layout: snapshot pattern — Settings + Preview size with
-        // the same frame-start value; Splitter mutates the persisted height so
-        // the change takes effect next frame (no one-frame overshoot).
+        // Pinned-footer layout, snapshot pattern: Settings + Preview size with the same frame-start
+        // value; Splitter mutates the persisted height so the change takes effect next frame (no
+        // one-frame overshoot).
         const float kSplitterH    = 4.0f;
         const float kMinSettingsH = 80.0f;
         const float kMinFooterH   = 80.0f;
@@ -67,7 +67,6 @@ namespace Luth
             }
         }
 
-        // Import Settings
         if (UI::BeginCollapsingHeader("Import Settings", true))
         {
             const char* upAxes[] = { "Auto", "X-Up", "Y-Up", "Z-Up" };
@@ -140,10 +139,8 @@ namespace Luth
 
         ImGui::Dummy({ 0, 4 });
 
-        // Get cached model info
         const auto& info = model.GetCachedModelInfo();
 
-        // Basic model info section
         if (UI::BeginCollapsingHeader("Model Info", true)) {
             if (UI::BeginInfoTable("ModelProps")) {
                 UI::InfoRow("Meshes",    "%d", info.TotalMeshCount);
@@ -157,7 +154,6 @@ namespace Luth
         }
         ImGui::Dummy({ 0, 4 });
 
-        // Meshes section
         if (UI::BeginCollapsingHeader("Meshes")) {
             if (ImGui::BeginTable("MeshesTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
                 ImGui::TableSetupColumn("Name");
@@ -184,14 +180,11 @@ namespace Luth
         }
         ImGui::Dummy({ 0, 4 });
 
-        // Skinned model specific sections
         if (info.IsSkinned) {
-            // Bones section
             if (UI::BeginCollapsingHeader("Bones")) {
                 ImGui::Text("Total Bones: %d", info.BoneCount);
 
                 if (ImGui::TreeNode("Bone Hierarchy")) {
-                    // Recursive function to display bone hierarchy
                     std::function<void(int)> DisplayBoneNode = [&](int index) {
                         const auto& node = info.BoneHierarchy[index];
                         ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow;
@@ -199,7 +192,6 @@ namespace Luth
 
                         bool isOpen = ImGui::TreeNodeEx(node.Name.c_str(), flags);
 
-                        // Tooltip for bone info
                         if (ImGui::IsItemHovered()) {
                             ImGui::BeginTooltip();
                             ImGui::Text("Bone Index: %d", node.BoneIndex);
@@ -230,7 +222,6 @@ namespace Luth
             }
             ImGui::Dummy({ 0, 4 });
 
-            // Animations section
             if (UI::BeginCollapsingHeader("Animations")) {
                 ImGui::Text("Total Animations: %d", info.AnimationCount);
 

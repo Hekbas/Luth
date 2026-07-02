@@ -46,7 +46,7 @@ namespace Luth
         LoadIBL(hdrPath);
 
         // Forward+ cluster build pipeline. Layout has 2 SSBO bindings (AABB write, Grid write).
-        // UAB matches GTAO main's pattern — per-render-stage descriptor rewrites need it to
+        // UAB matches GTAO main's pattern: per-render-stage descriptor rewrites need it to
         // dodge validation 03047 when the previous frame's cmd buffer is still pending.
         {
             VkDescriptorSetLayoutBinding bindings[2] = {};
@@ -137,7 +137,7 @@ namespace Luth
         }
 
         // Cluster debug viz pipeline. Two descriptor sets: set 0 = depth sampler (per-view stable),
-        // set 1 = m_LightSetLayout (per-view × per-frame, the existing lightDescSet — only b1 read).
+        // set 1 = m_LightSetLayout (per-view x per-frame, the existing lightDescSet; only b1 read).
         {
             VkSamplerCreateInfo sampCI{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
             sampCI.magFilter    = VK_FILTER_NEAREST;
@@ -350,10 +350,10 @@ namespace Luth
         shadowImgInfo.imageView   = vkShadowTex->GetImageView();
         shadowImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-        // Binding 4 (RT sun shadow mask) — per-view. The mask image view comes from
+        // Binding 4 (RT sun shadow mask): per-view. The mask image view comes from
         // vr.sunShadowMask (allocated in RecreateViewTextures). pbr.frag reads it only when
         // rtShadowParams.x > 0.5 (RT mode); CSM-mode pixels take the cascade-PCF branch and
-        // don't dynamically access binding 4. Layout is SHADER_READ_ONLY_OPTIMAL — the RG
+        // don't dynamically access binding 4. Layout is SHADER_READ_ONLY_OPTIMAL; the RG
         // transitions the image to this from the RT pass's GENERAL via the consumer's Read.
         VkDescriptorImageInfo maskImgInfo{};
         if (vr.sunShadowMask)
@@ -364,7 +364,7 @@ namespace Luth
             maskImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }
 
-        // Binding 5 (ReSTIR DI) — per-view demodulated diffuse irradiance, post-denoise. Bound to
+        // Binding 5 (ReSTIR DI): per-view demodulated diffuse irradiance, post-denoise. Bound to
         // vr.svgfDenoised (the denoiser output), not vr.restirDI: the denoiser owns this slot whenever
         // ReSTIR is on (it passes the raw DI through when denoising is toggled off), so the bind is
         // static and the A/B is denoise-vs-raw with no descriptor swap. Reused mask sampler (linear
@@ -379,7 +379,7 @@ namespace Luth
             diImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }
 
-        // Binding 6 (ReSTIR GI) — post-denoise GI irradiance. Bound to vr.svgfGiDenoised (the GI
+        // Binding 6 (ReSTIR GI): post-denoise GI irradiance. Bound to vr.svgfGiDenoised (the GI
         // denoiser owns this slot, mirroring b5/DI): the bind is static and the A/B is denoise-vs-raw
         // with no descriptor swap (the denoiser passes the raw GI through when disabled). Same reused
         // mask sampler. pbr.frag adds it only when restirParams.y > 0.5; the GeometryPass Read
@@ -393,7 +393,7 @@ namespace Luth
             giImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }
 
-        // Binding 7 (RT reflections, D.1) — post-denoise specular radiance. Bound to vr.svgfSpecDenoised
+        // Binding 7 (RT reflections): post-denoise specular radiance. Bound to vr.svgfSpecDenoised
         // (the specular denoiser owns the slot, mirroring b5/b6). pbr.frag composites it into the split-sum
         // specular IBL when reflParams.x > 0.5; the GeometryPass Read transitions it to SHADER_READ_ONLY.
         VkDescriptorImageInfo reflImgInfo{};
@@ -405,7 +405,7 @@ namespace Luth
             reflImgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }
 
-        // Binding 8 (#154) — post-denoise ReSTIR-DI specular. Bound to vr.svgfDiSpecDenoised; pbr.frag
+        // Binding 8: post-denoise ReSTIR-DI specular. Bound to vr.svgfDiSpecDenoised; pbr.frag
         // adds it under restirParams.z. GeometryPass's Read transitions it to SHADER_READ_ONLY.
         VkDescriptorImageInfo diSpecImgInfo{};
         if (vr.svgfDiSpecDenoised)
@@ -567,11 +567,11 @@ namespace Luth
             m_ShadowLayerViews[i] = shadowTexForViews->CreateLayerView(i);
 
         // VKTexture's auto-init for depth images transitions to DEPTH_STENCIL_READ_ONLY_OPTIMAL.
-        // The Set 3 binding 3 descriptor writes declare SHADER_READ_ONLY_OPTIMAL — matched in CSM
-        // mode because ShadowPass writes + GeometryPass Read transitions through. With B.3's
-        // RT-mode gating, ShadowPass never runs and the cascade map sits in the initial layout
-        // forever, mismatching the descriptor. Override to SHADER_READ_ONLY_OPTIMAL at init so
-        // both modes agree. ShadowPass first-frame write does SHADER_READ_ONLY → DSAO normally.
+        // The Set 3 binding 3 descriptor writes declare SHADER_READ_ONLY_OPTIMAL: matched in CSM
+        // mode because ShadowPass writes + GeometryPass Read transitions through. In RT shadow
+        // mode, ShadowPass never runs and the cascade map sits in the initial layout forever,
+        // mismatching the descriptor. Override to SHADER_READ_ONLY_OPTIMAL at init so both modes
+        // agree. ShadowPass first-frame write does SHADER_READ_ONLY -> DSAO normally.
         VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
             VkImageMemoryBarrier2 b{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
             b.srcStageMask        = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
@@ -605,7 +605,7 @@ namespace Luth
         samplerInfo.mipmapMode    = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         vkCreateSampler(device, &samplerInfo, nullptr, &m_ShadowSampler);
 
-        // Sun shadow mask sampler (Set 3 binding 4) — linear clamp-to-edge, no compare. Matches the
+        // Sun shadow mask sampler (Set 3 binding 4): linear clamp-to-edge, no compare. Matches the
         // pbr.frag::ComputeShadowRT sample: `texture(sunShadowMask, uv).r`. Clamp-to-edge means
         // off-screen UVs (cluster outside frustum) read the edge value (1.0 if the mask was written
         // with no-shadow at the borders, but in practice pbr.frag clamps uv to [0,1] via gl_FragCoord).
@@ -648,30 +648,30 @@ namespace Luth
         bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[4].descriptorCount = 1;
         bindings[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
-                               | VK_SHADER_STAGE_RAYGEN_BIT_KHR;  // raygen may also read for ReSTIR DI (C.1)
+                               | VK_SHADER_STAGE_RAYGEN_BIT_KHR;  // raygen may also read for ReSTIR DI
         bindings[5].binding = 5;
         bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[5].descriptorCount = 1;
-        bindings[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;  // ReSTIR DI image — pbr.frag only
+        bindings[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;  // ReSTIR DI image; pbr.frag only
         bindings[6].binding = 6;
         bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[6].descriptorCount = 1;
-        bindings[6].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;  // ReSTIR GI image — pbr.frag only
+        bindings[6].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;  // ReSTIR GI image; pbr.frag only
         bindings[7].binding = 7;
         bindings[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[7].descriptorCount = 1;
-        bindings[7].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;  // RT reflections image (D.1) — pbr.frag only
+        bindings[7].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;  // RT reflections image; pbr.frag only
         bindings[8].binding = 8;
         bindings[8].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[8].descriptorCount = 1;
-        bindings[8].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;  // ReSTIR DI specular (#154) — pbr.frag only
+        bindings[8].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;  // ReSTIR DI specular; pbr.frag only
 
         // b0/b1/b2 are SSBOs rebound per-frame and are bound by BOTH graphics passes (PBR fragment)
         // AND the AsyncCompute RT raygen (set=1 in the RT pipeline-layout). The cycled-slot protocol
-        // alone is no longer sufficient — the second pending reference from the compute submission
+        // alone is no longer sufficient: the second pending reference from the compute submission
         // means vkUpdateDescriptorSets sees the set as in-use even when writing the "next" slot.
         // UAB on the rewritten bindings satisfies VUID-vkUpdateDescriptorSets-None-03047 cleanly.
-        // b3-b5 (samplers) stay flag-less — they're per-view stable, not rewritten per frame.
+        // b3-b8 (samplers) stay flag-less; they're per-view stable, not rewritten per frame.
         VkDescriptorBindingFlags bindingFlags[9] = {
             VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,  // b0 LightSSBO
             VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,  // b1 ClusterGrid
@@ -681,7 +681,7 @@ namespace Luth
             0,                                            // b5 ReSTIR DI sampler
             0,                                            // b6 ReSTIR GI sampler
             0,                                            // b7 RT reflections sampler
-            0,                                            // b8 ReSTIR DI specular sampler (#154)
+            0,                                            // b8 ReSTIR DI specular sampler
         };
         VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{
             VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
@@ -695,7 +695,7 @@ namespace Luth
         lightLayoutInfo.pBindings    = bindings;
         vkCreateDescriptorSetLayout(device, &lightLayoutInfo, nullptr, &m_LightSetLayout);
 
-        // Descriptor sets themselves move to ViewResources (per-view × MAX_FRAMES_IN_FLIGHT slots).
+        // Descriptor sets themselves move to ViewResources (per-view x MAX_FRAMES_IN_FLIGHT slots).
         // AllocateViewResources allocates from vr.descPool and calls WriteShadowView to populate b3.
     }
 
@@ -747,7 +747,7 @@ namespace Luth
 
         if (!m_ShadowSkinnedVertSpv.empty())
         {
-            // Empty vertex input — deformable VS fetch the deformed buffer by gl_VertexIndex.
+            // Empty vertex input: deformable VS fetch the deformed buffer by gl_VertexIndex.
             PipelineConfig skinnedConfig = shadowConfig;
             skinnedConfig.bindingDescriptions.clear();
             skinnedConfig.attributeDescriptions.clear();
@@ -875,7 +875,7 @@ namespace Luth
                         auto vb = std::static_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
                         auto ib = std::static_pointer_cast<VKIndexBuffer>(mesh->GetIndexBuffer());
                         if (!vb || !ib) continue;
-                        // Deformed draws need the empty-input pipeline; skip if absent — static binds no VB.
+                        // Deformed draws need the empty-input pipeline; skip if absent (static binds no VB).
                         if (dc.isDeformed && !m_ShadowSkinnedPipeline) continue;
 
                         if (dc.isDeformed != currentSkinned)
@@ -899,7 +899,7 @@ namespace Luth
                             }
                         }
 
-                        // Deformable draws bind no VB — the VS fetches the deformed buffer by gl_VertexIndex.
+                        // Deformable draws bind no VB; the VS fetches the deformed buffer by gl_VertexIndex.
                         if (!dc.isDeformed)
                         {
                             VkBuffer vbuf[] = { vb->GetVulkanBuffer() };
@@ -933,7 +933,7 @@ namespace Luth
                     }
                 };
 
-                // Transparent casts no shadows — matches its TLAS exclusion (RT-excluded tier).
+                // Transparent casts no shadows; matches its TLAS exclusion (RT-excluded tier).
                 DrawBatch(sys.GetDrawList().opaque);
                 DrawBatch(sys.GetDrawList().cutout);
 
@@ -1122,7 +1122,7 @@ namespace Luth
                 vkCmdPushConstants(cmd, pipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ClusterBuildPC), &pc);
 
-                // 4×4×4 local; group dims = ceil(tile/slice counts / 4); bounds-clamp in shader.
+                // 4x4x4 local; group dims = ceil(tile/slice counts / 4); bounds-clamp in shader.
                 const u32 groupX = (k_ClusterTilesX  + 3) / 4;
                 const u32 groupY = (k_ClusterTilesY  + 3) / 4;
                 const u32 groupZ = (k_ClusterSlicesZ + 3) / 4;
@@ -1163,17 +1163,17 @@ namespace Luth
         Memory::GPUSubRegion indexR   = heap.Allocate(jobCtx->GpuCache, indexSize, 16);
         Memory::GPUSubRegion counterR = heap.Allocate(jobCtx->GpuCache, 16, 16);
         if (!indexR.buffer || !counterR.buffer) return out;
-        // Counter zero-init host-side — tagged-heap pages are HOST_VISIBLE | MAPPED, so no barrier
+        // Counter zero-init host-side: tagged-heap pages are HOST_VISIBLE | MAPPED, so no barrier
         // needed before the compute pass on the async-compute queue (submit-time semaphore covers
-        // the host→device dependency).
+        // the host->device dependency).
         std::memset(counterR.mappedPtr, 0, 16);
         heap.FlushRegion(counterR);
 
-        // Reuse ClusterBuild's output buffers — same VkBuffers + offsets the producer wrote.
+        // Reuse ClusterBuild's output buffers: same VkBuffers + offsets the producer wrote.
         VkDescriptorBufferInfo lightBi{ m_LastLightSSBORegion.buffer, m_LastLightSSBORegion.offset,
                                         m_LastLightSSBORegion.size };
 
-        // invariant: bind via the producer's SubRegion offsets — BufferHandle only carries the
+        // invariant: bind via the producer's SubRegion offsets; BufferHandle only carries the
         // backing VkBuffer; offset+size live on the SubRegion. Tagged-heap bump allocations cannot
         // be re-derived, so the producer hands its regions through ClusterBuildOutputs.
         VkDescriptorBufferInfo aabbBi{ cb.aabbRegion.buffer, cb.aabbRegion.offset, cb.aabbRegion.size };
@@ -1209,7 +1209,7 @@ namespace Luth
 
         auto* pipeline = m_LightAssignPipeline.get();
         FrameDebugger* debugger = &m_Pipeline->GetSystem().GetFrameDebugger();
-        // Snapshot light counts at graph-build time — LightingSystem::GetLights() is final by now.
+        // Snapshot light counts at graph-build time; LightingSystem::GetLights() is final by now.
         u32 capturedPointCount = 0;
         u32 capturedSpotCount  = 0;
         if (auto* lightingSys = SystemRegistry::GetSystem<LightingSystem>())

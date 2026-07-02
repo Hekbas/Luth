@@ -191,7 +191,7 @@ namespace Luth::UI
 
         for (int i = 0; i < components; i++)
         {
-            // Colored axis label (no fill). Right-click → ctx menu.
+            // Colored axis label (no fill). Right-click opens the ctx menu.
             ImGui::PushStyleColor(ImGuiCol_Text, axisColors[i]);
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted(axisLabels[i]);

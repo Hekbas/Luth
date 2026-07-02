@@ -17,7 +17,7 @@ namespace Luth
 
     void TimelineSemaphore::Init(u64 initialValue)
     {
-        // Caller must ensure VulkanContext is initialized — Get().GetDevice() below dereferences it.
+        // Caller must ensure VulkanContext is initialized; Get().GetDevice() below dereferences it.
 
         VkSemaphoreTypeCreateInfo typeCreateInfo{};
         typeCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;

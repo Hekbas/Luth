@@ -28,8 +28,8 @@ namespace Luth::Component
 
         Vec3 color{1.0f};
         f32  density        = 0.1f;
-        f32  falloffStart   = 0.0f;   // [0..1] of normalized distance — full contribution below
-        f32  falloffEnd     = 1.0f;   // [0..1] — zero contribution at/beyond
+        f32  falloffStart   = 0.0f;   // [0..1] of normalized distance, full contribution below
+        f32  falloffEnd     = 1.0f;   // [0..1], zero contribution at/beyond
         bool affectsAmbient = true;
 
         FogVolume() : halfExtents(2.0f, 2.0f, 2.0f) {}

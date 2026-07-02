@@ -17,7 +17,7 @@ namespace Luth::Physics
 {
     // Cache key for asset-backed shapes. Identity is (model UUID, sub-mesh index, shape kind) so the
     // same source mesh can produce both a ConvexHullShape and a MeshShape entry without collision.
-    // Primitives bypass the cache — one body, one shape; the lookup cost beats the build cost.
+    // Primitives bypass the cache: one body, one shape; the lookup cost beats the build cost.
     struct ShapeKey
     {
         u64 modelHi  = 0;
@@ -50,8 +50,8 @@ namespace Luth::Physics
     };
 
     // Outcome of a shape build request. shape == nullptr means no body should be created this frame;
-    // retryLater discriminates a transient miss (asset still streaming in — try again next Update)
-    // from a permanent failure (bad params, opt-out, invalid UUID — drop the request).
+    // retryLater discriminates a transient miss (asset still streaming in; try again next Update)
+    // from a permanent failure (bad params, opt-out, invalid UUID; drop the request).
     struct BuildOutcome
     {
         JPH::RefConst<JPH::Shape> shape;
@@ -63,29 +63,28 @@ namespace Luth::Physics
     //
     // Hot-reload: AssetDatabase::ChangeCallback fires from whatever thread runs the App loop's
     // ProcessPendingChanges; PhysicsSystem stages dirty UUIDs into a scratch vector under SpinLock,
-    // then drains it at the start of its own Update — so OnAssetReimported here always runs on the
+    // then drains it at the start of its own Update, so OnAssetReimported here always runs on the
     // game-stage fiber. Erase releases this cache's RefConst; in-flight bodies still holding the old
     // shape keep it alive until their rebuild drops the reference.
     //
-    // invariant: never call from inside JPH::PhysicsSystem::Update — see PhysicsSystem::Step's
+    // invariant: never call from inside JPH::PhysicsSystem::Update; see PhysicsSystem::Step's
     // re-entry guard for why the body-build path itself is gated.
     class ShapeCache
     {
     public:
-        // Build or fetch a shape. Primitives skip the map and call into ShapeBuilder inline; asset-
-        // backed kinds resolve through the SpinLock-guarded map keyed by (uuid, meshIdx, kind).
+        // Build or fetch a shape. Primitives skip the map and call into ShapeBuilder inline;
+        // asset-backed kinds resolve through the SpinLock-guarded map keyed by (uuid, meshIdx, kind).
         BuildOutcome GetOrBuild(const Component::Collider& collider);
 
-        // Drop entries matching any of these UUIDs. The caller is responsible for re-queueing the
-        // affected entities so their bodies pick up the rebuilt shapes — this method only touches
-        // the cache.
+        // Drop entries matching any of these UUIDs. The caller is responsible for re-queueing the affected
+        // entities so their bodies pick up the rebuilt shapes; this method only touches the cache.
         void OnAssetReimported(std::span<const UUID> dirtyUUIDs);
 
         // Single-UUID convenience for direct invalidation (rare; mostly for testing).
         void Invalidate(UUID uuid);
 
         // Drop everything. Called on scene change so a fresh scene can't reuse a previous scene's
-        // shapes — model UUIDs may collide across projects after UnloadProject + LoadProject.
+        // shapes; model UUIDs may collide across projects after UnloadProject + LoadProject.
         void Clear();
 
         // Stable hash of the structural fields that drive body construction. Stored on
@@ -93,7 +92,7 @@ namespace Luth::Physics
         // RigidBody fields changed (damping, gravityFactor, velocity). Inputs:
         //   - Collider type + active union member + localOffset + localRotation
         //   - RigidBody motion + layer + isSensor + motionQuality + mass
-        // Damping/gravity/velocity are intentionally NOT in the hash — those route through the
+        // Damping/gravity/velocity are intentionally NOT in the hash; those route through the
         // ApplyRigidBodyTuning fast path instead.
         static u64 ComputeFingerprint(const Component::Collider& collider, const Component::RigidBody& rb);
 
@@ -101,9 +100,9 @@ namespace Luth::Physics
         SpinLock m_Lock;
         std::unordered_map<ShapeKey, JPH::RefConst<JPH::Shape>, ShapeKeyHash> m_Map;
 
-        // Once-per-UUID gate so the "PhysicsBake = None — skipped" warning fires once per model
-        // rather than per-frame retry. Cleared on Clear() and on a UUID's reimport (so flipping
-        // PhysicsBake from None to Auto then back yields a fresh warning).
+        // Once-per-UUID gate so the "PhysicsBake = None" skip warning fires once per model rather than per-frame
+        // retry. Cleared on Clear() and on a UUID's reimport (so flipping PhysicsBake from None to Auto then back
+        // yields a fresh warning).
         std::unordered_set<UUID, UUIDHash> m_WarnedOptOut;
     };
 }

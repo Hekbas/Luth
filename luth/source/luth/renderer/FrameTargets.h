@@ -41,9 +41,9 @@ namespace Luth
         std::shared_ptr<Texture> m_SelectionMask;
         std::shared_ptr<Texture> m_SelectionDepth;
         // Slim G-buffer. Written by SlimGBufferPass between DepthPrepass and GTAO.
-        std::shared_ptr<Texture> m_SlimNormal;     // RG16F — octahedral world-space normal
-        std::shared_ptr<Texture> m_SlimRoughness;  // R8    — perceptual roughness
-        std::shared_ptr<Texture> m_SlimMotion;     // RG16F — NDC motion delta (currNDC - prevNDC)
-        std::shared_ptr<Texture> m_SlimMaterialID; // R16U  — bindless material slot
+        std::shared_ptr<Texture> m_SlimNormal;     // RG16F: octahedral world-space normal
+        std::shared_ptr<Texture> m_SlimRoughness;  // R8: perceptual roughness
+        std::shared_ptr<Texture> m_SlimMotion;     // RG16F: NDC motion delta (currNDC - prevNDC)
+        std::shared_ptr<Texture> m_SlimMaterialID; // R16U: bindless material slot
     };
 }

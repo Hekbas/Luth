@@ -15,7 +15,7 @@ namespace Luth::ComponentDrawers
     namespace
     {
         // Patch fires on_update<CharacterController>; PhysicsSystem queues a rebuild that drains at
-        // next Update. Fast path applies fingerprint-stable tunables in place — only structural fields
+        // next Update. Fast path applies fingerprint-stable tunables in place; only structural fields
         // (capsule shape, padding, predictive distance) actually tear down and recreate the JPH object.
         void Poke(Entity e) {
             e.GetScene()->Registry().patch<CharacterController>((entt::entity)e);
@@ -37,7 +37,7 @@ namespace Luth::ComponentDrawers
     {
         ComponentDrawerOptions opts;
 
-        // Copy/paste — authoring fields only. Per-frame inputs (desiredVelocity, jumpQueued) and
+        // Copy/paste authoring fields only. Per-frame inputs (desiredVelocity, jumpQueued) and
         // read-back (groundState, currentVelocity) are excluded.
         opts.OnCopy = [](Entity e) {
             const auto& cc = e.GetComponent<CharacterController>();
@@ -76,7 +76,7 @@ namespace Luth::ComponentDrawers
 
         // Custom OnAdd: if the entity has no Collider, also add a default Capsule Collider in the same
         // CompoundCommand. Collider goes FIRST so EnTT's synchronous on_construct sees a valid pair when
-        // CharacterController's signal fires — otherwise the first drain hits Failed (no Collider) and
+        // CharacterController's signal fires; otherwise the first drain hits Failed (no Collider) and
         // logs the non-capsule warning before it self-heals next frame.
         opts.OnAdd = [](Entity e) {
             Scene* scene = e.GetScene();
@@ -135,7 +135,7 @@ namespace Luth::ComponentDrawers
                     }
 
                     {
-                        // Structural — change forces tear-down + rebuild (no JPH setter for padding).
+                        // Structural: change forces tear-down + rebuild (no JPH setter for padding).
                         auto state = UI::Property("Character Padding", cc.characterPadding, 0.001f, 0.001f, 0.5f);
                         if (state.changed) Poke(entity);
                         if (state.committed) {
@@ -146,7 +146,7 @@ namespace Luth::ComponentDrawers
                     }
 
                     {
-                        // Structural — same reason as padding (no JPH setter).
+                        // Structural: same reason as padding (no JPH setter).
                         auto state = UI::Property("Predictive Contact", cc.predictiveContactDistance, 0.005f, 0.01f, 1.0f);
                         if (state.changed) Poke(entity);
                         if (state.committed) {
@@ -206,7 +206,7 @@ namespace Luth::ComponentDrawers
                         }
                     }
 
-                    // Read-back rows. Disabled controls — visual only, no command emit.
+                    // Read-back rows. Disabled controls: visual only, no command emit.
                     ImGui::BeginDisabled();
                     {
                         Vec3 vel = cc.currentVelocity;

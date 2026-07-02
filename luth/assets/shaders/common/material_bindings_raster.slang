@@ -1,6 +1,6 @@
 // Raster-set material bindings (Set 1 bindless textures, Set 2 material SSBO) + the auto-mip fetch
 // policy + the cutout alpha test for the transparent path's per-fragment shadow ray. Pairs with
-// material.slang. Hand-pinned sets — slang#8063. see arch/rendering-pipeline.md
+// material.slang. Hand-pinned sets (slang#8063). see arch/rendering-pipeline.md
 import material;
 
 [[vk::binding(0, 1)]] Sampler2D                         gTextures[];
@@ -15,10 +15,10 @@ public struct RasterFetch : ITexFetch
     public float4 Param(uint slot) { return gMatParams[paramBase + slot]; }
 }
 
-// Material SSBO accessor — the buffer stays module-internal; the fragment reads its material through this.
+// Material SSBO accessor; the buffer stays module-internal, the fragment reads its material through this.
 public GPUMaterialData GetMaterial(uint index) { return gMaterials[index]; }
 
-// Cutout alpha test for the transparent path's per-fragment sun-shadow ray (always LOD 0 — in a rayQuery).
+// Cutout alpha test for the transparent path's per-fragment sun-shadow ray (always LOD 0, in a rayQuery).
 public bool AlphaTestCandidateHit(GtGeomEntry* geomTable, uint customIndex, uint primIndex, float2 bary)
 {
     GtGeomEntry ge = geomTable[customIndex];

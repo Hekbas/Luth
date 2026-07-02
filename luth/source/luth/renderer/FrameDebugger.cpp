@@ -125,9 +125,8 @@ namespace Luth
 
         // Bracket a vkCmdCopyImage with the layout transitions needed to:
         //   * pull the source out of its post-pass state into TransferSrc, and back,
-        //   * push the archive from Undefined → TransferDst → ShaderReadOnly.
-        // The source is restored to its original layout so the RG's compile-time
-        // barrier solver, which is unaware of this hook, stays consistent.
+        //   * push the archive from Undefined -> TransferDst -> ShaderReadOnly.
+        // The source is restored to its original layout so the RG's compile-time barrier solver (unaware of this hook) stays consistent.
         void EmitArchiveCopy(VkCommandBuffer cmd,
                               const RG::RenderGraph::ResourceNode& src,
                               RG::ResourceState srcState,
@@ -139,7 +138,7 @@ namespace Luth
             StageAccess srcSA = StateToStageAccess(srcState);
 
             // When the pass executed on the compute primary, the post-copy barrier's dstStageMask (which targets
-            // the next consumer's read — typically ImGui's fragment-shader sample) must be substituted to a
+            // the next consumer's read, typically ImGui's fragment-shader sample) must be substituted to a
             // compute-compatible stage. The cross-queue semaphore at the next submit boundary supplies the
             // actual graphics-visible memory dependency; this stage mask is just bookkeeping inside the cmd buffer.
             const VkPipelineStageFlags2 postDstStage = (queueFamily == RG::QueueFamily::AsyncCompute)
@@ -224,11 +223,9 @@ namespace Luth
             dst.currentLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }
 
-        // Queue an ArchivedImage's GPU resources for deferred destruction.
-        // Defers by MAX_FRAMES_IN_FLIGHT so any in-flight ImGui frame still
-        // sampling these views via cached descriptors completes first.
-        // Mutates the input: nulls handles so the caller's vector slot stays
-        // benign (handles=NULL → re-touching it during shutdown is a no-op).
+        // Queue an ArchivedImage's GPU resources for deferred destruction. Defers by MAX_FRAMES_IN_FLIGHT so any
+        // in-flight ImGui frame still sampling these views via cached descriptors completes first. Mutates the
+        // input: nulls handles so the caller's vector slot stays benign (handles=NULL -> re-touching it during shutdown is a no-op).
         void PushArchiveDeletion(VkDevice device, RG::ArchivedImage& a)
         {
             VkImage         img        = a.image;
@@ -250,9 +247,8 @@ namespace Luth
                         vkDestroyImageView(device, view, nullptr);
                     if (img != VK_NULL_HANDLE && alloc != nullptr)
                     {
-                        // Route through VulkanAllocator so MemoryTracker sees
-                        // the free — bypassing it leaves the editor's GPU
-                        // memory counter rising on every Enable/Disable.
+                        // Route through VulkanAllocator so MemoryTracker sees the free; bypassing it
+                        // leaves the editor's GPU memory counter rising on every Enable/Disable.
                         VulkanAllocator::FreeImage(img, alloc);
                     }
                 });
@@ -364,18 +360,16 @@ namespace Luth
         capturedFrame.drawCalls.push_back(std::move(cdc));
     }
 
-    // ── Archive lifecycle ──
+    // ---- Archive lifecycle ----
 
     void FrameDebugger::BeginCapture(VkDevice device, VmaAllocator allocator)
     {
         archiveDevice    = device;
         archiveAllocator = allocator;
 
-        // Reuse path: keep capturedFrame.archivedImages and m_ArchiveSlotMap
-        // alive across captures. OnPassExecuted will rewrite contents into
-        // existing VkImages instead of allocating fresh ones, so the panel's
-        // view-pointer-keyed descriptor caches stay valid frame-to-frame.
-        // Full cleanup happens via ExitCapture → DestroyArchives.
+        // Reuse path: keep capturedFrame.archivedImages and m_ArchiveSlotMap alive across captures. OnPassExecuted
+        // will rewrite contents into existing VkImages instead of allocating fresh ones, so the panel's
+        // view-pointer-keyed descriptor caches stay valid frame-to-frame. Full cleanup happens via ExitCapture -> DestroyArchives.
         capturedFrame.passArchives.clear();
         capturedFrame.Clear();   // metadata-only reset; preserves archivedImages
         capturedFrame.capturedRenderFrameIndex = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
@@ -392,10 +386,9 @@ namespace Luth
     {
         capturedFrame.captureViewProj = viewProj;
 
-        // RenderGraph::Execute records graphics secondaries first (lambdas push into
-        // capturedFrame.passes here), then runs compute lambdas inline — so passes arrive
-        // in graphics-first-then-compute order rather than graph order. Sort by graphPassIndex
-        // and remap drawCall back-references through the inverse permutation.
+        // RenderGraph::Execute records graphics secondaries first (lambdas push into capturedFrame.passes here),
+        // then runs compute lambdas inline, so passes arrive in graphics-first-then-compute order rather than graph order.
+        // Sort by graphPassIndex and remap drawCall back-references through the inverse permutation.
         const u32 passCount = (u32)capturedFrame.passes.size();
         if (passCount > 1)
         {
@@ -413,7 +406,7 @@ namespace Luth
                 sorted.push_back(std::move(capturedFrame.passes[oldIdx]));
             capturedFrame.passes = std::move(sorted);
 
-            // Inverse permutation: oldIdx → newIdx for drawCall.passIndex remap.
+            // Inverse permutation: oldIdx -> newIdx for drawCall.passIndex remap.
             std::vector<u32> inv(passCount);
             for (u32 newIdx = 0; newIdx < passCount; ++newIdx)
                 inv[perm[newIdx]] = newIdx;
@@ -444,15 +437,12 @@ namespace Luth
             capturedFrame.drawCalls = std::move(sortedDraws);
         }
 
-        // Build the hierarchical event tree from the just-finished capture.
-        // Pure CPU work; safe to run after ExecuteGraph returned and all the
-        // per-pass / per-draw metadata has been appended to capturedFrame.
+        // Build the hierarchical event tree from the just-finished capture. Pure CPU work; safe to run after
+        // ExecuteGraph returned and all the per-pass / per-draw metadata has been appended to capturedFrame.
         capturedFrame.rootEvent = RG::BuildEventTree(capturedFrame);
 
-        // Free archive slots not touched this capture (e.g. SelectionMaskPass
-        // entries left over after the user disabled drawSelectionOutline).
-        // Defer GPU destruction so any in-flight ImGui frame still sampling
-        // the old view completes first.
+        // Free archive slots not touched this capture (e.g. SelectionMaskPass entries left over after the user
+        // disabled drawSelectionOutline). Defer GPU destruction so any in-flight ImGui frame still sampling the old view completes first.
         if (archiveDevice != VK_NULL_HANDLE && !m_ArchiveSlotMap.empty())
         {
             for (auto it = m_ArchiveSlotMap.begin(); it != m_ArchiveSlotMap.end(); )
@@ -480,18 +470,16 @@ namespace Luth
 
         if (device == VK_NULL_HANDLE || allocator == nullptr)
         {
-            // Best effort — leak the GPU memory rather than crash if context is gone.
+            // Best effort: leak the GPU memory rather than crash if context is gone.
             capturedFrame.archivedImages.clear();
             capturedFrame.passArchives.clear();
             return;
         }
 
-        (void)allocator;  // VulkanAllocator::FreeImage uses the singleton allocator;
-                          // we keep `allocator` only to gate the early-return above.
+        (void)allocator;  // VulkanAllocator::FreeImage uses the singleton allocator; `allocator` only gates the early-return above.
 
-        // Defer the actual GPU resource destruction by MAX_FRAMES_IN_FLIGHT so
-        // that any in-flight ImGui frame still sampling these views via cached
-        // descriptor sets completes before the views/images are freed.
+        // Defer the actual GPU resource destruction by MAX_FRAMES_IN_FLIGHT so that any in-flight ImGui frame
+        // still sampling these views via cached descriptor sets completes before the views/images are freed.
         for (auto& a : capturedFrame.archivedImages)
             PushArchiveDeletion(device, a);
 
@@ -501,10 +489,9 @@ namespace Luth
         m_ArchiveSlotInUseThisCapture.clear();
     }
 
-    // IArchiveSink — called by RenderGraph::Execute after each non-culled pass.
-    // Find-or-allocate via m_ArchiveSlotMap: reuse the existing ArchivedImage
-    // when (passName, rtName) hits with matching dims/format, allocate fresh
-    // only on first sight or viewport resize.
+    // IArchiveSink: called by RenderGraph::Execute after each non-culled pass. Find-or-allocate via
+    // m_ArchiveSlotMap: reuse the existing ArchivedImage when (passName, rtName) hits with matching dims/format,
+    // allocate fresh only on first sight or viewport resize.
     void FrameDebugger::OnPassExecuted(u32 passIdx, RG::RenderGraph& graph, VkCommandBuffer cmd,
                                        RG::QueueFamily queueFamily)
     {
@@ -547,11 +534,8 @@ namespace Luth
                 }
                 else
                 {
-                    // Stale — viewport resize / format change. Free the old
-                    // backing and let the allocator hand us a fresh slot at
-                    // the end of archivedImages. The vector grows by one
-                    // null'd slot per resize event; bounded and rare, so we
-                    // don't bother compacting here.
+                    // Stale (viewport resize / format change). Free the old backing and allocate a fresh slot at
+                    // the end of archivedImages. The vector grows by one null'd slot per resize event; bounded and rare, so no compaction here.
                     PushArchiveDeletion(archiveDevice, existing);
                     m_ArchiveSlotMap.erase(it);
                 }

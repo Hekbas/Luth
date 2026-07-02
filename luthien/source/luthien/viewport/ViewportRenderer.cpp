@@ -44,8 +44,8 @@ namespace Luth
             }
         }
 
-        // Compare as integers — float → u32 truncation in the callback can
-        // otherwise trigger an infinite resize loop.
+        // Compare as integers: float-to-u32 truncation in the callback can otherwise trigger an
+        // infinite resize loop.
         const u32 newW = (u32)innerSize.x;
         const u32 newH = (u32)innerSize.y;
         const u32 curW = (u32)m_Size.x;

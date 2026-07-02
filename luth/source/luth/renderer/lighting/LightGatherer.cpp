@@ -59,7 +59,7 @@ namespace Luth
         for (u32 i = 0; i < spotCount; ++i)
         {
             const auto& sl = snapshot.spotLights[i];
-            // Clamp inner ≤ outer and keep cosInner strictly > cosOuter — the shader smoothstep
+            // Clamp inner <= outer and keep cosInner strictly > cosOuter; the shader smoothstep
             // edges must not invert or collide (equal edges are undefined).
             const f32 outerDeg = Math::Clamp(sl.outerConeAngleDeg, 0.0f, 89.9f);
             const f32 innerDeg = Math::Clamp(sl.innerConeAngleDeg, 0.0f, outerDeg);

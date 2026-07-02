@@ -1,5 +1,5 @@
 // Skinned forward-PBR vertex. Reads the deformation seam (post-skin object-space vertex) instead of
-// skinning here — raster == RT by shared source. Emits the VIn interface (pbr_shade.slang) consumed by
+// skinning here; raster == RT by shared source. Emits the VIn interface (pbr_shade.slang) consumed by
 // pbr.slang + the generated graph fragments.
 import globals;
 import object_data;
@@ -25,7 +25,7 @@ VOut main(uint vid : SV_VertexID, uint baseInstance : SV_StartInstanceLocation)
     VOut o = (VOut)0;
     GPUObjectData obj = objects[baseInstance];
 
-    // Guard: deformed buffer not ready (skinned BLAS still loading) — clip off-screen, no null deref.
+    // Guard: deformed buffer not ready (skinned BLAS still loading); clip off-screen, no null deref.
     if (obj.deformedBufCurr == nullptr) { o.clipPos = float4(0.0, 0.0, 2.0, 1.0); return o; }
 
     uint   b    = vid * 13u;

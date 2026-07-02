@@ -1,4 +1,4 @@
-// Selection outline — exterior silhouette of the selection mask, depth-tested against the scene so
+// Selection outline: exterior silhouette of the selection mask, depth-tested against the scene so
 // occluded edges dim. Fullscreen.
 [[vk::binding(0, 0)]] Sampler2D u_SelectionMask;
 [[vk::binding(1, 0)]] Sampler2D u_SelectionDepth;
@@ -20,7 +20,7 @@ float4 main(FIn i) : SV_Target
 {
     float2 texelSize = float2(pc.texelSizeX, pc.texelSizeY);
 
-    // Center inside the object → not an exterior edge.
+    // Center inside the object: not an exterior edge.
     if (u_SelectionMask.Sample(i.uv).r > 0.5) discard;
 
     bool  isEdge = false;

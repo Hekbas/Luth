@@ -12,7 +12,7 @@
 
 namespace Luth
 {
-    // ── Internal helpers ──
+    // ---- Internal helpers ----
 
     static void TransitionImage(VkCommandBuffer cmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout,
         VkAccessFlags srcAccess, VkAccessFlags dstAccess,
@@ -35,8 +35,8 @@ namespace Luth
         vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     }
 
-    // Local descriptor pool for the precompute compute passes (equirect→cubemap, irradiance,
-    // 5 prefilter mips, BRDF LUT). One-shot pool destroyed at the end of Precompute — replaces
+    // Local descriptor pool for the precompute compute passes (equirect->cubemap, irradiance,
+    // 5 prefilter mips, BRDF LUT). One-shot pool destroyed at the end of Precompute; replaces
     // the global DescriptorAllocator for which IBL was the only consumer.
     static VkDescriptorPool CreateIBLDescriptorPool(VkDevice device, u32 maxSets)
     {
@@ -66,7 +66,7 @@ namespace Luth
     }
 
 
-    // ── IBL::Precompute ──
+    // ---- IBL::Precompute ----
 
     namespace IBL
     {
@@ -78,13 +78,13 @@ namespace Luth
             VkDevice device = VulkanContext::Get().GetDevice();
 
             // ---- 1. Load HDR environment map ----
-            // Empty path is the deliberate "no project loaded yet" signal from RenderPipeline::Init —
+            // Empty path is the deliberate "no project loaded yet" signal from RenderPipeline::Init;
             // skip the load and the warn, fall straight through to the dummy-cubemap path so the
             // engine has valid (if empty) IBL state until Editor::OnProjectChanged calls ReloadSkybox.
             //
-            // invariant: equirect→cubemap shader expects bottom-left V convention (north pole at
+            // invariant: equirect->cubemap shader expects bottom-left V convention (north pole at
             // V=1 of source = bottom of the in-memory layout). Image::LoadHDR returns top-left,
-            // so we flip in-place to match the long-standing PBR sampling contract.
+            // so flip in-place to match the long-standing PBR sampling contract.
             Image::LoadResultF hdr;
             if (!hdrPath.empty())
             {
@@ -110,7 +110,7 @@ namespace Luth
                 LH_LOG(Renderer, info, "IBL: Loaded HDR environment {}x{} from '{}'", hdrW, hdrH, hdrPath.string());
 
                 // Local pool sized for the 8 sets used below: equirect (1), irradiance (1),
-                // prefilter mips (5), BRDF LUT (1). Destroyed at the end of this branch — all
+                // prefilter mips (5), BRDF LUT (1). Destroyed at the end of this branch; all
                 // consuming dispatches run synchronously via ImmediateSubmit, so GPU work is
                 // complete by then.
                 VkDescriptorPool iblPool = CreateIBLDescriptorPool(device, 8);
@@ -158,7 +158,7 @@ namespace Luth
                 auto envCubemap = std::make_shared<VKTexture>(envSize, envSize, TextureFormat::RGBA16F, 6,
                     VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT, envMips, VK_IMAGE_USAGE_STORAGE_BIT);
 
-                // ---- 4. Equirect → Cubemap conversion ----
+                // ---- 4. Equirect -> Cubemap conversion ----
                 {
                     LH_PROFILE_SCOPE("EquirectToCubemap");
                     auto sh = ShaderLibrary::LoadEngine("shaders/equirect_to_cubemap.slang");
@@ -279,7 +279,7 @@ namespace Luth
                             mipW = nextW;
                             mipH = nextH;
                         }
-                        // Last mip: DST → SHADER_READ_ONLY
+                        // Last mip: DST -> SHADER_READ_ONLY
                         VkImageMemoryBarrier barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
                         barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
                         barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -556,7 +556,7 @@ namespace Luth
                     vkDestroyDescriptorSetLayout(device, descLayout, nullptr);
                 }
 
-                // envCubemap goes out of scope here — temp resource freed
+                // envCubemap goes out of scope here; temp resource freed
                 vkDestroyDescriptorPool(device, iblPool, nullptr);
             }
 

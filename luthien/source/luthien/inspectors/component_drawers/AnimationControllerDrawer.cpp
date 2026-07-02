@@ -52,7 +52,7 @@ namespace Luth::ComponentDrawers
             j["layers"] = layers;
             return j.dump();
         };
-        // BoneMask intentionally omitted — bone indices are skeleton-specific.
+        // BoneMask intentionally omitted; bone indices are skeleton-specific.
         opts.OnPaste = [](Entity e, const std::string& data) -> bool {
             try {
                 auto j = nlohmann::json::parse(data);

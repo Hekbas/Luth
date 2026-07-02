@@ -12,7 +12,7 @@ namespace Luth
     // Flat list view of every asset in the project plus the engine built-ins. Refresh fires off
     // the AssetDatabase ChangeCallback (m_NeedsRebuild flag); search and filter operate over the
     // cached m_FilteredResources so each ImGui draw doesn't re-query the database.
-    struct ResourceListSnapshot { /* placeholder; PopulateData stays inline */ };
+    struct ResourceListSnapshot {};  // PopulateData stays inline
 
     class ResourcePanel : public Panel
     {

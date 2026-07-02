@@ -13,7 +13,7 @@ namespace Luth
         nlohmann::json JsonData;
     };
 
-    // Imports .physmat assets. Same shape as MaterialImporter — small JSON blob (friction /
+    // Imports .physmat assets. Same shape as MaterialImporter: small JSON blob (friction /
     // restitution / density), so the importer is a parse + round-trip into the binary artifact.
     class PhysicsMaterialImporter : public AssetImporter
     {

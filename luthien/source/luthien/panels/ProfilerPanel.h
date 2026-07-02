@@ -52,7 +52,7 @@ namespace Luth
         int   m_TargetFPS = 60;
         float m_FrameBudgetMs = 16.67f;
 
-        // CPU / scheduler — occupancy is the per-worker time-in-state fraction over the last window,
+        // CPU / scheduler. Occupancy is the per-worker time-in-state fraction over the last window,
         // computed by diffing the engine's cumulative state-nanos against the previous 10 Hz snapshot.
         JobSystem::Stats m_JobStats{};
         u64   m_PrevStateNanos[JobSystem::MAX_WORKER_THREADS][4]{};

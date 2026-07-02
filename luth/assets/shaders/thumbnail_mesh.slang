@@ -1,5 +1,5 @@
-// Thumbnail bake fragment — samples the engine-wide bindless array (Set 0 here = the main pipeline's Set 1
-// layout); diffuseIndex via push constant (slot 0 = 1x1 white fallback). Simple Lambert preview.
+// Thumbnail bake fragment. Samples the engine-wide bindless array (Set 0 here = the main pipeline's Set 1
+// layout); diffuseIndex via push constant (slot 0 = 1x1 white fallback). Lambert preview.
 [[vk::binding(0, 0)]] Sampler2D globalTextures[];
 
 struct PC

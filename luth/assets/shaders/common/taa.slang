@@ -1,4 +1,4 @@
-// Karis14 / Pedersen16 TAA helpers — twin of taa.glsl. YCoCg conversion + clip_aabb + Blackman-Harris
+// Karis14 / Pedersen16 TAA helpers; twin of taa.glsl. YCoCg conversion + clip_aabb + Blackman-Harris
 // reconstruction weights. see arch/rendering-pipeline.md
 
 // YCoCg <-> RGB (BT.601). Chroma decorrelates from luma so the neighborhood clamp narrows chroma separately.
@@ -14,7 +14,7 @@ public float3 YCoCg_RGB(float3 c)
     return float3(y + co - cg, y + cg, y - co - cg);
 }
 
-// playdead clip_aabb — clip history toward the AABB center along the (history - center) ray.
+// playdead clip_aabb: clip history toward the AABB center along the (history - center) ray.
 public float4 clip_aabb(float3 aabb_min, float3 aabb_max, float4 p, float4 q)
 {
     float3 p_clip = 0.5 * (aabb_max + aabb_min);

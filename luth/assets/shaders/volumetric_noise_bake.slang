@@ -1,12 +1,12 @@
-// One-shot noise bake — writes a tile-able 128³ RGBA8 3D texture used by the volumetric inject pass to add
+// One-shot noise bake: writes a tile-able 128^3 RGBA8 3D texture used by the volumetric inject pass to add
 // fog-density variation. Run once at VolumetricSubsystem::Init via ImmediateSubmit. Standalone Set 0.
-//   R = low-freq Worley FBM · G = high-freq detail · B = mid-freq FBM · A = combined ready-to-use.
+//   R = low-freq Worley FBM, G = high-freq detail, B = mid-freq FBM, A = combined ready-to-use.
 [[vk::binding(0, 0)]] [[vk::image_format("rgba8")]] RWTexture3D<float4> u_NoiseOut;
 
 struct PC { uint dim; };   // 128 (atlas-side constant; keeps the shader resolution-agnostic)
 [[vk::push_constant]] PC pc;
 
-// GLSL mod (floor-based, sign of divisor) — Slang fmod truncates, which breaks the tileable cell wrap.
+// GLSL mod (floor-based, sign of divisor); Slang fmod truncates, which breaks the tileable cell wrap.
 float3 ModGlsl(float3 a, float b) { return a - b * floor(a / b); }
 
 float3 hash33(float3 p)
@@ -62,9 +62,9 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     float3 uvw = (float3(voxel) + 0.5) / float(pc.dim);
 
-    float low  = WorleyFBM(uvw, 4.0);     // 4 → 8 → 16 cells — large-scale cloud blobs
-    float high = WorleyInv(uvw, 16.0);    // 16 cells — fine detail
-    float mid  = WorleyFBM(uvw, 8.0);     // 8 → 16 → 32 cells — medium swirls
+    float low  = WorleyFBM(uvw, 4.0);     // 4 -> 8 -> 16 cells, large-scale cloud blobs
+    float high = WorleyInv(uvw, 16.0);    // 16 cells, fine detail
+    float mid  = WorleyFBM(uvw, 8.0);     // 8 -> 16 -> 32 cells, medium swirls
 
     float combined = clamp(lerp(low, mid, 0.5) - (high - 0.5) * 0.2, 0.0, 1.0);
 

@@ -21,10 +21,9 @@
 #include <ostream>
 
 
-// ── Standard Library Types ──
+// ---- Standard Library Types ----
 namespace fmt
 {
-    // std::unique_ptr
     template <typename T>
     struct formatter<std::unique_ptr<T>> {
         constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
@@ -36,7 +35,6 @@ namespace fmt
         }
     };
 
-    // std::shared_ptr
     template <typename T>
     struct formatter<std::shared_ptr<T>> {
         constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
@@ -48,7 +46,6 @@ namespace fmt
         }
     };
 
-    // std::vector
     template <typename T>
     struct formatter<std::vector<T>> {
         constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
@@ -71,7 +68,6 @@ namespace fmt
         }
     };
 
-    // std::pair
     template <typename T1, typename T2>
     struct formatter<std::pair<T1, T2>> {
         constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
@@ -82,7 +78,6 @@ namespace fmt
         }
     };
 
-    // std::filesystem::path
     template <>
     struct formatter<std::filesystem::path> {
         constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
@@ -93,7 +88,7 @@ namespace fmt
         }
     };
 
-    // std::chrono::system_clock::time_point (ISO 8601 format)
+    // Formats as ISO 8601 UTC.
     template <>
     struct formatter<std::chrono::system_clock::time_point> {
         constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
@@ -106,7 +101,6 @@ namespace fmt
         }
     };
 
-    // std::optional
     template <typename T>
     struct formatter<std::optional<T>> {
         constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
@@ -119,10 +113,9 @@ namespace fmt
     };
 }
 
-// ── Third-party Types ──
+// ---- Third-party Types ----
 namespace fmt
 {
-    // Vulkan VkResult
     template <>
     struct formatter<VkResult> : formatter<string_view> {
         constexpr auto parse(format_parse_context& ctx) {
@@ -167,7 +160,7 @@ namespace fmt
     };
 }
 
-// ── Luth Types ──
+// ---- Luth Types ----
 namespace Luth
 {
     // ostream<< adapters used by spdlog/fmt's ostream formatter

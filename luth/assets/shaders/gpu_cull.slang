@@ -1,9 +1,9 @@
-// GPU frustum cull. One invocation per object: world-space bounding sphere vs the 6 frustum planes →
-// writes instanceCount (1/0) into the per-draw indirect command. Standalone Set 0.
+// GPU frustum cull. One invocation per object: world-space bounding sphere vs the 6 frustum planes,
+// writing instanceCount (1/0) into the per-draw indirect command. Standalone Set 0.
 struct GPUObjectData
 {
     float4x4 model;
-    float4x4 prevModel;      // motion vectors — not consumed by cull
+    float4x4 prevModel;      // motion vectors; not consumed by cull
     float4   boundingSphere; // xyz = center (local space), w = radius (local space)
     uint     materialIndex;
     uint     shadeMode;

@@ -26,14 +26,14 @@ namespace Luth
 {
     void MaterialEditor::Draw(Material& material)
     {
-        // Guard: skip all widget calls when the parent window is clipped/collapsed.
-        // Without this, ImGui::BeginChild/EndChild can crash if the host window
-        // is not expecting child submissions (e.g. during rapid dock/undock).
+        // Skip all widget calls when the parent window is clipped/collapsed. Without this,
+        // ImGui::BeginChild/EndChild can crash if the host window is not expecting child submissions
+        // (e.g. during rapid dock/undock).
         ImGuiWindow* window = ImGui::GetCurrentWindow();
         if (window->SkipItems) return;
 
         // Header: thumbnail-on-left, name + Shader combo on right.
-        // Live 3D preview pinned in the footer (sub-task O).
+        // Live 3D preview pinned in the footer.
         ImTextureID headerThumb = UI::ThumbnailCache::Get(material.Handle, AssetType::Material);
         UI::InspectorHeader(headerThumb, ICON_MATERIAL, 48.0f, [&]() {
             const ImVec4 nameCol = { 0.2f, 0.9f, 0.4f, 1.0f };
@@ -64,10 +64,9 @@ namespace Luth
 
         // Pinned-footer layout: settings scroll above, splitter, 3D preview pinned bottom.
         // invariant: layout uses a SNAPSHOT of footerH frozen at frame start.
-        // The Splitter mutates the persisted footerH (so next frame picks up the
-        // new height) but this frame's Settings AND Preview both size with the
-        // snapshot — avoids one-frame overshoot when dragging UP. See git
-        // history for the failed in-place mutation attempt.
+        // The Splitter mutates the persisted footerH (so next frame picks up the new height) but this
+        // frame's Settings AND Preview both size with the snapshot, avoiding one-frame overshoot when
+        // dragging UP. See git history for the failed in-place mutation attempt.
         const float kSplitterH    = 4.0f;
         const float kMinSettingsH = 80.0f;
         const float kMinFooterH   = 80.0f;
@@ -84,10 +83,8 @@ namespace Luth
         if (ImGui::BeginChild("##Settings", { -1, topH }, false))
         {
 
-        // Surface Settings
         if (UI::BeginCollapsingHeader("Surface Settings", true))
         {
-            // Render mode
             Material::RenderMode currentMode = material.GetRenderMode();
             int modeIndex = static_cast<int>(currentMode);
 
@@ -122,7 +119,6 @@ namespace Luth
                 }
             }
 
-            // Face culling
             int cullIndex = static_cast<int>(material.GetCullMode());
             ImGui::Text("Face Cull  "); ImGui::SameLine();
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
@@ -136,7 +132,6 @@ namespace Luth
 
         ImGui::Dummy({ 0, 4 });
 
-        // Surface Inputs
         if (UI::BeginCollapsingHeader("Surface Inputs", true))
         {
             if (ImGui::BeginTable("SurfaceInputsTable", 4, ImGuiTableFlags_SizingStretchProp)) {
@@ -171,7 +166,7 @@ namespace Luth
 
                     ImGui::PushID(label);
 
-                    // 1. Label column
+                    // Label column
                     ImGui::TableNextColumn();
                     ImGui::AlignTextToFramePadding();
                     bool enabled = material.IsUseMapEnabled(type);
@@ -179,7 +174,7 @@ namespace Luth
 
                     ImGui::BeginDisabled(!enabled && type != MapType::Diffuse && type != MapType::Metalness && type != MapType::Roughness && type != MapType::Emissive);
                     
-                    // 2. Texture slot
+                    // Texture slot
                     ImGui::TableNextColumn();
                     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
                     std::string textureId = "##Texture_" + std::string(label);
@@ -221,14 +216,14 @@ namespace Luth
                         ImGui::EndTooltip();
                     }
 
-                    // 3. Control column
+                    // Control column
                     ImGui::TableNextColumn();
                     ImGui::PushItemWidth(-1);
                     if (drawControl) drawControl();
                     else ImGui::Dummy(buttonSize);
                     ImGui::PopItemWidth();
 
-                    // 4. UV Channel
+                    // UV Channel
                     ImGui::TableNextColumn();
                     ImGui::PushItemWidth(-1);
                     int uv = static_cast<int>(uvIndex);
@@ -304,7 +299,7 @@ namespace Luth
                 DrawSurfaceInput(MapType::Specular, "Specular", nullptr);
                 DrawSurfaceInput(MapType::Occlusion, "Occlusion", nullptr);
                 DrawSurfaceInput(MapType::Emissive, "Emissive", [&]() {
-                    // Direct GPUData accessors (like Albedo) — the u_* uniform channel never reached
+                    // Direct GPUData accessors (like Albedo); the u_* uniform channel never reached
                     // the GPU. Swatch = LDR factor, drag = HDR strength multiplier (feeds bloom).
                     Vec3 emColor = material.GetEmissiveColor();
                     f32  emStr   = material.GetEmissiveStrength();
@@ -329,7 +324,6 @@ namespace Luth
 
         ImGui::Dummy({ 0, 4 });
 
-        // Dynamic Uniform Editor (Properties)
         if (auto shader = material.GetShader())
         {
             if (UI::BeginCollapsingHeader("Properties", true))
@@ -378,9 +372,8 @@ namespace Luth
         if (UI::Splitter("##MatSplitter", &footerH, kMinFooterH, kMaxFooterH, kSplitterH))
             Editor::SaveSettings();
 
-        // Pinned 3D preview footer with orbit drag input. Sized to the snapshot
-        // so this frame's layout matches Settings sizing — Splitter writeback
-        // takes effect next frame.
+        // Pinned 3D preview footer with orbit drag input. Sized to the snapshot so this frame's layout
+        // matches Settings sizing; Splitter writeback takes effect next frame.
         if (ImGui::BeginChild("##Preview", { -1, footerH_snap }, false))
         {
             const float pAvailW = ImGui::GetContentRegionAvail().x;
@@ -415,7 +408,7 @@ namespace Luth
         }
         ImGui::EndChild();
 
-        // --- Auto-save debounce + Undo snapshot ---
+        // ---- Auto-save debounce + Undo snapshot ----
         if (material.NeedsSave() && !m_PendingSave)
         {
             // Capture undo snapshot before any changes
@@ -432,21 +425,21 @@ namespace Luth
         {
             if (m_PendingHandle != material.Handle)
             {
-                // Material changed — reset
+                // Material changed; reset
                 m_PendingSave = false;
                 m_SaveTimer = 0.0f;
                 m_HasUndoSnapshot = false;
             }
             else if (ImGui::IsAnyItemActive())
             {
-                // User still interacting — hold the timer
+                // User still interacting; hold the timer
                 m_SaveTimer = 0.0f;
             }
             else
             {
-                // Per-release thumbnail refresh: justReleased = timer-just-zeroed
-                // by the IsAnyItemActive branch on the prior frame. One Invalidate
-                // per drag/discrete edit cycle — no per-pixel re-bake spam.
+                // Per-release thumbnail refresh: justReleased = timer-just-zeroed by the
+                // IsAnyItemActive branch on the prior frame. One Invalidate per drag/discrete edit
+                // cycle, not per-pixel re-bake spam.
                 bool justReleased = (m_SaveTimer == 0.0f);
                 m_SaveTimer += Time::UnscaledDeltaTime();
                 if (justReleased)
@@ -454,7 +447,6 @@ namespace Luth
 
                 if (m_SaveTimer >= kAutoSaveDelay)
                 {
-                    // Push undo command with old/new state
                     if (m_HasUndoSnapshot) {
                         nlohmann::json newState;
                         material.Serialize(newState);
@@ -477,7 +469,7 @@ namespace Luth
         material.Serialize(json);
 
         // Write source .mat file (async). Tell the asset DB this is a self-write so the file watcher
-        // doesn't bounce it back as a reimport — that would evict the live material being edited and
+        // doesn't bounce it back as a reimport: that would evict the live material being edited and
         // leave the inspector pointing at a stale instance (edits stop showing live).
         auto sourcePath = AssetDatabase::GetMetadata(material.Handle).Path;
         if (!sourcePath.empty())
@@ -488,7 +480,7 @@ namespace Luth
             IOThread::WriteFile(sourcePath.string(), std::move(buf));
         }
 
-        // Write binary artifact (async) — build blob in-memory
+        // Write binary artifact (async); build blob in-memory
         auto artifactPath = AssetDatabase::GetArtifactPath(material.Handle);
         {
             AssetHeader header;

@@ -32,9 +32,8 @@ namespace Luth
 
     void InspectorPanel::OnGather(EditorSnapshotBuilder& builder)
     {
-        // Fragment carries change-detection state only. Component-drawer property reads
-        // (and MaterialEditor's shader-combo enumeration, the dominant Tracy hotspot)
-        // remain inline in OnDraw — moving them into gather is future polish.
+        // Fragment carries change-detection state only. Component-drawer property reads (and
+        // MaterialEditor's shader-combo enumeration, the dominant Tracy hotspot) stay inline in OnDraw.
         auto* snap = builder.Add<InspectorSnapshot>();
         snap->selectionVersion = EditorSelection::GetVersion();
         snap->locked = m_IsLocked;
@@ -48,7 +47,7 @@ namespace Luth
 
         if (BeginWindow(inspector.c_str()))
         {
-            // Clear lock if entity becomes invalid
+            // clear lock if the pinned entity becomes invalid
             if (m_IsLocked && !m_LockedEntity.IsValid()) {
                 m_IsLocked = false;
                 m_LockedEntity = {};
@@ -72,7 +71,7 @@ namespace Luth
     {
         // Multi-edit target set: the other selected entities (empty when single-select or locked).
         // While the drawer loop runs under MultiEditScope, per-member edits + Reset/Remove on the
-        // primary fan out to these as one undo. Locked inspector pins to one entity → no broadcast.
+        // primary fan out to these as one undo. Locked inspector pins to one entity, so no broadcast.
         std::vector<UUID> targets;
         if (!m_IsLocked) {
             const auto& selection = EditorSelection::GetSelectedEntities();
@@ -83,7 +82,7 @@ namespace Luth
         }
         const bool multi = !targets.empty();
 
-        // Display and edit the entity's Tag component (name)
+        // entity Tag component (name)
         if (m_SelectedEntity.HasComponent<Tag>()) {
             auto& tag = m_SelectedEntity.GetComponent<Tag>();
 
@@ -93,8 +92,7 @@ namespace Luth
             bool isActive = m_SelectedEntity.IsActive();
             if (ImGui::Checkbox("##Active", &isActive)) {
                 if (multi) {
-                    // Set the whole selection to the new state; each entity keeps its own prior
-                    // value for undo.
+                    // set the whole selection to the new state; each entity keeps its own prior value for undo
                     CommandHistory::BeginCompound("Toggle Active");
                     for (Entity e : EditorSelection::GetSelectedEntities())
                         if (e.IsValid())
@@ -110,7 +108,7 @@ namespace Luth
                 ImGui::SetTooltip("Toggle Entity Active State");
             ImGui::SameLine();
 
-            // Name field — reserve right margin for the lock button
+            // name field: reserve right margin for the lock button
             float lockBtnWidth = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x;
             ImGui::PushItemWidth(-lockBtnWidth);
             char buffer[256];
@@ -127,7 +125,7 @@ namespace Luth
             ImGui::PopItemWidth();
             ImGui::SameLine();
 
-            // Lock button — right-anchored in the same row
+            // lock button, right-anchored in the same row
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
             const char* lockIcon = m_IsLocked ? ICON_LOCK : ICON_UNLOCK;
             if (ImGui::Button(lockIcon, ImVec2(ImGui::GetFrameHeight(), ImGui::GetFrameHeight()))) {
@@ -159,7 +157,6 @@ namespace Luth
                 d.Draw(m_SelectedEntity);
         }
 
-        // Add Component button
         ImGui::Separator();
         ImGui::Dummy({ 0, 4 });
         AlignItemToCenter(100);
@@ -169,7 +166,7 @@ namespace Luth
                 if (!d.CanAdd(m_SelectedEntity)) continue;
                 if (ImGui::MenuItem(d.Name.c_str())) {
                     if (multi) {
-                        // Add to every selected entity that doesn't already have it, one undo.
+                        // add to every selected entity that doesn't already have it, one undo
                         CommandHistory::BeginCompound("Add Component");
                         for (Entity e : EditorSelection::GetSelectedEntities())
                             if (e.IsValid() && d.CanAdd(e)) d.OnAdd(e);
@@ -199,7 +196,7 @@ namespace Luth
     {
         const auto& meta = AssetDatabase::GetMetadata(m_SelectedResource);
 
-        // Handle invalid/deleted assets — silently clear stale selection
+        // invalid/deleted asset: silently clear stale selection
         if (meta.Type == AssetType::None)
         {
             EditorSelection::ClearSelection();
@@ -208,7 +205,7 @@ namespace Luth
 
         AssetType type = meta.Type;
 
-        // Always show Metadata
+        // metadata always shown
         if (UI::BeginCollapsingHeader("Asset Metadata", true))
         {
             if (ImGui::BeginTable("Metadata", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
@@ -223,7 +220,7 @@ namespace Luth
         }
         ImGui::Dummy({ 0, 4 });
 
-        // Scene and Font don't go through the asset pipeline — display directly
+        // Scene and Font bypass the asset pipeline; display directly
         if (type == AssetType::Scene) {
             m_SceneViewer.Draw(m_SelectedResource, meta.Path);
             return;
@@ -233,7 +230,7 @@ namespace Luth
             return;
         }
 
-        // Load on inspect if not loaded
+        // load on inspect if not resident
         if (!AssetManager::IsLoaded(m_SelectedResource)) {
             if (!AssetManager::IsLoading(m_SelectedResource)) {
                 AssetManager::LoadAsync(m_SelectedResource);
@@ -243,7 +240,7 @@ namespace Luth
             return;
         }
 
-        // Delegate to specialized editors
+        // delegate to specialized editors
         if (type == AssetType::Model) {
             if (auto model = AssetManager::GetAsset<Model>(m_SelectedResource)) m_ModelViewer.Draw(*model);
         } else if (type == AssetType::Material) {

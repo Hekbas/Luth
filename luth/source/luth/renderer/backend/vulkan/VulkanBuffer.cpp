@@ -4,12 +4,12 @@
 #include "VulkanAllocator.h"
 #include "UploadContext.h"
 
-// We need VMA enums here
+// VMA enums used here
 #include <vma/vk_mem_alloc.h>
 
 namespace Luth
 {
-    // ── Vertex Buffer ──
+    // ---- Vertex Buffer ----
 
     VKVertexBuffer::VKVertexBuffer(uint32_t size)
     {
@@ -48,25 +48,24 @@ namespace Luth
     void VKVertexBuffer::Bind() const
     {
         VkCommandBuffer cmd = VK_NULL_HANDLE; // TODO: Retrieve from Renderer Context
-        // vkCmdBindVertexBuffers(cmd, 0, 1, &m_Buffer, offsets);
         // Binding is handled by the Pipeline/Renderer, not the buffer itself in Vulkan
     }
 
     void VKVertexBuffer::SetData(const void* data, uint32_t size)
     {
         // Async transfer through UploadContext's persistent staging ring + transfer-queue
-        // submit. Caller does not wait on the fence — submissions on the same queue serialize,
+        // submit. Caller does not wait on the fence; submissions on the same queue serialize,
         // so any draw that consumes m_Buffer (always submitted later in the frame) implicitly
         // observes the upload. Today UploadContext runs on the graphics queue; the fence-based
         // sync stays correct if a future async-compute split moves this to a dedicated transfer family.
         //
         // m_UploadFence stash: BLAS-build at import reads VB on the graphics queue, which is a
-        // different submission chain than the rendering frame's draw queue — the implicit
+        // different submission chain than the rendering frame's draw queue; the implicit
         // serialize doesn't cover it. BLAS factory polls WaitForUpload(m_UploadFence) explicitly.
         m_UploadFence = UploadContext::Get().UploadBuffer(data, size, m_Buffer, 0);
     }
 
-    // ── Index Buffer ──
+    // ---- Index Buffer ----
 
     VKIndexBuffer::VKIndexBuffer(const uint32_t* indices, uint32_t count)
         : m_Count(count)
@@ -96,7 +95,7 @@ namespace Luth
         addrInfo.buffer = m_Buffer;
         m_DeviceAddress = vkGetBufferDeviceAddress(VulkanContext::Get().GetDevice(), &addrInfo);
 
-        // Async upload — see VKVertexBuffer::SetData for the queue-ordering rationale.
+        // Async upload; see VKVertexBuffer::SetData for the queue-ordering rationale.
         m_UploadFence = UploadContext::Get().UploadBuffer(indices, size, m_Buffer, 0);
     }
 
@@ -109,7 +108,7 @@ namespace Luth
 
     void VKIndexBuffer::Bind() const {}
 
-    // ── Uniform Buffer ──
+    // ---- Uniform Buffer ----
 
     VKUniformBuffer::VKUniformBuffer(uint32_t size)
     {

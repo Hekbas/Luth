@@ -15,7 +15,7 @@ namespace Luth
     // Owns the EnTT registry, the root-entity list, the hierarchy version counter, and the
     // HoldAsset shared_ptr cache that keeps in-use assets pinned across AssetManager Trim cycles.
     // Mutations land on the main thread between frames; ECS systems read it on game / render
-    // fibers without taking a lock — the frame fence orders writer and readers.
+    // fibers without taking a lock; the frame fence orders writer and readers.
     class Scene
     {
     public:
@@ -30,7 +30,7 @@ namespace Luth
 
         // Build a scene-entity tree from a loaded Model. Static models reconstruct the V4 node graph
         // (local transforms + cameras + lights); skinned models get root + meshes + bone hierarchy.
-        // Returns the root entity (engine-side so a runtime load path can reuse it — no editor deps).
+        // Returns the root entity (engine-side so a runtime load path can reuse it; no editor deps).
         Entity InstantiateModel(const std::shared_ptr<Model>& model, Entity parent);
 
         void ReorderEntity(Entity entity, Entity target, bool after);
@@ -62,7 +62,7 @@ namespace Luth
         void ReleaseAsset(UUID uuid);
         void ReleaseAllAssets();
 
-        // UUID lookup (O(n) — editor-only, used by undo/redo)
+        // UUID lookup (O(n); editor-only, used by undo/redo)
         Entity FindEntityByUUID(UUID uuid) const;
 
         // Root entity list management (public for undo/redo command utils)

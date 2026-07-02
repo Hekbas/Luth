@@ -20,17 +20,17 @@ namespace Luth::Physics
     // Listener pattern (Godot jolt_contact_listener_3d.cpp reference): the trigger-pair cache lives
     // here, mutated under SpinLock from Jolt worker fibers. Cache state is the source of truth; the
     // event queue is dispatch only. If TryPush overflows, cache stays consistent and the next pair
-    // Add self-heals — we just lose the gameplay-side notification for that overflow.
+    // Add self-heals; only the gameplay-side notification for that overflow is lost.
     //
-    // Single-listener instance owned by PhysicsSystem. Body↔entity resolution uses two paths:
+    // Single-listener instance owned by PhysicsSystem. Body-to-entity resolution uses two paths:
     // - OnContactAdded / OnContactPersisted: bodies are accessible, read via Body::GetUserData.
     // - OnContactRemoved: bodies are forbidden (ContactListener.h:127), read via the BodyIndex
     //   side table populated by PhysicsSystem at body-create / cleared at body-destroy.
     class LuthContactListener final : public JPH::ContactListener
     {
     public:
-        // Bounded MPMC. 4096 events/frame is more than 10x the worst-case stack-of-100 we ship —
-        // overflow drops events and is tracked via m_OverflowCount for once-per-frame warning at
+        // Bounded MPMC. 4096 events/frame is more than 10x the worst-case stack-of-100 scene;
+        // overflow drops events and is tracked via m_OverflowCount for a once-per-frame warning at
         // drain time. Power-of-2 capacity is an MPMCQueue requirement.
         using EventQueue = MPMCQueue<PhysicsEvent, 4096>;
 
@@ -52,14 +52,14 @@ namespace Luth::Physics
         // Read+clear the overflow counter; called once per frame from PhysicsSystem::DrainEvents.
         u32 ConsumeOverflowCount() { return m_OverflowCount.exchange(0, std::memory_order_acq_rel); }
 
-        // Diagnostic — for the v1 leak tripwire and post-Stop drain checks.
+        // Diagnostic: feeds the trigger-pair leak tripwire and post-Stop drain checks.
         size_t TriggerPairCount() const { return m_TriggerPairs.size(); }
 
     private:
         // Canonical pair key: lower BodyID's full 32-bit (index + sequence) in low half, higher
         // in high half. Sequence number prevents slot-reuse collisions (Jolt wraps it at 256;
-        // pathologically aggressive churn could still collide — see plan §Risks). Storing in a
-        // canonical order means OnContactRemoved doesn't have to try both orderings.
+        // pathologically aggressive churn could still collide). Storing in a canonical order means
+        // OnContactRemoved doesn't have to try both orderings.
         static u64 PackPairKey(JPH::BodyID a, JPH::BodyID b);
 
         // Shared trigger-classification path called from OnContactAdded AND OnContactPersisted.

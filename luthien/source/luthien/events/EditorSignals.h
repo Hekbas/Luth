@@ -21,9 +21,8 @@
 
 namespace Luth
 {
-    // Selection set or active resource changed. The version field mirrors
-    // EditorSelection::GetVersion at publish time so subscribers can correlate
-    // multiple in-flight events to a single ground-truth.
+    // Selection set or active resource changed. The version field mirrors EditorSelection::GetVersion
+    // at publish time so subscribers can correlate multiple in-flight events to a single ground-truth.
     class SelectionChangedSignal : public Event
     {
     public:
@@ -49,8 +48,8 @@ namespace Luth
         UUID m_Resource;
     };
 
-    // Scene hierarchy mutated by an EntityCommand. Subscribers that cache tree
-    // topology (HierarchyPanel, FrameDebugger overlays) invalidate on receipt.
+    // Scene hierarchy mutated by an EntityCommand. Subscribers that cache tree topology
+    // (HierarchyPanel, FrameDebugger overlays) invalidate on receipt.
     class HierarchyChangedSignal : public Event
     {
     public:
@@ -97,9 +96,8 @@ namespace Luth
         UUID m_Asset;
     };
 
-    // Project switch (load / unload). Editor::OnProjectChanged publishes after
-    // settings reload + scene clear so subscribers can rebuild project-scoped
-    // caches in their handler.
+    // Project switch (load / unload). Editor::OnProjectChanged publishes after settings reload +
+    // scene clear so subscribers can rebuild project-scoped caches in their handler.
     class ProjectChangedSignal : public Event
     {
     public:
@@ -119,10 +117,9 @@ namespace Luth
         std::string m_Name;
     };
 
-    // Engine log emission, fanned through Log::ILogSink → ConsolePanel sink callback
-    // → bus. Carries the LogEntry by value; ConsolePanel handler appends to its
-    // internal ring on main during ProcessEvents (race-free vs OnGather since drain
-    // precedes Render every frame).
+    // Engine log emission, fanned through Log::ILogSink -> ConsolePanel sink callback -> bus. Carries
+    // the LogEntry by value; ConsolePanel handler appends to its internal ring on main during
+    // ProcessEvents (race-free vs OnGather since drain precedes Render every frame).
     class LogEntrySignal : public Event
     {
     public:
@@ -139,10 +136,9 @@ namespace Luth
         LogEntry m_Entry;
     };
 
-    // Active workspace switched by Editor::LoadWorkspace. Carries the workspace
-    // name (also written to EditorSettings::activeLayout) and whether the source
-    // was the engine-shipped built-in or a user-saved copy. No subscribers in-tree
-    // yet — hook is for future panels that need to react to layout changes.
+    // Active workspace switched by Editor::LoadWorkspace. Carries the workspace name (also written to
+    // EditorSettings::activeLayout) and whether the source was the engine-shipped built-in or a
+    // user-saved copy. No subscribers in-tree yet; hook is for future panels that react to layout changes.
     class WorkspaceChangedSignal : public Event
     {
     public:
@@ -162,8 +158,8 @@ namespace Luth
         bool        m_Builtin;
     };
 
-    // Play-mode state transition. AnimationSystem-gated panels, dirty-flag
-    // controllers, and autosave subscribe.
+    // Play-mode state transition. AnimationSystem-gated panels, dirty-flag controllers, and
+    // autosave subscribe.
     class PlayStateChangedSignal : public Event
     {
     public:

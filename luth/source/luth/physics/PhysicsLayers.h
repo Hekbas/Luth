@@ -10,7 +10,7 @@ namespace Luth::Physics
     // Object layers describe the role of a body for filtering. STATIC = scenery and kinematic ground;
     // MOVING = dynamic rigid bodies and the character controller; TRIGGER = static sensor zones that fire
     // contact events when MOVING bodies enter or exit them. Dynamic sensors stay on MOVING with the
-    // RigidBody.isSensor flag — the layer split here is purely for broadphase pruning.
+    // RigidBody.isSensor flag; the layer split here is purely for broadphase pruning.
     namespace Layers
     {
         static constexpr JPH::ObjectLayer STATIC     = 0;
@@ -21,7 +21,7 @@ namespace Luth::Physics
 
     // Broadphase layers control which BVH a body lives in. Mirroring the object layers 1:1 keeps things
     // simple at the cost of three trees; for Tier 0 scenes this is fine and the alternative
-    // (NON_MOVING / MOVING split with TRIGGER folded into MOVING) costs us cheap broadphase early-outs
+    // (NON_MOVING / MOVING split with TRIGGER folded into MOVING) forfeits cheap broadphase early-outs
     // for trigger-only queries.
     namespace BroadPhaseLayers
     {
@@ -31,8 +31,8 @@ namespace Luth::Physics
         static constexpr JPH::uint            NUM_LAYERS = 3;
     }
 
-    // Maps an object layer to its broadphase layer. Trivial 1:1 mapping; the indirection exists so we
-    // could later collapse e.g. STATIC and TRIGGER into the same broadphase tree without touching call
+    // Maps an object layer to its broadphase layer. Trivial 1:1 mapping; the indirection exists so
+    // e.g. STATIC and TRIGGER could later collapse into the same broadphase tree without touching call
     // sites.
     class BPLayerInterfaceImpl final : public JPH::BroadPhaseLayerInterface
     {
@@ -73,7 +73,7 @@ namespace Luth::Physics
     };
 
     // Object-vs-broadphase early-out. Returning false here lets Jolt skip an entire BVH for a given query
-    // origin layer — the cheapest filter we can apply.
+    // origin layer, the cheapest filter available.
     class ObjectVsBroadPhaseLayerFilterImpl final : public JPH::ObjectVsBroadPhaseLayerFilter
     {
     public:

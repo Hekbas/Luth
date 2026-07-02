@@ -37,7 +37,7 @@ namespace Luth
 
     // The deformed vertex buffer is the interleaved Vertex layout, written field-by-field as 13
     // hardcoded floats in skinning.slang and read at the same offsets by material.slang's geometry
-    // table — lock the layout so a Vertex field reorder/resize can't silently desync the shaders.
+    // table; lock the layout so a Vertex field reorder/resize can't silently desync the shaders.
     static_assert(sizeof(Vertex)              == 52, "deformed-vertex ABI: Vertex must stay 13 tight floats");
     static_assert(offsetof(Vertex, Position)  == 0,  "deformed-vertex ABI: pos @ float 0");
     static_assert(offsetof(Vertex, Normal)    == 12, "deformed-vertex ABI: normal @ float 3");
@@ -45,7 +45,7 @@ namespace Luth
     static_assert(offsetof(Vertex, TexCoord1) == 32, "deformed-vertex ABI: uv1 @ float 8");
     static_assert(offsetof(Vertex, Tangent)   == 40, "deformed-vertex ABI: tangent @ float 10");
 
-    // skinning.slang reads the source SkinnedVertex VB directly via scalar buffer_reference — lock the
+    // skinning.slang reads the source SkinnedVertex VB directly via scalar buffer_reference; lock the
     // tight 84 B layout so a field reorder/resize can't silently desync the compute's input fetch.
     static_assert(sizeof(SkinnedVertex)                == 84, "skin-input ABI: SkinnedVertex must stay tight 84 B");
     static_assert(offsetof(SkinnedVertex, Position)    == 0,  "skin-input ABI: pos @ 0");
@@ -83,7 +83,7 @@ namespace Luth
         auto ib = std::dynamic_pointer_cast<VKIndexBuffer>(mesh.GetIndexBuffer());
         if (!vb || !ib)
         {
-            LH_LOG(Renderer, error, "CreateStaticBLAS: non-Vulkan VB/IB on mesh — skipping BLAS");
+            LH_LOG(Renderer, error, "CreateStaticBLAS: non-Vulkan VB/IB on mesh - skipping BLAS");
             return nullptr;
         }
         const u32 vertCount  = mesh.GetVertexCount();
@@ -91,13 +91,13 @@ namespace Luth
         if (vertCount == 0 || indexCount == 0) return nullptr;
 
         // VB/IB upload runs on the transfer-queue submission chain via UploadContext; the build
-        // we're about to record reads them on the graphics queue, which is a separate submission
+        // recorded below reads them on the graphics queue, which is a separate submission
         // and thus not serialized against the upload. Wait explicitly on the upload fence.
         const u64 fence = std::max(vb->GetUploadFence(), ib->GetUploadFence());
         if (fence > 0) UploadContext::Get().WaitForUpload(fence);
 
         // Position is at offset 0 in both Vertex and SkinnedVertex. Stride keeps the rest of the
-        // vertex fields skipped naturally — AS-build only reads positions per the geometry desc.
+        // vertex fields skipped naturally; AS-build only reads positions per the geometry desc.
         VkAccelerationStructureGeometryTrianglesDataKHR tri{
             VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR };
         tri.vertexFormat                = VK_FORMAT_R32G32B32_SFLOAT;
@@ -138,7 +138,7 @@ namespace Luth
         // Persistent AS storage buffer. CONCURRENT: BLAS is built on graphics (ImmediateSubmit)
         // but read on compute (RtSunShadowsPass raygen) via TLAS device-address dereference.
         // Per arch/multi-queue.md, cross-queue buffer access requires CONCURRENT or QFOT; AS
-        // storage was missed in the original policy because B.2's per-frame TLAS was culled
+        // storage was missed in the original policy because the early per-frame TLAS was culled
         // silently and never exercised cross-queue.
         VkBufferCreateInfo storageCi{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
         storageCi.size        = sizes.accelerationStructureSize;
@@ -149,7 +149,7 @@ namespace Luth
             storageCi, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, result->m_StorageBuffer);
 
         // One-shot scratch. ImmediateSubmit waits on the build fence before returning, so
-        // PushDeletion runs only for ring hygiene — N+2 retirement is overkill but harmless.
+        // PushDeletion runs only for ring hygiene; N+2 retirement is overkill but harmless.
         const u64 scratchAlign = ctx.GetAsProperties().minAccelerationStructureScratchOffsetAlignment;
         const u64 scratchSize  = AlignUp(sizes.buildScratchSize, scratchAlign);
         VkBuffer scratchBuffer = VK_NULL_HANDLE;
@@ -206,7 +206,7 @@ namespace Luth
         auto ib = std::dynamic_pointer_cast<VKIndexBuffer>(mesh.GetIndexBuffer());
         if (!vb || !ib)
         {
-            LH_LOG(Renderer, error, "CreateDeformableBLAS: non-Vulkan VB/IB on mesh — skipping BLAS");
+            LH_LOG(Renderer, error, "CreateDeformableBLAS: non-Vulkan VB/IB on mesh - skipping BLAS");
             return nullptr;
         }
         const u32 vertCount  = mesh.GetVertexCount();
@@ -218,10 +218,10 @@ namespace Luth
         result->m_VertexCount  = vertCount;
         result->m_PrimitiveCount = indexCount / 3;
 
-        // Deformed vertices — interleaved Vertex layout (52 B: pos/normal/uv0/uv1/tangent) so the RT
+        // Deformed vertices: interleaved Vertex layout (52 B: pos/normal/uv0/uv1/tangent) so the RT
         // geometry table reads post-skin normals/tangents byte-identical to a static VB; the AS build
         // reads positions at offset 0. Double-buffered (curr/prev regions) so raster motion vectors can
-        // read the previous frame's positions — region alternates by frame parity, region 0 == CURR on
+        // read the previous frame's positions; region alternates by frame parity, region 0 == CURR on
         // frame 0. Zero-filled before the initial build (VMA leaves memory uninitialized; recycled
         // NaN/Inf would TDR the BVH builder). see arch/multi-queue.md
         const VkDeviceSize deformedRegionBytes = static_cast<VkDeviceSize>(vertCount) * sizeof(Vertex);
@@ -243,7 +243,7 @@ namespace Luth
             result->m_DeformedBda = vkGetBufferDeviceAddress(device, &addrInfo);
         }
 
-        // Wait for VB + IB uploads before the initial build — the per-frame skinning compute reads
+        // Wait for VB + IB uploads before the initial build; the per-frame skinning compute reads
         // the VB directly, so it must be resident before this mesh goes live.
         const u64 fence = std::max<u64>(ib->GetUploadFence(), vb->GetUploadFence());
         if (fence > 0) UploadContext::Get().WaitForUpload(fence);
@@ -264,7 +264,7 @@ namespace Luth
         VkAccelerationStructureGeometryKHR geom{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
         geom.geometryType       = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
         geom.geometry.triangles = tri;
-        // No OPAQUE flag — skinned meshes may need any-hit (alpha test) later. Conservative now.
+        // No OPAQUE flag; skinned meshes may need any-hit (alpha test) later. Conservative now.
         geom.flags              = 0;
 
         VkAccelerationStructureBuildGeometryInfoKHR buildInfo{
@@ -367,17 +367,11 @@ namespace Luth
         tri.vertexStride                = sizeof(Vertex);
         tri.maxVertex                   = m_VertexCount - 1;
         tri.indexType                   = VK_INDEX_TYPE_UINT32;
-        // Refit must use the SAME index buffer as the original build. The Mesh's IB device address
-        // would be the source of truth — but this method takes only `cmd` + scratch by design.
-        // Owner threads the IB BDA via the caller (B.2.D's TlasBuilder packs the build infos
-        // directly, bypassing this single-mesh Refit path). For the single-mesh fallback used by
-        // tests or one-off refits, the geometry pointer must be re-derived — caller passes nullptr
-        // here means we expect the BLAS to keep the same geometry layout under update mode (Vulkan
-        // spec says vertex/index pointers may change, but counts + formats must not). We re-bind
-        // both deformed VB + retain primitive count; index pointer comes from `m_IndexBuffer` which
-        // we don't own — for simplicity Refit reads it from the Mesh-owned IB at the call site in B.2.D.
-        // This single-mesh Refit is a placeholder for symmetry; the production refit batch in
-        // B.2.D loops infos+ranges and never invokes this method.
+        // Refit must use the SAME index buffer as the original build, but this method takes only
+        // `cmd` + scratch, so the IB BDA is left 0. Legal under update mode: the spec allows
+        // vertex/index pointers to change as long as counts + formats do not. Placeholder kept for
+        // symmetry only; the production refit batch (TlasBuilder::RefitSkinnedBLASes) packs its
+        // build infos + ranges directly and never invokes this method.
         tri.indexData.deviceAddress     = 0;
         tri.transformData.deviceAddress = 0;
 

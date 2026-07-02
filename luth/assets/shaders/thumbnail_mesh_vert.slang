@@ -11,7 +11,7 @@ struct PC
     float4x4 viewProj;
     float4   albedo;
     uint     diffuseIndex;
-    float4   emissive;   // rgb = factor, a = HDR strength — read in the frag; block parity only
+    float4   emissive;   // rgb = factor, a = HDR strength; read in the frag; block parity only
 };
 [[vk::push_constant]] PC pc;
 

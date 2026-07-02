@@ -42,7 +42,7 @@ namespace Luth
 
     // Capture-source dropdown shared between live + capture control bars.
     // Placed right of Enable / Disable, before any slider, so its position
-    // stays stable across the live↔capture transition.
+    // stays stable across the live<->capture transition.
     static void DrawCaptureSourceCombo(RenderingSystem* rs)
     {
         static const char* k_Labels[] = { "Scene", "Game" };
@@ -220,7 +220,7 @@ namespace Luth
         }
 
         // Slim G-buffer archives route through their decoder shaders. Mode is name-keyed; scale
-        // applies only to motion (mode 1) — the panel slider lives in DrawArchivePreview below.
+        // applies only to motion (mode 1); the panel slider lives in DrawArchivePreview below.
         if (int slimMode = SlimModeForArchive(archive.name); slimMode >= 0)
         {
             m_RS->BlitArchivedSlimToPreview((u32)m_SelArchiveIdx, (u32)slimMode, m_SlimMotionScale);
@@ -302,7 +302,7 @@ namespace Luth
         ImGui::End();
     }
 
-    // 25002500  Live Mode (pass-level, same as before) 25002500
+    // ---- Live Mode (pass-level) ----
 
     void FrameDebuggerPanel::DrawLiveView(const RG::RenderGraphSnapshot& snapshot)
     {
@@ -344,7 +344,7 @@ namespace Luth
 
     void FrameDebuggerPanel::DrawLiveControlBar(const RG::RenderGraphSnapshot& snapshot, int nonCulledCount)
     {
-        // Enable button — triggers capture. Capture-mode selection state is reset lazily on
+        // Enable button triggers capture. Capture-mode selection state is reset lazily on
         // entering the Frozen view (handled by the OnRender top-of-frame guard), so there's no
         // explicit slider/draw-index reset needed here.
         if (ImGui::Button("Enable"))
@@ -580,7 +580,7 @@ namespace Luth
         }
     }
 
-    // ── Capture mode — hierarchical EventNode tree ──
+    // ---- Capture mode: hierarchical EventNode tree ----
 
     void FrameDebuggerPanel::DrawCaptureView(const RG::CapturedFrame& capture)
     {
@@ -593,7 +593,7 @@ namespace Luth
 
         ImGui::BeginChild("##EventTree", ImVec2(leftWidth, 0),
                           ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
-        // Walk the root's children directly — the root itself is the implicit
+        // Walk the root's children directly; the root itself is the implicit
         // "Frame" container and isn't drawn (matches Unity's tree shape).
         for (const auto& child : capture.rootEvent.children)
             DrawEventNode(capture, child, 0);
@@ -641,8 +641,8 @@ namespace Luth
         ImGui::PopStyleColor();
 
         ImGui::SameLine();
-        // Capture source — same control + position as in the live bar so it
-        // doesn't visually jump on the live↔capture transition. Mutating
+        // Capture source: same control + position as in the live bar so it
+        // doesn't visually jump on the live<->capture transition. Mutating
         // here only affects the *next* capture; the active overlay is keyed
         // off capturedSource (snapshotted at finalize).
         DrawCaptureSourceCombo(m_RS);
@@ -665,7 +665,7 @@ namespace Luth
             if (sliderValue < 0)            sliderValue = 0;
             if (sliderValue >= drawCount)   sliderValue = drawCount - 1;
 
-            // Slider format: "<PassName>: <MeshName> (<idx>)" — runtime-built
+            // Slider format: "<PassName>: <MeshName> (<idx>)", runtime-built
             // per position. snprintf with `%%d` produces `%d` in the format
             // string, which ImGui::SliderInt then expands with the int value.
             char fmt[224];
@@ -756,7 +756,7 @@ namespace Luth
                                             const RG::EventNode& node,
                                             int /*depthCounter*/)
     {
-        // --- Selection state for highlight ---
+        // ---- Selection state for highlight ----
         bool isSelected = false;
         switch (node.kind)
         {
@@ -775,7 +775,7 @@ namespace Luth
                 break;
         }
 
-        // --- Tree node flags ---
+        // ---- Tree node flags ----
         ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnArrow;
         if (node.children.empty())
             flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
@@ -785,7 +785,7 @@ namespace Luth
             (node.kind == RG::EventNodeKind::Pass && !node.children.empty()))
             flags |= ImGuiTreeNodeFlags_DefaultOpen;
 
-        // --- Label ---
+        // ---- Label ----
         char label[256];
         if (node.kind == RG::EventNodeKind::Pass &&
             node.passIndex < capture.passes.size())
@@ -802,8 +802,8 @@ namespace Luth
         // Stable per-node ID for ImGui's open/closed state map. A counter
         // would collide across re-renders if the tree structure shifted (e.g.
         // a Group appears/disappears between captures); ImGui then carries
-        // open-state across to the wrong node, producing the cross-talk
-        // surfaced in B verification. Key on node identity instead.
+        // open-state across to the wrong node, producing cross-talk between
+        // nodes. Key on node identity instead.
         // Top 4 bits = kind tag, low 60 bits = payload.
         u64 stableId = 0;
         switch (node.kind)
@@ -823,13 +823,13 @@ namespace Luth
         }
         bool nodeOpen = ImGui::TreeNodeEx((void*)(uintptr_t)stableId, flags, "%s", label);
 
-        // CRITICAL: capture click status BEFORE any subsequent ImGui call —
+        // CRITICAL: capture click status BEFORE any subsequent ImGui call.
         // ImGui::IsItemClicked refers to the most recently submitted item, and
         // the right-aligned TextDisabled below would shift it to a non-clickable
         // disabled label, swallowing all selection clicks (incl. Draw nodes).
         const bool clickedThisNode = ImGui::IsItemClicked(ImGuiMouseButton_Left);
 
-        // --- Right-aligned annotation: GPU time for passes, idx count for draws ---
+        // ---- Right-aligned annotation: GPU time for passes, idx count for draws ----
         if ((node.kind == RG::EventNodeKind::Pass || node.kind == RG::EventNodeKind::Cascade)
             && node.gpuTimeMs >= 0.0f)
         {
@@ -855,11 +855,11 @@ namespace Luth
             }
         }
 
-        // --- Click handler (groups select nothing — they only expand) ---
+        // ---- Click handler (groups select nothing; they only expand) ----
         if (clickedThisNode && node.kind != RG::EventNodeKind::Group)
             SelectEventNode(node);
 
-        // --- Recurse into children if open and not a leaf ---
+        // ---- Recurse into children if open and not a leaf ----
         if (nodeOpen && !node.children.empty() && !(flags & ImGuiTreeNodeFlags_NoTreePushOnOpen))
         {
             for (const auto& child : node.children)
@@ -888,7 +888,7 @@ namespace Luth
 
         VkSampler sampler = m_RS->GetDebugSampler();
 
-        // ── Per-draw replay preview ──
+        // ---- Per-draw replay preview ----
         // Triggered only when a Draw node is selected AND its owning pass is one we know how to
         // replay (GeometryPass currently). Other selections fall through to the pass-output
         // archive path below.
@@ -902,7 +902,7 @@ namespace Luth
             // Attempt per-draw replay for any pass; ReplayPassUpToDraw
             // dispatches by pass.name internally and no-ops for unsupported
             // pass types. Validity is gated below by comparing the post-
-            // replay preview key against what we requested — supported
+            // replay preview key against what we requested: supported
             // passes update the key, unsupported ones leave it untouched.
             const auto& pass = capture.passes[m_SelPassIndex];
             if ((u32)m_SelDrawIndex >= pass.firstDrawIndex &&
@@ -926,7 +926,7 @@ namespace Luth
 
             // Replay is "valid" iff its key matches what we requested.
             // Unsupported pass types leave the key unchanged, in which case
-            // `previewView` reflects an unrelated prior replay — fall through
+            // `previewView` reflects an unrelated prior replay; fall through
             // to the pass-archive path so the user sees a coherent image.
             const u64 expectedKey  = ((u64)perDrawPassIdx << 32) | (u64)perDrawLocalIdx;
             const bool replayValid = (m_RS->GetPerDrawPreviewKey() == expectedKey);
@@ -973,7 +973,7 @@ namespace Luth
             }
         }
 
-        // ── Pass-output archive path (fallback) ──
+        // ---- Pass-output archive path (fallback) ----
         if (m_SelArchiveIdx < 0 || m_SelArchiveIdx >= (int)capture.archivedImages.size())
         {
             ImGui::TextDisabled("(no output preview for this event)");
@@ -994,7 +994,7 @@ namespace Luth
 
         if (archive.isDepth)
         {
-            // ── Depth archive visualization ──
+            // ---- Depth archive visualization ----
             // For cascade slices (m_SelArchiveLayer >= 0) we use the matching cascade's far
             // view-Z so each slice gets a sensible contrast range instead of clipping against
             // the camera's full draw distance. For non-array depth archives we fall back to a
@@ -1070,7 +1070,7 @@ namespace Luth
             return;
         }
 
-        // ── Slim G-buffer archive visualization ──
+        // ---- Slim G-buffer archive visualization ----
         // Routes through debugSlimDecode/debugSlimMatID frag shaders to produce a meaningful RGB
         // preview (oct-normal can't be read raw; matID is integer-sampled).
         if (int slimMode = SlimModeForArchive(archive.name); slimMode >= 0)
@@ -1161,7 +1161,7 @@ namespace Luth
 
     void FrameDebuggerPanel::DrawSelectedDetailTables(const RG::CapturedFrame& capture)
     {
-        // -------- Pass / Cascade selected --------
+        // ---- Pass / Cascade selected ----
         if (m_SelKind == RG::EventNodeKind::Pass || m_SelKind == RG::EventNodeKind::Cascade)
         {
             if (m_SelPassIndex < 0 || m_SelPassIndex >= (int)capture.passes.size()) return;
@@ -1218,7 +1218,7 @@ namespace Luth
                 UI::EndCollapsingHeader();
             }
 
-            // ── CSM cascade detail block ──
+            // ---- CSM cascade detail block ----
             // Surfaces GPU-true values captured at the snapshot (cascadeSplitsViewZ, biases,
             // per-cascade texel footprint, light-space matrix). All values are read from
             // CapturedFrame, NOT live RenderingSystem state, so editing light parameters while
@@ -1246,7 +1246,7 @@ namespace Luth
                 ImGui::Unindent(4.0f);
                 UI::EndCollapsingHeader();
 
-                // Optional collapsible: full light-space matrix (16 floats —
+                // Optional collapsible: full light-space matrix (16 floats,
                 // verbose, hidden by default for casual inspection).
                 if (UI::BeginCollapsingHeader("Light-space Matrix"))
                 {
@@ -1270,7 +1270,7 @@ namespace Luth
             return;
         }
 
-        // -------- Draw call selected --------
+        // ---- Draw call selected ----
         if (m_SelKind != RG::EventNodeKind::Draw) return;
         if (m_SelDrawIndex < 0 || m_SelDrawIndex >= (int)capture.drawCalls.size()) return;
         const auto& dc = capture.drawCalls[m_SelDrawIndex];

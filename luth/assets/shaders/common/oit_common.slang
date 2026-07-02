@@ -1,10 +1,10 @@
-// PPLL node layout + packing — twin of oit_common.glsl. Single source for the 16 B node (C++ sizes the
+// PPLL node layout + packing; twin of oit_common.glsl. Single source for the 16 B node (C++ sizes the
 // pool as 16 + W*H*budget*16). see arch/rendering-pipeline.md
 
 public static const uint OIT_EMPTY = 0xFFFFFFFFu;
 
-// depthAlpha = (depth24 << 8) | alpha8 — one u32 sort key (ascending = nearest-first; alpha bits break
-// exact-depth ties). entityID keeps its full 32 bits (entt version bits — never truncate).
+// depthAlpha = (depth24 << 8) | alpha8: one u32 sort key (ascending = nearest-first; alpha bits break
+// exact-depth ties). entityID keeps its full 32 bits (entt version bits; never truncate).
 public struct OITNode
 {
     public uint colorRGB9E5;   // shaded + fogged radiance (RGB9E5 shared-exponent HDR)
@@ -24,7 +24,7 @@ public float OitUnpackAlpha(uint depthAlpha) { return float(depthAlpha & 0xFFu) 
 // RGB9E5 shared-exponent pack (Khronos layout: 9-bit mantissas, 5-bit exponent, bias 15).
 public uint OitPackRGB9E5(float3 c)
 {
-    const float kMax = 65408.0;   // (511/512) * 2^16 — format ceiling
+    const float kMax = 65408.0;   // (511/512) * 2^16, format ceiling
     float3 v    = clamp(c, float3(0.0), float3(kMax));
     float  maxC = max(v.r, max(v.g, v.b));
     int    e    = (maxC < 1e-7) ? 0 : clamp(int(floor(log2(maxC))) + 16, 0, 31);

@@ -20,7 +20,7 @@ namespace Luth
     namespace Memory { class LinearAllocator; }
     class Scene;
 
-    // ── Per-draw snapshot ──
+    // ---- Per-draw snapshot ----
     // One row per (WorldTransform + MeshRenderer) entity. Animation parent chain is pre-resolved
     // here so the render stage never walks the registry to find a bone offset.
 
@@ -33,9 +33,9 @@ namespace Luth
         u32  boneOffset  = 0;        // Pre-resolved from Animation / Parent chain
         bool isSkinned   = false;
         bool isDeformable = false;   // static wind-deformable (reads the deformed buffer like skinned)
-        u32  entity      = 0;        // entt::entity underlying value — cast at the use site
+        u32  entity      = 0;        // entt::entity underlying value; cast at the use site
 
-        // Per-entity wind response (Component::Wind). Defaults == "no component" → full global response.
+        // Per-entity wind response (Component::Wind). Defaults == "no component" -> full global response.
         bool windRespond        = true;
         f32  windStrengthMul    = 1.0f;
         f32  windPhaseOffset    = 0.0f;
@@ -46,7 +46,7 @@ namespace Luth
         bool windOverrideIsWorld = true;
     };
 
-    // ── Lighting snapshots ──
+    // ---- Lighting snapshots ----
 
     struct DirectionalLightSnapshot
     {
@@ -88,7 +88,7 @@ namespace Luth
         f32  outerConeAngleDeg = 45.0f;
     };
 
-    // ── Volumetric fog snapshots ──
+    // ---- Volumetric fog snapshots ----
     // worldMatrix bakes the entity's WorldTransform * fog local-offset/rotation so the injection
     // shader gets a single volume-to-world transform per row. extentsOrRadius carries Box
     // halfExtents (xyz) or Sphere radius (x, others ignored) per `type`.
@@ -96,7 +96,7 @@ namespace Luth
     struct FogVolumeSnapshot
     {
         Mat4 worldMatrix{ 1.0f };
-        u32  type = 0;                  // 0 = Box, 1 = Sphere — matches FogVolume::Type
+        u32  type = 0;                  // 0 = Box, 1 = Sphere; matches FogVolume::Type
         Vec3 extentsOrRadius{ 1.0f };
         Vec3 color{ 1.0f };
         f32  density = 0.1f;
@@ -105,9 +105,9 @@ namespace Luth
         bool affectsAmbient = true;
     };
 
-    // ── RenderSnapshot ──
+    // ---- RenderSnapshot ----
     // POD aggregate. Spans point into a per-frame LinearAllocator (FrameContext::LogicMemory),
-    // which resets two iterations later — backing memory survives long enough for one render pass.
+    // which resets two iterations later; backing memory survives long enough for one render pass.
 
     struct RenderSnapshot
     {
@@ -129,7 +129,7 @@ namespace Luth
         }
     };
 
-    // ── Capture API ──
+    // ---- Capture API ----
     // Walks the registry once, allocates the spans from `mem`, fills `out`.
 
     void CaptureSnapshot(Scene& scene, Memory::LinearAllocator& mem, RenderSnapshot& out);

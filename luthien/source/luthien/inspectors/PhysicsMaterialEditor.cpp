@@ -20,7 +20,7 @@ namespace Luth
         ImGuiWindow* window = ImGui::GetCurrentWindow();
         if (window->SkipItems) return;
 
-        // Reset the debounce timer when switching to a different material — leftover state from the
+        // Reset the debounce timer when switching to a different material; leftover state from the
         // previous one would otherwise trigger an unrelated Save.
         if (material.Handle != m_LastUUID)
         {

@@ -1,4 +1,4 @@
-// Skybox fragment — samples the prefiltered env at mip 0 (unfiltered) × skybox intensity.
+// Skybox fragment: samples the prefiltered env at mip 0 (unfiltered) * skybox intensity.
 import globals;
 
 [[vk::binding(2, 0)]] SamplerCube prefilteredMap;

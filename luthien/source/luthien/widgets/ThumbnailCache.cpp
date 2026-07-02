@@ -39,7 +39,7 @@ namespace Luth::UI
             AssetType                    type       = AssetType::None;
             BakeState                    state      = BakeState::Idle;
             u8                           retryCount = 0;
-            std::vector<UUID>            deps;          // material → sampled-texture cascade
+            std::vector<UUID>            deps;          // material -> sampled-texture cascade
         };
 
         // Texture-completion record posted by ThumbnailGenerator's worker.
@@ -54,17 +54,16 @@ namespace Luth::UI
         };
 
         constexpr u32 kMaxDrainPerFrame              = 8;    // bounds per-frame upload pressure
-        constexpr u32 kMaxTextureDispatchPerFrame    = 5;    // CPU bakes — run on workers, cheap
-        constexpr u32 kMaxBakeDispatchPerFrame       = 1;    // GPU bakes — block main, ~10–30 ms each
+        constexpr u32 kMaxTextureDispatchPerFrame    = 5;    // CPU bakes: run on workers, cheap
+        constexpr u32 kMaxBakeDispatchPerFrame       = 1;    // GPU bakes: block main, ~10-30 ms each
 
-        // Deferred dispatch — Get / ScanDiskCache append; Drain pumps up to
-        // kMaxDispatchPerFrame per frame. Spreads cold-start CPU work over
-        // multiple frames to bound stutter on first folder entry.
+        // Deferred dispatch: Get / ScanDiskCache append; Drain pumps up to kMaxDispatchPerFrame per
+        // frame. Spreads cold-start CPU work over multiple frames to bound stutter on first folder entry.
         struct DispatchRequest
         {
             UUID      asset;
             AssetType type;
-            bool      fromDisk;   // true → DispatchLoadFromDisk, false → Dispatch
+            bool      fromDisk;   // true -> DispatchLoadFromDisk, false -> Dispatch
         };
 
         namespace fs = std::filesystem;
@@ -104,9 +103,8 @@ namespace Luth::UI
                 || t == AssetType::Material;
         }
 
-        // Mark Pending entry as Failed so future Gets see a terminal state and
-        // don't keep re-dispatching the same broken bake. invariant: callers
-        // must NOT hold s_MapLock — this acquires it.
+        // Mark Pending entry as Failed so future Gets see a terminal state and don't keep re-dispatching
+        // the same broken bake. invariant: callers must NOT hold s_MapLock; this acquires it.
         void MarkFailed(UUID asset)
         {
             SpinLockGuard g(s_MapLock);
@@ -119,8 +117,8 @@ namespace Luth::UI
         }
     }
 
-    // Wire-internal — invoked from ThumbnailGenerator's worker fiber. Not part
-    // of the public ThumbnailCache surface; intentionally not in the header.
+    // Wire-internal, invoked from ThumbnailGenerator's worker fiber. Not part of the public
+    // ThumbnailCache surface; intentionally not in the header.
     namespace ThumbnailCacheInternal
     {
         void PushTextureCompletion(UUID asset, std::vector<u8> pixels, u32 width, u32 height)
@@ -152,20 +150,18 @@ namespace Luth::UI
         if (s_Initialized) return;
         s_Initialized = true;
 
-        // The signal currently fires Modified for every dirty UUID (Editor::Init
-        // forwards the AssetDatabase change callback); Imported/Deleted will get
-        // distinct treatment if the engine ever differentiates. For thumbnails,
-        // any change → invalidate + re-bake the latest.
+        // The signal currently fires Modified for every dirty UUID (Editor::Init forwards the
+        // AssetDatabase change callback); Imported/Deleted will get distinct treatment if the engine
+        // ever differentiates. For thumbnails, any change invalidates + re-bakes the latest.
         s_AssetSub = EventBus::Subscribe<AssetChangedSignal>(BusType::MainThread,
             [](Event& e) {
                 auto& sig = static_cast<AssetChangedSignal&>(e);
                 const UUID changed = sig.GetAsset();
                 ThumbnailCache::Invalidate(changed);
 
-                // Cascade: invalidate material thumbnails whose deps contain
-                // the changed UUID. invariant: walk under s_MapLock to collect
-                // dependents, invalidate outside so PushDeletion + disk remove
-                // run unblocked. Edge-frequency (asset save / file-watch) —
+                // Cascade: invalidate material thumbnails whose deps contain the changed UUID.
+                // invariant: walk under s_MapLock to collect dependents, invalidate outside so
+                // PushDeletion + disk remove run unblocked. Edge-frequency (asset save / file-watch);
                 // V1 micro-critical budget doesn't apply on this path.
                 std::vector<UUID> dependents;
                 {
@@ -187,10 +183,9 @@ namespace Luth::UI
         EventBus::Unsubscribe(BusType::MainThread, s_AssetSub);
         s_AssetSub = {};
 
-        // invariant: at editor shutdown the ImGui descriptor pool is about to
-        // be destroyed (Editor::Shutdown vkDestroyDescriptorPool), taking every
-        // descriptor with it. Skip PushDeletion — its fenced lambdas wouldn't
-        // get a chance to run before the pool is gone.
+        // invariant: at editor shutdown the ImGui descriptor pool is about to be destroyed
+        // (Editor::Shutdown vkDestroyDescriptorPool), taking every descriptor with it. Skip
+        // PushDeletion; its fenced lambdas wouldn't get a chance to run before the pool is gone.
         {
             SpinLockGuard g(s_MapLock);
             s_Entries.clear();
@@ -200,10 +195,9 @@ namespace Luth::UI
 
     void ThumbnailCache::Drain()
     {
-        // Pump deferred-dispatch queue. FIFO — ProjectPanel iterates the grid
-        // top-to-bottom, so push order matches reading order; taking from the
-        // front yields top-down thumbnail population. Per-type budgets keep
-        // mesh/material bakes (synchronous on main, ~10–30 ms each) from
+        // Pump deferred-dispatch queue. FIFO: ProjectPanel iterates the grid top-to-bottom, so push
+        // order matches reading order; taking from the front yields top-down thumbnail population.
+        // Per-type budgets keep mesh/material bakes (synchronous on main, ~10-30 ms each) from
         // dominating frame time even when many are queued.
         {
             std::vector<DispatchRequest> batch;
@@ -238,8 +232,7 @@ namespace Luth::UI
         }
         if (local.empty()) return;
         if (!VulkanActive()) {
-            // Backend gone mid-bake — drop completions silently; map mutation
-            // would race teardown anyway.
+            // Backend gone mid-bake: drop completions silently; map mutation would race teardown anyway.
             return;
         }
 
@@ -255,12 +248,10 @@ namespace Luth::UI
         for (size_t idx = 0; idx < toProcess; ++idx) {
             auto& c = local[idx];
             try {
-                // Texture creation + descriptor allocation outside the map lock —
-                // ImGui_ImplVulkan_AddTexture is microsecond-scale, well over V1's
-                // <100-cycle budget for SpinLock-held work.
-                // Mipmaps + trilinear so the slider's small sizes (16-32 px) don't
-                // shimmer when sampling the 128 px base level. ClampToEdge avoids
-                // edge-bleed at preview boundaries.
+                // Texture creation + descriptor allocation outside the map lock: ImGui_ImplVulkan_AddTexture
+                // is microsecond-scale, well over V1's <100-cycle budget for SpinLock-held work.
+                // Mipmaps + trilinear so the slider's small sizes (16-32 px) don't shimmer when sampling
+                // the 128 px base level. ClampToEdge avoids edge-bleed at preview boundaries.
                 TextureSettings tsettings;
                 tsettings.GenerateMipmaps = true;
                 tsettings.WrapMode  = TextureWrapMode::ClampToEdge;
@@ -277,9 +268,8 @@ namespace Luth::UI
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
                 if (newSet == VK_NULL_HANDLE) {
-                    // ImGui descriptor pool exhausted (size=2000). Mark Failed so
-                    // we don't busy-loop dispatching against an exhausted pool;
-                    // a future polish epic will own a dedicated thumbnail pool.
+                    // ImGui descriptor pool exhausted (size=2000). Mark Failed so it doesn't busy-loop
+                    // dispatching against an exhausted pool; a dedicated thumbnail pool would lift this.
                     LH_LOG(Editor, warn, "Thumbnail: ImGui descriptor pool exhausted for {}", c.asset.ToString());
                     MarkFailed(c.asset);
                     continue;
@@ -301,8 +291,8 @@ namespace Luth::UI
 
                 auto& ctx = VulkanContext::Get();
                 if (!installed) {
-                    // Entry was Invalidated mid-bake — drop the just-created descriptor
-                    // and the backing texture (Ref releases on scope exit).
+                    // Entry was Invalidated mid-bake: drop the just-created descriptor and the backing
+                    // texture (Ref releases on scope exit).
                     ctx.PushDeletion([newSet]() { ImGui_ImplVulkan_RemoveTexture(newSet); });
                 } else if (oldSet != VK_NULL_HANDLE) {
                     ctx.PushDeletion([oldSet]() { ImGui_ImplVulkan_RemoveTexture(oldSet); });
@@ -325,10 +315,9 @@ namespace Luth::UI
         if (!IsSupportedType(type))                 return 0;
         if (!Editor::GetSettings().thumbnailsEnabled) return 0;
 
-        // Pending sentinel acts as the de-dupe — back-to-back Gets for the same
-        // UUID see Pending and skip re-dispatch. Natural backpressure (IOThread
-        // serialization, kMaxDrainPerFrame upload cap) bounds concurrent work
-        // without a separate counter that could leak and stall the cache.
+        // Pending sentinel acts as the de-dupe: back-to-back Gets for the same UUID see Pending and
+        // skip re-dispatch. Natural backpressure (IOThread serialization, kMaxDrainPerFrame upload cap)
+        // bounds concurrent work without a separate counter that could leak and stall the cache.
         bool needsBake = false;
         {
             SpinLockGuard g(s_MapLock);
@@ -336,7 +325,7 @@ namespace Luth::UI
             if (it != s_Entries.end()) {
                 if (it->second.state == BakeState::Ready)
                     return (ImTextureID)it->second.imguiSet;
-                return 0;   // Pending / InFlight / Failed → icon fallback
+                return 0;   // Pending / InFlight / Failed -> icon fallback
             }
             Entry e;
             e.type  = type;
@@ -382,8 +371,8 @@ namespace Luth::UI
         }
 
         // Drop the persisted PNG too so the next Get re-bakes from source rather
-        // than re-loading a stale snapshot. Sync remove on main is fine — small
-        // file, no I/O queue contention.
+        // than re-loading a stale snapshot. Sync remove on main is fine: small file, no I/O queue
+        // contention.
         if (FileSystem::HasProject()) {
             std::error_code ec;
             fs::remove(ThumbnailFilePath(asset), ec);
@@ -414,7 +403,7 @@ namespace Luth::UI
                 continue;
             }
             if (!AssetDatabase::Exists(uuid)) {
-                fs::remove(dirent.path(), ec);   // orphan — asset gone
+                fs::remove(dirent.path(), ec);   // orphan: asset gone
                 continue;
             }
             const auto& meta = AssetDatabase::GetMetadata(uuid);
@@ -462,7 +451,7 @@ namespace Luth::UI
 
     void ThumbnailCache::Clear()
     {
-        // Discard deferred dispatches — UUIDs belong to the outgoing project.
+        // Discard deferred dispatches: UUIDs belong to the outgoing project.
         {
             SpinLockGuard g(s_DispatchLock);
             s_PendingDispatches.clear();

@@ -1,4 +1,4 @@
-// Pre-filtered env map (split-sum specular IBL, Karis 2013) — GGX importance-sampled per roughness mip.
+// Pre-filtered env map (split-sum specular IBL, Karis 2013): GGX importance-sampled per roughness mip.
 // Standalone Set 0; roughness arrives via push constant (one dispatch per mip).
 [[vk::binding(0, 0)]] SamplerCube envMap;
 [[vk::binding(1, 0)]] [[vk::image_format("rgba16f")]] RWTexture2DArray<float4> prefilteredOut;

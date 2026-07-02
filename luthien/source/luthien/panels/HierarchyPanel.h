@@ -8,10 +8,8 @@
 
 namespace Luth
 {
-    // Per-frame snapshot fragment for HierarchyPanel. Captures change-detection
-    // versions only; the tree walk + filter still runs inline in OnDraw against
-    // the live Scene. A later polish commit can move pre-walk + filter results
-    // into this struct — the lifecycle is ready for it.
+    // Per-frame snapshot fragment for HierarchyPanel. Captures change-detection versions only;
+    // the tree walk + filter still runs inline in OnDraw against the live Scene.
     struct HierarchySnapshot
     {
         u32 hierarchyVersion = 0;

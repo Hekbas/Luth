@@ -11,7 +11,7 @@ namespace Luth
     // On EnterPlay: the active scene is serialized to an in-memory JSON string
     // and CommandHistory is cleared. On Stop: the snapshot is restored via
     // SceneSerializer::LoadFromString(preserveAssets=true) so AssetManager
-    // keeps existing assets — no mesh/texture re-resolve per Play→Stop cycle.
+    // keeps existing assets; no mesh/texture re-resolve per Play->Stop cycle.
     // RequestStep/ConsumeStepRequest cooperate with App::Run so a single
     // engine frame can advance game systems while in the Paused state.
     class PlayModeController

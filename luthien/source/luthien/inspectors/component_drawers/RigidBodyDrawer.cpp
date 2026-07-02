@@ -19,7 +19,7 @@ namespace Luth::ComponentDrawers
 
         // Patch the registry entry to fire on_update<RigidBody>; PhysicsSystem listens and queues
         // a body rebuild that drains at the next Update. Cheap (no field write) and idempotent
-        // within a frame — the queue dedups, so multi-edit drags rebuild once per frame, not per
+        // within a frame: the queue dedups, so multi-edit drags rebuild once per frame, not per
         // pixel.
         void Poke(Entity e) {
             e.GetScene()->Registry().patch<RigidBody>((entt::entity)e);
@@ -117,7 +117,7 @@ namespace Luth::ComponentDrawers
                     }
 
                     {
-                        // Authoring-only: only consulted when the body is created. No Poke — current
+                        // Authoring-only: only consulted when the body is created. No Poke; current
                         // body unaffected, next create picks up the new value.
                         auto state = UI::Property("Start Active", rb.startActive);
                         if (state.committed) {

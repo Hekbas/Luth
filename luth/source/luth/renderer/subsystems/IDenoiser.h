@@ -15,17 +15,17 @@ namespace Luth
     // Inputs a denoiser consumes. The diffuse SVGF path uses di/depth/normal/motion/materialID;
     // roughness/hitDist/confidence are reserved (zero-fed for now) so an NRD/RELAX swap and a future
     // specular channel satisfy the same contract without an interface break. di carries DEMODULATED
-    // diffuse irradiance E = Li·NdotL·W — materials are reapplied after denoising. see arch/rendering-pipeline.md
+    // diffuse irradiance E = Li*NdotL*W; materials are reapplied after denoising. see arch/rendering-pipeline.md
     struct DenoiseInputs
     {
         RG::ResourceHandle di;          // noisy demodulated diffuse irradiance (the signal to denoise)
         RG::ResourceHandle depth;       // scene depth (linearized in-shader for edge stops)
         RG::ResourceHandle normal;      // slim G-buffer octahedral world normal (RG16F)
         RG::ResourceHandle motion;      // slim G-buffer de-jittered NDC motion (RG16F)
-        RG::ResourceHandle roughness;   // slim G-buffer perceptual roughness (R8) — reserved
-        RG::ResourceHandle materialID;  // slim G-buffer bindless material slot (R16U) — disocclusion ID
-        RG::ResourceHandle hitDist;     // reserved — NRD radiance+hitDist packing + future specular
-        RG::ResourceHandle confidence;  // reserved — ReSTIR M-count history-confidence prior
+        RG::ResourceHandle roughness;   // slim G-buffer perceptual roughness (R8); reserved
+        RG::ResourceHandle materialID;  // slim G-buffer bindless material slot (R16U); disocclusion ID
+        RG::ResourceHandle hitDist;     // reserved: NRD radiance+hitDist packing + future specular
+        RG::ResourceHandle confidence;  // reserved: ReSTIR M-count history-confidence prior
     };
 
     // Swappable real-time denoiser behind a settings toggle (custom SVGF today; NRD/RELAX later). The

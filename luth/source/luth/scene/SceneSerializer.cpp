@@ -14,7 +14,7 @@ namespace Luth
     using json = nlohmann::json;
     using namespace Component;
 
-    // ── Helpers ──────────────────────────────────────────────────
+    // ---- Helpers ----
 
     static json SerializeVec3(const Vec3& v)
     {
@@ -27,7 +27,7 @@ namespace Luth
         return { j[0].get<float>(), j[1].get<float>(), j[2].get<float>() };
     }
 
-    // Quat serialization order is (w, x, y, z) to match glm::quat's constructor — readable by humans
+    // Quat serialization order is (w, x, y, z) to match glm::quat's constructor; readable by humans
     // and consistent with how the engine writes identity rotations.
     static json SerializeQuat(const Quat& q)
     {
@@ -112,7 +112,7 @@ namespace Luth
         return RigidBody::Quality::Discrete;
     }
 
-    // ── Serialize a single entity ───────────────────────────────
+    // ---- Serialize a Single Entity ----
 
     static json SerializeEntity(Entity entity)
     {
@@ -348,7 +348,7 @@ namespace Luth
         }
 
         // CharacterController: authoring fields only. desiredVelocity / jumpQueued (per-frame inputs)
-        // and groundState / currentVelocity (read-back) are skipped — they're refreshed each frame by
+        // and groundState / currentVelocity (read-back) are skipped; they're refreshed each frame by
         // PlayerControllerSystem and PhysicsSystem respectively.
         if (entity.HasComponent<CharacterController>()) {
             const auto& cc = entity.GetComponent<CharacterController>();
@@ -369,7 +369,7 @@ namespace Luth
         return j;
     }
 
-    // ── Depth-first traversal (parents before children) ─────────
+    // ---- Depth-First Traversal (parents before children) ----
 
     static void CollectEntitiesDFS(Entity entity, std::vector<Entity>& out)
     {
@@ -379,7 +379,7 @@ namespace Luth
         }
     }
 
-    // ── Save ────────────────────────────────────────────────────
+    // ---- Save ----
 
     std::string SceneSerializer::SaveToString(const Scene& scene)
     {
@@ -405,7 +405,7 @@ namespace Luth
     {
         std::ofstream file(path);
         if (!file.is_open()) {
-            LH_LOG(Scene, error, "SceneSerializer::Save — failed to open '{}'", path.string());
+            LH_LOG(Scene, error, "SceneSerializer::Save - failed to open '{}'", path.string());
             return false;
         }
 
@@ -416,13 +416,13 @@ namespace Luth
         return true;
     }
 
-    // ── Load ────────────────────────────────────────────────────
+    // ---- Load ----
 
     bool SceneSerializer::Load(Scene& scene, const fs::path& path)
     {
         std::ifstream file(path);
         if (!file.is_open()) {
-            LH_LOG(Scene, error, "SceneSerializer::Load — failed to open '{}'", path.string());
+            LH_LOG(Scene, error, "SceneSerializer::Load - failed to open '{}'", path.string());
             return false;
         }
 
@@ -431,7 +431,7 @@ namespace Luth
         file.close();
 
         if (!LoadFromString(scene, contents, /*preserveAssets=*/false)) {
-            LH_LOG(Scene, error, "SceneSerializer::Load — failed to load '{}'", path.string());
+            LH_LOG(Scene, error, "SceneSerializer::Load - failed to load '{}'", path.string());
             return false;
         }
 
@@ -446,22 +446,21 @@ namespace Luth
             root = json::parse(jsonStr);
         }
         catch (const json::parse_error& e) {
-            LH_LOG(Scene, error, "SceneSerializer::LoadFromString — parse error: {}", e.what());
+            LH_LOG(Scene, error, "SceneSerializer::LoadFromString - parse error: {}", e.what());
             return false;
         }
 
         if (!root.contains("entities") || !root["entities"].is_array()) {
-            LH_LOG(Scene, error, "SceneSerializer::LoadFromString — invalid scene format (missing entities array)");
+            LH_LOG(Scene, error, "SceneSerializer::LoadFromString - invalid scene format (missing entities array)");
             return false;
         }
 
-        // ── Clear existing scene ────────────────────────────────
-        // preserveAssets=true keeps Scene::m_HeldAssets alive — used by play-mode
+        // Clear existing scene. preserveAssets=true keeps Scene::m_HeldAssets alive; used by play-mode
         // Stop so AssetManager doesn't re-resolve every mesh/texture on restore.
         if (preserveAssets) scene.ClearPreservingAssets();
         else                scene.Clear();
 
-        // ── Pass 1: Create all entities, populate components ────
+        // ---- Pass 1: create all entities, populate components ----
         std::unordered_map<std::string, Entity> uuidToEntity;
         std::vector<std::pair<Entity, std::string>> parentLinks;     // {child, parentUUID}
         std::vector<std::pair<Entity, std::string>> attachmentLinks; // {child, targetUUID}
@@ -520,8 +519,8 @@ namespace Luth
                 auto& a = entity.AddComponent<Animation>();
                 a.ModelUUID = UUID::FromString(aj.value("modelUUID", ""));
 
-                // Migrate from legacy `animationIndex`. LoadImmediate is blocking but
-                // only runs once per scene load and only when scenes pre-date the clipUUID field.
+                // Migrate from legacy `animationIndex`. LoadImmediate is blocking but only runs once per
+                // scene load and only when scenes pre-date the clipUUID field.
                 if (aj.contains("clipUUID")) {
                     a.ClipUUID = UUID::FromString(aj.value("clipUUID", ""));
                 }
@@ -552,9 +551,8 @@ namespace Luth
                 const auto& cj = ej["animationController"];
                 auto& ctrl = entity.AddComponent<AnimationController>();
 
-                // Lazy migration helper: legacy `clipIndex` resolved against the
-                // companion Animation's model. Cached after first call so a single
-                // controller with N layers triggers at most one LoadImmediate.
+                // Lazy migration helper: legacy `clipIndex` resolved against the companion Animation's model.
+                // Cached after first call so a single controller with N layers triggers at most one LoadImmediate.
                 UUID modelUUID;
                 if (entity.HasComponent<Animation>())
                     modelUUID = entity.GetComponent<Animation>().ModelUUID;
@@ -589,9 +587,8 @@ namespace Luth
                         layer.Weight = lj.value("weight", 1.0f);
                         layer.Loop   = lj.value("loop", true);
                         if (lj.contains("boneMask")) {
-                            // Sparse mask: array of bone indices that are enabled
-                            // We'll reconstruct the full vector once skeleton is available.
-                            // For now, find the max index to size the vector.
+                            // Sparse mask: array of enabled bone indices. The full vector is reconstructed
+                            // once the skeleton is available; for now size the vector from the max index.
                             const auto& maskJson = lj["boneMask"];
                             if (!maskJson.empty()) {
                                 u32 maxIdx = 0;
@@ -652,7 +649,7 @@ namespace Luth
                 dl.CascadeBlendWidth       = dj.value("cascadeBlendWidth", 0.2f);
                 dl.DebugVisualizeCascades   = dj.value("debugVisualizeCascades", false);
 
-                // RT-shadow toggle + epsilons. Missing key → engine default (RtShadows) so legacy
+                // RT-shadow toggle + epsilons. Missing key -> engine default (RtShadows) so legacy
                 // scenes pick up RT automatically; saved value round-trips otherwise.
                 dl.Shadowing       = static_cast<ShadowingMode>(
                                          dj.value("shadowing", static_cast<i32>(ShadowingMode::RtShadows)));
@@ -680,7 +677,7 @@ namespace Luth
                 sl.OuterConeAngleDeg = sj.value("outerCone", 45.0f);
             }
 
-            // FogVolume — tagged-union; load type first, then the active union member.
+            // FogVolume: tagged union; load type first, then the active union member.
             if (ej.contains("fogVolume")) {
                 const auto& fj = ej["fogVolume"];
                 FogVolume fv;
@@ -707,7 +704,7 @@ namespace Luth
                 entity.AddComponent<FogVolume>(fv);
             }
 
-            // Wind — per-entity response to the global field (additive; absent → full global response).
+            // Wind: per-entity response to the global field (additive; absent -> full global response).
             if (ej.contains("wind")) {
                 const auto& wj = ej["wind"];
                 Wind w;
@@ -723,7 +720,7 @@ namespace Luth
                 entity.AddComponent<Wind>(w);
             }
 
-            // Collider / RigidBody — both populate a local first, then AddComponent copy-emplaces the
+            // Collider / RigidBody: both populate a local first, then AddComponent copy-emplaces the
             // populated value. EnTT's on_construct fires synchronously inside AddComponent, so the
             // "AddComponent + then assign fields" pattern used by other components above leaves the
             // signal handler reading defaults. PhysicsSystem's TryCreateBody runs in that signal,
@@ -786,7 +783,7 @@ namespace Luth
                 entity.AddComponent<RigidBody>(rb);
             }
 
-            // Populate local CC, then AddComponent — EnTT on_construct must see deserialized values,
+            // Populate local CC, then AddComponent; EnTT on_construct must see deserialized values,
             // not defaults, or PhysicsSystem's first build would queue with stale fields.
             if (ej.contains("characterController")) {
                 const auto& chj = ej["characterController"];
@@ -813,14 +810,14 @@ namespace Luth
             }
         }
 
-        // ── Pass 2: Reconstruct hierarchy ───────────────────────
+        // ---- Pass 2: reconstruct hierarchy ----
         for (auto& [child, parentUUID] : parentLinks) {
             auto it = uuidToEntity.find(parentUUID);
             if (it != uuidToEntity.end()) {
                 child.SetParent(it->second);
             }
             else {
-                LH_LOG(Scene, warn, "SceneSerializer::LoadFromString — parent UUID '{}' not found for entity '{}'",
+                LH_LOG(Scene, warn, "SceneSerializer::LoadFromString - parent UUID '{}' not found for entity '{}'",
                     parentUUID, child.GetName());
             }
         }
@@ -832,7 +829,7 @@ namespace Luth
                 child.GetComponent<BoneAttachment>().TargetEntity = it->second;
             }
             else {
-                LH_LOG(Scene, warn, "SceneSerializer::LoadFromString — BoneAttachment target UUID '{}' not found for '{}'",
+                LH_LOG(Scene, warn, "SceneSerializer::LoadFromString - BoneAttachment target UUID '{}' not found for '{}'",
                     targetUUID, child.GetName());
             }
         }

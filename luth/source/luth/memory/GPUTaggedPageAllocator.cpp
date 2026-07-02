@@ -21,9 +21,8 @@ namespace Luth::Memory
 
     void GPUTaggedPageAllocator::Init()
     {
-        // Storage-buffer offset alignment is the minimum any descriptor binding may use;
-        // raise the alignment floor so AllocateMappedSequentialBuffer-backed regions can
-        // bind directly without further fixup at consumer sites.
+        // Storage-buffer offset alignment is the minimum any descriptor binding may use; raise the alignment
+        // floor so AllocateMappedSequentialBuffer-backed regions can bind directly without further fixup at consumer sites.
         const auto& props = VulkanContext::Get().GetPhysicalDeviceProperties();
         m_MinAlignment = std::max<u64>(props.limits.minStorageBufferOffsetAlignment, 16);
 
@@ -37,7 +36,7 @@ namespace Luth::Memory
         SpinLockGuard lock(m_Lock);
 
         // Device is idle by this point (VulkanBackend::Shutdown calls vkDeviceWaitIdle first),
-        // so immediate destroy is safe — no need to round-trip through the deletion queue.
+        // so immediate destroy is safe; no need to round-trip through the deletion queue.
         for (GPUPage* page : m_UsedPages)
         {
             if (page->isLargeOneShot && page->oneShotAlloc)
@@ -50,7 +49,7 @@ namespace Luth::Memory
             LH_DELETE(Memory::Category::GPU, page);
         m_FreePages.clear();
 
-        // Recycled large-one-shots still own their VkBuffer — destroy here (device idle).
+        // Recycled large-one-shots still own their VkBuffer; destroy here (device idle).
         for (GPUPage* page : m_FreeLargePages)
         {
             if (page->oneShotAlloc)
@@ -82,10 +81,9 @@ namespace Luth::Memory
 
         const u64 align = std::max(alignment, m_MinAlignment);
 
-        // Hot path — bump within active page (no lock; cache is per-fiber).
-        // Tag-mismatch invalidates the cached page: a fiber reused across frames may
-        // see ActivePage tagged with a prior frame; bumping into it would defeat
-        // FreeTag (the page would never reach matching-tag bulk-release for either frame).
+        // Hot path: bump within active page (no lock; cache is per-fiber).
+        // Tag-mismatch invalidates the cached page: a fiber reused across frames may see ActivePage tagged with
+        // a prior frame; bumping into it would defeat FreeTag (the page would never reach matching-tag bulk-release for either frame).
         if (cache.ActivePage && cache.ActivePage->tag != cache.CurrentTag)
             cache.ActivePage = nullptr;
 
@@ -107,7 +105,7 @@ namespace Luth::Memory
             }
         }
 
-        // Overflow → claim a new page, then retry on it (guaranteed to fit since size <= PAGE_SIZE).
+        // Overflow: claim a new page, then retry on it (guaranteed to fit since size <= PAGE_SIZE).
         {
             SpinLockGuard lock(m_Lock);
             cache.ActivePage = AllocatePageLocked(cache.CurrentTag);
@@ -134,12 +132,12 @@ namespace Luth::Memory
     {
         // Dedicated VkBuffer per request; tagged like a page so FreeTag releases it. offset = 0 for one-shot
         // allocations (the whole buffer is one region), so m_MinAlignment is moot.
-        // invariant: these buffers are RECYCLED on FreeTag, never destroyed — a too-early reclaim must degrade
+        // invariant: these buffers are RECYCLED on FreeTag, never destroyed; a too-early reclaim must degrade
         // to stale data, not an unmapped-VA fault. Reuse a pooled buffer of matching capacity; allocate fresh
         // only on a miss; pool drained at Shutdown. see arch/memory.md
         (void)alignment;
 
-        // Reuse a recycled buffer of exact capacity — `used` holds the buffer's full size.
+        // Reuse a recycled buffer of exact capacity; `used` holds the buffer's full size.
         {
             SpinLockGuard lock(m_Lock);
             for (size_t i = 0; i < m_FreeLargePages.size(); ++i)
@@ -162,7 +160,7 @@ namespace Luth::Memory
                    | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
                    | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
                    | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-        // Universal CPU→GPU data path — Material / Bone / Object / Indirect / per-frame UBOs all sub-allocate from
+        // Universal CPU->GPU data path: Material / Bone / Object / Indirect / per-frame UBOs all sub-allocate from
         // these large-one-shot allocations. Async-compute passes may read SSBOs allocated here in a future effort
         // (forward-plus cluster build). CONCURRENT carries no overhead on NVIDIA per Khronos guidance; AMD DCC
         // concerns are color-RT specific and don't apply to buffers.
@@ -207,7 +205,7 @@ namespace Luth::Memory
         // satisfies a device-local request of matching capacity. see arch/memory.md
         (void)alignment;
 
-        // Reuse a recycled device-local buffer of exact capacity — `used` holds the buffer's full size.
+        // Reuse a recycled device-local buffer of exact capacity; `used` holds the buffer's full size.
         {
             SpinLockGuard lock(m_Lock);
             for (size_t i = 0; i < m_FreeLargeDeviceLocalPages.size(); ++i)
@@ -229,7 +227,7 @@ namespace Luth::Memory
         info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
                    | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
                    | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-        // Reservoirs cross graphics (G-buffer reads) ↔ async-compute (resampling) — CONCURRENT matches the heap.
+        // Reservoirs cross graphics (G-buffer reads) <-> async-compute (resampling); CONCURRENT matches the heap.
         VulkanContext::Get().ApplyConcurrentSharing(info);
 
         VkBuffer buf = VK_NULL_HANDLE;
@@ -245,7 +243,7 @@ namespace Luth::Memory
         page->isDeviceLocal  = true;
         page->oneShotAlloc   = a;
         page->buffer         = buf;
-        page->basePtr        = nullptr;  // device-local — never CPU-mapped
+        page->basePtr        = nullptr;  // device-local; never CPU-mapped
         page->baseOffset     = 0;
         page->used           = size;
         page->tag            = tag;
@@ -260,12 +258,11 @@ namespace Luth::Memory
 
     void GPUTaggedPageAllocator::FlushRegion(const GPUSubRegion& region)
     {
-        // Device-local regions are non-mapped (mappedPtr == nullptr) and never CPU-written — nothing to flush.
+        // Device-local regions are non-mapped (mappedPtr == nullptr) and never CPU-written; nothing to flush.
         if (!region.buffer || region.size == 0 || !region.mappedPtr) return;
 
-        // Map region.buffer back to its VmaAllocation. Backings carry their alloc;
-        // large-one-shot pages carry it on the page. Linear search across backings is
-        // cheap (typically 1-2 entries).
+        // Map region.buffer back to its VmaAllocation. Backings carry their alloc; large-one-shot pages carry
+        // it on the page. Linear search across backings is cheap (typically 1-2 entries).
         SpinLockGuard lock(m_Lock);
         for (const BackingBuffer& bb : m_BackingBuffers)
         {
@@ -289,9 +286,8 @@ namespace Luth::Memory
     {
         SpinLockGuard lock(m_Lock);
 
-        // Linear scan — small N (~10-20 pages per frame). Index-based loop because
-        // pop_back invalidates iterators under MSVC's _ITERATOR_DEBUG_LEVEL=2; the
-        // cached end() trips the iterator-compatibility check on the next compare.
+        // Linear scan: small N (~10-20 pages per frame). Index-based loop because pop_back invalidates iterators
+        // under MSVC's _ITERATOR_DEBUG_LEVEL=2; the cached end() trips the iterator-compatibility check on the next compare.
         for (size_t i = 0; i < m_UsedPages.size(); )
         {
             GPUPage* page = m_UsedPages[i];
@@ -299,7 +295,7 @@ namespace Luth::Memory
             {
                 if (page->isLargeOneShot)
                 {
-                    // Recycle, never destroy — keep the VkBuffer alive so a too-early reclaim is stale data, not a fault.
+                    // Recycle, never destroy: keep the VkBuffer alive so a too-early reclaim is stale data, not a fault.
                     page->tag = 0;
                     if (page->isDeviceLocal) m_FreeLargeDeviceLocalPages.push_back(page);
                     else                     m_FreeLargePages.push_back(page);
@@ -325,7 +321,7 @@ namespace Luth::Memory
     {
         // Sibling of FreeTag for PERSISTENT reserved-tag large-one-shots (resize-sized reservoir/OIT
         // Garlic buffers): capacity changes every resize, so recycling always misses the exact-capacity
-        // reuse check and orphans the old buffer until Shutdown. Destroy instead — deferred N+2 via the
+        // reuse check and orphans the old buffer until Shutdown. Destroy instead: deferred N+2 via the
         // deletion queue, since frames N-1/N-2 submitted before the resize may still read it.
         // see arch/memory.md
         struct Doomed { VkBuffer buffer; VmaAllocation alloc; };
@@ -345,7 +341,7 @@ namespace Luth::Memory
                     }
                     else
                     {
-                        // Defensive — a reserved persistent tag should only ever cover large-one-shots.
+                        // Defensive: a reserved persistent tag should only ever cover large-one-shots.
                         page->used = 0;
                         page->tag  = 0;
                         m_FreePages.push_back(page);
@@ -360,7 +356,7 @@ namespace Luth::Memory
             }
         }
 
-        // Defer outside the allocator lock — keeps the hot-path SpinLock critical section short and
+        // Defer outside the allocator lock; keeps the hot-path SpinLock critical section short and
         // avoids nesting VulkanContext's deletion lock under it.
         for (const Doomed& d : doomed)
             VulkanContext::Get().PushDeletion([buf = d.buffer, alloc = d.alloc]()
@@ -420,7 +416,7 @@ namespace Luth::Memory
             }
         }
 
-        // V6 overflow tier: all backings exhausted under steady GPU stall — grow.
+        // V6 overflow tier: all backings exhausted under steady GPU stall; grow.
         GrowBackingPoolLocked();
         if (m_BackingBuffers.empty()) return nullptr;
 
@@ -450,7 +446,7 @@ namespace Luth::Memory
                    | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
         // Backings carve into 2 MB pages distributed across all per-frame SSBO / UBO consumers; once forward-plus /
         // gpu-particles route their compute work to AsyncCompute, the buffer regions cross queue families. Apply
-        // CONCURRENT across the whole pool — uniform with the large-one-shot path.
+        // CONCURRENT across the whole pool, uniform with the large-one-shot path.
         VulkanContext::Get().ApplyConcurrentSharing(info);
 
         BackingBuffer bb;
@@ -462,7 +458,6 @@ namespace Luth::Memory
         }
         bb.pagesUsed = 0;
         m_BackingBuffers.push_back(bb);
-        // No MemoryTracker call here — VulkanAllocator already records Category::GPU
-        // for the backing; double-counting would inflate the snapshot.
+        // No MemoryTracker call here; VulkanAllocator already records Category::GPU for the backing; double-counting would inflate the snapshot.
     }
 }

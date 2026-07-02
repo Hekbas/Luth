@@ -12,7 +12,7 @@ namespace Luth::MaterialLayoutGuard
         SlangCompiler::StructLayout sl = SlangCompiler::ReflectStructLayout(slangPath, typeName);
         if (!sl.ok)
         {
-            LH_LOG(Renderer, warn, "MaterialLayoutGuard: reflection unavailable for '{}' — layout check skipped", typeName);
+            LH_LOG(Renderer, warn, "MaterialLayoutGuard: reflection unavailable for '{}' - layout check skipped", typeName);
             return false;
         }
 
@@ -33,16 +33,16 @@ namespace Luth::MaterialLayoutGuard
             else if (rf->offset != cf.offset)
             {
                 match = false;
-                LH_LOG(Renderer, error, "MaterialLayoutGuard: {}::{} offset drift — C++ {} vs Slang {}",
+                LH_LOG(Renderer, error, "MaterialLayoutGuard: {}::{} offset drift - C++ {} vs Slang {}",
                               typeName, cf.name, cf.offset, rf->offset);
             }
         }
 
         if (!match)
         {
-            LH_LOG(Renderer, error, "MaterialLayoutGuard: {} LAYOUT DRIFT — C++ {} B/{} fields vs Slang {} B/{} fields",
+            LH_LOG(Renderer, error, "MaterialLayoutGuard: {} LAYOUT DRIFT - C++ {} B/{} fields vs Slang {} B/{} fields",
                           typeName, cppSize, cppFields.size(), sl.size, sl.fields.size());
-            assert(false && "MaterialLayoutGuard: C++/Slang struct layout drift — see log");
+            assert(false && "MaterialLayoutGuard: C++/Slang struct layout drift - see log");
             return false;
         }
 

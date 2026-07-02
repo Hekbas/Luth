@@ -46,7 +46,7 @@ namespace Luth
     }
 
     // Shared by SetupDebugMessenger (persistent messenger) and CreateInstance (pNext-chained
-    // temporary that captures vkCreateInstance / vkDestroyInstance failures — see VK_EXT_debug_utils).
+    // temporary that captures vkCreateInstance / vkDestroyInstance failures; see VK_EXT_debug_utils).
     static void PopulateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& ci)
     {
         ci = {};
@@ -76,8 +76,8 @@ namespace Luth
         s_Instance->InitAllocator();
         s_Instance->m_BindlessSet.Init(s_Instance->m_Device);
         s_Instance->m_ResourceCache.Init();
-        s_Instance->InitGpuProfilerContexts();  // Tracy GPU contexts — needs the device + queues
-        // Init last — needs the device, graphics queue, and VMA allocator. Consumed
+        s_Instance->InitGpuProfilerContexts();  // Tracy GPU contexts; needs the device + queues
+        // Init last; needs the device, graphics queue, and VMA allocator. Consumed
         // immediately by VKVertexBuffer/VKIndexBuffer ctors during RenderingSystem startup.
         UploadContext::Init();
     }
@@ -88,8 +88,8 @@ namespace Luth
 
         s_Instance->FlushAllDeletionQueues();
 
-        // Shutdown order: UploadContext first — drains its timeline + frees the staging
-        // VkBuffer while VMA + the device are still alive.
+        // Shutdown order: UploadContext first; drains its timeline + frees the staging VkBuffer while VMA + the
+        // device are still alive.
         UploadContext::Shutdown();
         s_Instance->m_ResourceCache.Shutdown();
         s_Instance->m_BindlessSet.Shutdown();
@@ -170,7 +170,7 @@ namespace Luth
     void VulkanContext::ResolveValidationConfig()
     {
         // Default tier (also empty / "1" / "on" / "default"): core + sync-val + best-practices. GPU-AV
-        // is excluded by default — its instrumentation perturbs submit timing and can mask races.
+        // is excluded by default: its instrumentation perturbs submit timing and can mask races.
         // see arch/gpu-crash-debugging.md
         auto applyDefault = [this]{ m_ValTiers = {}; m_ValTiers.sync = true; m_ValTiers.bestPractices = true; };
 
@@ -209,7 +209,7 @@ namespace Luth
     {
         // LUTH_VALIDATION (any build) overrides the BuildConfig default + selects feature tiers, so a
         // Release binary can enable the validation stack without a rebuild to diagnose Release-only GPU
-        // faults. Needs the Vulkan SDK layers present (graceful soft-fail below).
+        // faults. Needs the Vulkan SDK layers present (soft-fail below).
         ResolveValidationConfig();
 
         if (m_EnableValidationLayers && !CheckValidationLayerSupport()) {
@@ -223,7 +223,7 @@ namespace Luth
         appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
         appInfo.pEngineName = "Luth";
         appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-        appInfo.apiVersion = VK_API_VERSION_1_3; // Target Vulkan 1.3
+        appInfo.apiVersion = VK_API_VERSION_1_3;
 
         VkInstanceCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -256,11 +256,11 @@ namespace Luth
         createInfo.ppEnabledExtensionNames = extensions.data();
 
         // Layers + pNext-chained debug messenger
-        // The chained messenger is consumed by vkCreateInstance and is not retained — its lifetime
-        // extends only until the call returns, which is exactly when we need it to catch instance
+        // The chained messenger is consumed by vkCreateInstance and is not retained; its lifetime
+        // extends only until the call returns, exactly the window that catches instance
         // create/destroy failures (the persistent messenger from SetupDebugMessenger covers steady state).
         VkDebugUtilsMessengerCreateInfoEXT debugCI{};
-        // Validation features selected per tier. Legacy VkValidationFeaturesEXT route — still functional;
+        // Validation features selected per tier. Legacy VkValidationFeaturesEXT route, still functional;
         // the modern path is VK_EXT_layer_settings (validate_sync / gpuav_enable), see
         // arch/gpu-crash-debugging.md. GPU-AV must list GPU_ASSISTED before RESERVE_BINDING_SLOT (its VU).
         std::vector<VkValidationFeatureEnableEXT> valFeatures;
@@ -321,8 +321,8 @@ namespace Luth
     }
 
     // Renderer baseline: VK_KHR_swapchain + 4 RT extensions + a graphics queue family.
-    // RT-mandatory (rt-renderer arc): a device missing any RT extension is ineligible,
-    // not a fallback candidate — hard-fail at the picker rather than after vkCreateDevice.
+    // RT-mandatory: a device missing any RT extension is ineligible, not a fallback
+    // candidate; hard-fail at the picker rather than after vkCreateDevice.
     static bool DeviceMeetsBaseline(VkPhysicalDevice device)
     {
         u32 extCount = 0;
@@ -394,12 +394,12 @@ namespace Luth
 
         LH_LOG(Renderer, critical, "No Vulkan device meets baseline (VK_KHR_swapchain + RT extensions "
                          "[acceleration_structure, ray_tracing_pipeline, ray_query, deferred_host_operations] "
-                         "+ graphics queue) — Luth is RT-mandatory per rt-renderer arc");
+                         "+ graphics queue). Luth requires ray tracing.");
     }
 
     void VulkanContext::CreateLogicalDevice()
     {
-        // RT properties (shaderGroup sizes + alignments + recursion depth) are vendor-dependent —
+        // RT properties (shaderGroup sizes + alignments + recursion depth) are vendor-dependent;
         // queried once here so every RT consumer (SBT builder, BLAS sizing, RT pipeline) reads from
         // one cached struct on VulkanContext. PickPhysicalDevice has two return paths and would
         // duplicate the call; CreateLogicalDevice runs once after the picker settles.
@@ -420,7 +420,7 @@ namespace Luth
         // Priority-order queue family discovery. Graphics is the baseline (asserted in PickPhysicalDevice).
         // Compute prefers a family with COMPUTE_BIT but no GRAPHICS_BIT (true async compute on discrete GPUs).
         // Transfer prefers a DMA-style family (TRANSFER_BIT, no GRAPHICS, no COMPUTE) so uploads run on a copy
-        // engine in parallel with frame work. Fallbacks alias to graphics — single-family GPUs (Intel iGPU, etc.)
+        // engine in parallel with frame work. Fallbacks alias to graphics; single-family GPUs (Intel iGPU, etc.)
         // collapse to a single VkDeviceQueueCreateInfo and submit wrappers become no-cost dispatch.
         uint32_t queueFamilyCount = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(m_PhysicalDevice, &queueFamilyCount, nullptr);
@@ -480,7 +480,7 @@ namespace Luth
         if (m_TransferFamily == kInvalid) m_TransferFamily = m_GraphicsFamily;
 
         // timestampValidBits compatibility: GPUTimerPool writes one shared query pool across all families using a
-        // single device-level timestampPeriod. If valid bits diverge between families we use, conversion math is
+        // single device-level timestampPeriod. If valid bits diverge between the families in use, conversion math is
         // wrong on the diverging queue. Rare on consumer hardware but the assertion catches it loudly.
         // See docs/development/arch/multi-queue.md (GPUTimerPool section) for the per-family-period future-polish path.
         const u32 graphicsBits = queueFamilies[m_GraphicsFamily].timestampValidBits;
@@ -488,7 +488,7 @@ namespace Luth
         {
             const u32 b = queueFamilies[m_ComputeFamily].timestampValidBits;
             if (b != 0 && graphicsBits != 0 && b != graphicsBits)
-                LH_LOG(Renderer, critical, "Compute family timestampValidBits ({}) differs from graphics ({}) — GPU timer "
+                LH_LOG(Renderer, critical, "Compute family timestampValidBits ({}) differs from graphics ({}) - GPU timer "
                                  "math would corrupt on the compute stream; per-family period support not implemented.",
                                  b, graphicsBits);
         }
@@ -496,7 +496,7 @@ namespace Luth
         {
             const u32 b = queueFamilies[m_TransferFamily].timestampValidBits;
             if (b != 0 && graphicsBits != 0 && b != graphicsBits)
-                LH_LOG(Renderer, critical, "Transfer family timestampValidBits ({}) differs from graphics ({}) — GPU timer "
+                LH_LOG(Renderer, critical, "Transfer family timestampValidBits ({}) differs from graphics ({}) - GPU timer "
                                  "math would corrupt on the transfer stream; per-family period support not implemented.",
                                  b, graphicsBits);
         }
@@ -537,7 +537,7 @@ namespace Luth
                      && availRq.rayQuery;
         if (!ok)
         {
-            LH_LOG(Renderer, critical, "Required Vulkan 1.1/1.2/1.3 + RT features missing on selected device — "
+            LH_LOG(Renderer, critical, "Required Vulkan 1.1/1.2/1.3 + RT features missing on selected device - "
                 "shaderDrawParameters={} descriptorBindingPartiallyBound={} "
                 "descriptorBindingSampledImageUpdateAfterBind={} descriptorBindingStorageBufferUpdateAfterBind={} "
                 "descriptorBindingStorageImageUpdateAfterBind={} descriptorBindingUniformBufferUpdateAfterBind={} "
@@ -564,7 +564,7 @@ namespace Luth
         }
 
         // One VkDeviceQueueCreateInfo per distinct family. Up to 3 (graphics + async-compute + async-transfer);
-        // collapses to 1 on single-family GPUs. Queue priorities are equal — Khronos sample-style priority inversion
+        // collapses to 1 on single-family GPUs. Queue priorities are equal; Khronos sample-style priority inversion
         // is a tuning-pass future item (see arch/multi-queue.md).
         const float queuePriority = 1.0f;
         std::vector<u32> distinctFamilies;
@@ -589,7 +589,7 @@ namespace Luth
         deviceFeatures.samplerAnisotropy = VK_TRUE;
         deviceFeatures.fillModeNonSolid = VK_TRUE;
         deviceFeatures.independentBlend = VK_TRUE;
-        // Per-pass GPU pipeline statistics (overdraw / geometry counts) for the editor profiler — enabled
+        // Per-pass GPU pipeline statistics (overdraw / geometry counts) for the editor profiler, enabled
         // only when supported; spanning secondary cmd buffers also needs inheritedQueries. GPUTimerPool gates
         // collection on SupportsPipelineStats(), so an unsupported GPU degrades cleanly to timing-only.
         deviceFeatures.pipelineStatisticsQuery = avail2.features.pipelineStatisticsQuery;
@@ -610,7 +610,7 @@ namespace Luth
         // Required for tagged-heap consumers whose descriptors are rewritten each frame to point at fresh allocator
         // regions: SSBOs (Set 2 Material / Set 4 Bones / Set 5 Object) and UBOs (Set 0 Global+GTAO / Set 3 Light /
         // PostProcess / Grid). Storage-image variant required by GTAOMain layout (per-render-stage rewrites of the
-        // output image binding under VUID 03047 race — see GTAOSubsystem.cpp's invariant comment).
+        // output image binding under VUID 03047 race; see GTAOSubsystem.cpp's invariant comment).
         features12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
         features12.descriptorBindingStorageImageUpdateAfterBind  = VK_TRUE;
         features12.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
@@ -621,7 +621,7 @@ namespace Luth
         features12.timelineSemaphore = VK_TRUE;
 
         // BDA: vkGetBufferDeviceAddress + GLSL buffer_reference. VMA needs the matching
-        // VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT — see VulkanAllocator::Init.
+        // VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT; see VulkanAllocator::Init.
         features12.bufferDeviceAddress = VK_TRUE;
 
         // scalarBlockLayout: skinning.slang reads the tight 84 B SkinnedVertex VB directly via a scalar
@@ -635,12 +635,12 @@ namespace Luth
         features13.synchronization2 = VK_TRUE;
         features13.pNext = &features12;
 
-        // RT features (rt-renderer arc) — chain tail: 11 -> AS -> RT-pipeline -> ray-query.
+        // RT features. Chain tail: 11 -> AS -> RT-pipeline -> ray-query.
         // accelerationStructure mandates bufferDeviceAddress (asserted enabled above).
         VkPhysicalDeviceAccelerationStructureFeaturesKHR asFeatures{};
         asFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
         asFeatures.accelerationStructure = VK_TRUE;
-        // Required so Set 0 binding 6 (TLAS) can use UPDATE_AFTER_BIND — VUID-03570 fires on layout
+        // Required so Set 0 binding 6 (TLAS) can use UPDATE_AFTER_BIND; VUID-03570 fires on layout
         // create without it. Asserted in the baseline check above so RT-mandatory devices guarantee it.
         asFeatures.descriptorBindingAccelerationStructureUpdateAfterBind = VK_TRUE;
 
@@ -689,7 +689,7 @@ namespace Luth
             return false;
         };
 
-        // Optional diagnostic — NV-only, used to localize the failing GPU command after TDR.
+        // Optional diagnostic (NV-only): localizes the failing GPU command after TDR.
         // Absence is a soft-fail (the dump path checks HasCheckpoints() before invoking).
         if (hasDeviceExt(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME))
         {
@@ -702,7 +702,7 @@ namespace Luth
             LH_LOG(Renderer, info, "VK_NV_device_diagnostic_checkpoints unavailable on this device");
         }
 
-        // NVIDIA driver-level ray-tracing validation — catches malformed AS builds (degenerate / OOB
+        // NVIDIA driver-level ray-tracing validation: catches malformed AS builds (degenerate / OOB
         // geometry), bad SBT, unexpected shader types. Opt in via LUTH_VALIDATION=rt (which forces the
         // validation layer on, since it reports through the VK_EXT_debug_utils messenger). The driver
         // only reports the extension when the NV_ALLOW_RAYTRACING_VALIDATION=1 environment var is also set.
@@ -726,7 +726,7 @@ namespace Luth
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DIAGNOSTICS_CONFIG_FEATURES_NV };
         VkDeviceDiagnosticsConfigCreateInfoNV diagConfig{
             VK_STRUCTURE_TYPE_DEVICE_DIAGNOSTICS_CONFIG_CREATE_INFO_NV };
-        // Only enable driver-side tracking when Aftermath actually loaded — no wasted overhead on a
+        // Only enable driver-side tracking when Aftermath actually loaded; no wasted overhead on a
         // soft-fail (missing DLL). AUTOMATIC_CHECKPOINTS is intentionally omitted: NVIDIA rates it very
         // high CPU (per-command call-stack walk) and the per-pass vkCmdSetCheckpointNV markers in
         // RenderGraph already localize the failing pass far cheaper. see arch/gpu-crash-debugging.md
@@ -751,14 +751,14 @@ namespace Luth
             LH_LOG(Renderer, critical, "Failed to create logical device!");
         }
 
-        // KHR ray-tracing entry points are device-level — load right after vkCreateDevice,
-        // before queue acquisition (loader doesn't depend on queues).
+        // KHR ray-tracing entry points are device-level; load right after vkCreateDevice, before queue
+        // acquisition (loader doesn't depend on queues).
         LoadRayTracingFunctions();
         if (m_CheckpointsAvailable) LoadCheckpointFunctions();
         LoadDebugUtilsFunctions();
 
-        // Acquire queue handles. Distinct families each get their own queue; aliased families share the handle —
-        // call sites use SubmitCompute2/SubmitTransfer2 either way, so the alias is invisible past this point.
+        // Acquire queue handles. Distinct families each get their own queue; aliased families share the handle.
+        // Call sites use SubmitCompute2/SubmitTransfer2 either way, so the alias is invisible past this point.
         vkGetDeviceQueue(m_Device, m_GraphicsFamily, 0, &m_GraphicsQueue);
         m_ComputeQueue  = m_ComputeIsAsync  ? VK_NULL_HANDLE : m_GraphicsQueue;
         m_TransferQueue = m_TransferIsAsync ? VK_NULL_HANDLE : m_GraphicsQueue;
@@ -766,15 +766,15 @@ namespace Luth
         if (m_TransferIsAsync) vkGetDeviceQueue(m_Device, m_TransferFamily, 0, &m_TransferQueue);
 
         // Deduped family list backs CONCURRENT-sharing resource creation. Already in canonical order: graphics first,
-        // then async-compute (if distinct), then async-transfer (if distinct) — distinctFamilies was built that way.
+        // then async-compute (if distinct), then async-transfer (if distinct); distinctFamilies was built that way.
         m_ConcurrentFamilyIndices = distinctFamilies;
 
-        LH_LOG(Renderer, info, "Queue layout — graphics={}, compute={} ({}), transfer={} ({})",
+        LH_LOG(Renderer, info, "Queue layout - graphics={}, compute={} ({}), transfer={} ({})",
             m_GraphicsFamily,
             m_ComputeFamily,  m_ComputeIsAsync  ? "async" : "aliased",
             m_TransferFamily, m_TransferIsAsync ? "async" : "aliased");
 
-        // Command pool for ImmediateSubmit (graphics family — init-time IBL precompute, frame-debugger archive ops).
+        // Command pool for ImmediateSubmit (graphics family: init-time IBL precompute, frame-debugger archive ops).
         VkCommandPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
         poolInfo.queueFamilyIndex = m_GraphicsFamily;
@@ -785,7 +785,7 @@ namespace Luth
 
     void VulkanContext::LoadRayTracingFunctions()
     {
-        // RT-mandatory: any missing fp is fatal. Validation-layer rules forbid silent fallback —
+        // RT-mandatory: any missing fp is fatal. Validation-layer rules forbid silent fallback;
         // call sites would dispatch through null and trip the validation layer or crash at use site.
         #define LH_LOAD_RT_FN(field) \
             m_RtFn.field = (PFN_##field)vkGetDeviceProcAddr(m_Device, #field); \
@@ -811,7 +811,7 @@ namespace Luth
             (PFN_vkGetQueueCheckpointDataNV)vkGetDeviceProcAddr(m_Device, "vkGetQueueCheckpointDataNV");
         if (!m_CheckpointFn.vkCmdSetCheckpointNV || !m_CheckpointFn.vkGetQueueCheckpointDataNV)
         {
-            LH_LOG(Renderer, warn, "VK_NV_device_diagnostic_checkpoints fp load failed — disabling");
+            LH_LOG(Renderer, warn, "VK_NV_device_diagnostic_checkpoints fp load failed - disabling");
             m_CheckpointFn = {};
             m_CheckpointsAvailable = false;
         }
@@ -819,7 +819,7 @@ namespace Luth
 
     void VulkanContext::LoadDebugUtilsFunctions()
     {
-        // VK_EXT_debug_utils procs (enabled with validation); resolve to null when off — call sites null-guard.
+        // VK_EXT_debug_utils procs (enabled with validation); resolve to null when off, call sites null-guard.
         m_DebugUtilsFn.vkSetDebugUtilsObjectNameEXT =
             (PFN_vkSetDebugUtilsObjectNameEXT)vkGetDeviceProcAddr(m_Device, "vkSetDebugUtilsObjectNameEXT");
         m_DebugUtilsFn.vkCmdBeginDebugUtilsLabelEXT =
@@ -936,12 +936,12 @@ namespace Luth
     bool VulkanContext::SubmitGraphics2(const VkSubmitInfo2& submitInfo, VkFence fence)
     {
         std::lock_guard<std::mutex> lock(m_QueueMutex);
-        // Capture VkResult — `-4` = VK_ERROR_DEVICE_LOST, `-2` = VK_ERROR_OUT_OF_DEVICE_MEMORY,
+        // Capture VkResult: `-4` = VK_ERROR_DEVICE_LOST, `-2` = VK_ERROR_OUT_OF_DEVICE_MEMORY,
         // `-1` = VK_ERROR_OUT_OF_HOST_MEMORY. The bare "Failed!" log dropped this and obscured TDR diagnosis.
         const VkResult r = vkQueueSubmit2(m_GraphicsQueue, 1, &submitInfo, fence);
         if (r != VK_SUCCESS)
         {
-            LH_LOG(Renderer, error, "VulkanContext: Graphics SubmitInfo2 failed — VkResult={}", (int)r);
+            LH_LOG(Renderer, error, "VulkanContext: Graphics SubmitInfo2 failed - VkResult={}", (int)r);
             if (r == VK_ERROR_DEVICE_LOST) DumpCheckpointsOnDeviceLost("Graphics submit");
             return false;
         }
@@ -950,13 +950,13 @@ namespace Luth
 
     bool VulkanContext::SubmitCompute2(const VkSubmitInfo2& submitInfo, VkFence fence)
     {
-        // Aliased compute queue still locks its own mutex — vkQueueSubmit2 is not re-entrant on the same VkQueue
+        // Aliased compute queue still locks its own mutex; vkQueueSubmit2 is not re-entrant on the same VkQueue
         // even when handles match. Per-mutex prevents contention with concurrent graphics submits.
         std::lock_guard<std::mutex> lock(m_ComputeQueueMutex);
         const VkResult r = vkQueueSubmit2(m_ComputeQueue, 1, &submitInfo, fence);
         if (r != VK_SUCCESS)
         {
-            LH_LOG(Renderer, error, "VulkanContext: Compute SubmitInfo2 failed — VkResult={}", (int)r);
+            LH_LOG(Renderer, error, "VulkanContext: Compute SubmitInfo2 failed - VkResult={}", (int)r);
             if (r == VK_ERROR_DEVICE_LOST) DumpCheckpointsOnDeviceLost("Compute submit");
             return false;
         }
@@ -969,7 +969,7 @@ namespace Luth
         const VkResult r = vkQueueSubmit2(m_TransferQueue, 1, &submitInfo, fence);
         if (r != VK_SUCCESS)
         {
-            LH_LOG(Renderer, error, "VulkanContext: Transfer SubmitInfo2 failed — VkResult={}", (int)r);
+            LH_LOG(Renderer, error, "VulkanContext: Transfer SubmitInfo2 failed - VkResult={}", (int)r);
             if (r == VK_ERROR_DEVICE_LOST) DumpCheckpointsOnDeviceLost("Transfer submit");
             return false;
         }
@@ -978,7 +978,7 @@ namespace Luth
 
     void VulkanContext::DumpCheckpointsOnDeviceLost(const char* originLabel)
     {
-        // Fire-once gate. Once the device is lost, every subsequent submit returns -4 and we'd
+        // Fire-once gate. Once the device is lost, every subsequent submit returns -4 and would
         // re-dump every frame forever. The first dump localized to a specific GPU command is the
         // useful one; further dumps would just be noise.
         static std::atomic<bool> s_Dumped{ false };
@@ -987,15 +987,15 @@ namespace Luth
 
         LH_PROFILE_MESSAGE_COLOR(originLabel ? originLabel : "VK_ERROR_DEVICE_LOST", 0xFF4040);
 
-        // Aftermath crash dump first — the richest post-mortem signal (no-op without the SDK). The
+        // Aftermath crash dump first: the richest post-mortem signal (no-op without the SDK). The
         // checkpoint dump below is a fallback only: the markers are often wiped by the GPU reset, so
         // "no checkpoints recorded" is expected, not informative. see arch/gpu-crash-debugging.md
         AftermathCrashTracker::OnDeviceLost();
 
-        LH_LOG(Renderer, critical, "─── GPU device lost (origin: {}) — dumping checkpoints ───", originLabel);
+        LH_LOG(Renderer, critical, "--- GPU device lost (origin: {}) - dumping checkpoints ---", originLabel);
         if (!m_CheckpointsAvailable || !m_CheckpointFn.vkGetQueueCheckpointDataNV)
         {
-            LH_LOG(Renderer, critical, "  VK_NV_device_diagnostic_checkpoints unavailable — no localization possible");
+            LH_LOG(Renderer, critical, "  VK_NV_device_diagnostic_checkpoints unavailable - no localization possible");
             return;
         }
 
@@ -1024,7 +1024,7 @@ namespace Luth
         dump("Graphics", m_GraphicsQueue);
         if (m_ComputeIsAsync)  dump("Compute",  m_ComputeQueue);
         if (m_TransferIsAsync) dump("Transfer", m_TransferQueue);
-        LH_LOG(Renderer, critical, "─── End checkpoint dump ───");
+        LH_LOG(Renderer, critical, "--- End checkpoint dump ---");
     }
 
     VkResult VulkanContext::Present(const VkPresentInfoKHR& presentInfo)
@@ -1038,7 +1038,7 @@ namespace Luth
     void VulkanContext::ApplyConcurrentSharing(VkBufferCreateInfo& info) const
     {
         // Single-family layouts: leave EXCLUSIVE. CONCURRENT with one family index is implementation-defined
-        // and validation-noisy; callers expect a graceful fallback on iGPU / single-queue hardware.
+        // and validation-noisy; callers expect a clean fallback on iGPU / single-queue hardware.
         if (m_ConcurrentFamilyIndices.size() <= 1) return;
         info.sharingMode           = VK_SHARING_MODE_CONCURRENT;
         info.queueFamilyIndexCount = (u32)m_ConcurrentFamilyIndices.size();
@@ -1061,7 +1061,7 @@ namespace Luth
 
     void VulkanContext::FlushDeletionQueue()
     {
-        // Drain under lock, run outside — a deletor may push (nested resource release).
+        // Drain under lock, run outside; a deletor may push (nested resource release).
         std::deque<std::function<void()>> drained;
         {
             SpinLockGuard lock(m_DeletionLock);

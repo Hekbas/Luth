@@ -40,7 +40,7 @@ namespace Luth
 
     // Subsystem channel a log line belongs to. Each maps to one spdlog logger (all sharing the
     // same sinks); the ConsolePanel filters per-category. Renderer / Shaders are verbose channels
-    // (off by default in the console) — keep one-time engine bringup on Core so it stays visible.
+    // (off by default in the console); keep one-time engine bringup on Core so it stays visible.
     enum class LogCategory : u8 {
         Core, Assets, Shaders, Renderer, Jobs, Physics, Scene, Editor, Count
     };
@@ -68,10 +68,9 @@ namespace Luth
         std::chrono::system_clock::time_point timestamp;
     };
 
-    // Editor-side observer of the engine log stream. OnLogEntry fires from any
-    // thread (workers / IO / main) — implementations must be re-entrant and MUST
-    // NOT call LH_CORE_* from OnLogEntry (base_sink is non-recursive, deadlock).
-    // ConsolePanel forwards via EventBus to drain on main.
+    // Editor-side observer of the engine log stream. OnLogEntry fires from any thread (workers / IO /
+    // main); implementations must be re-entrant and MUST NOT call LH_CORE_* from OnLogEntry (base_sink
+    // is non-recursive, deadlock). ConsolePanel forwards via EventBus to drain on main.
     class ILogSink {
     public:
         virtual ~ILogSink() = default;
@@ -89,8 +88,8 @@ namespace Luth
             return s_Loggers[static_cast<size_t>(cat)].get();
         }
 
-        // Register / unregister an ILogSink. Safe across threads. Safe to call
-        // before Init (sinks are retained; fan-out begins once spdlog is wired).
+        // Register / unregister an ILogSink. Safe across threads. Safe to call before Init
+        // (sinks are retained; fan-out begins once spdlog is wired).
         static void AddSink(ILogSink* sink);
         static void RemoveSink(ILogSink* sink);
 
@@ -99,11 +98,11 @@ namespace Luth
     };
 }
 
-// ── Logging macros ───────────────────────────────────────────────────────────
-// LH_LOG(cat, method, ...) is the categorized entry point: `cat` is a bare
-// LogCategory enumerator (Assets, Shaders, …), `method` the spdlog level method
-// (trace/debug/info/warn/error/critical). LH_EXPAND re-tokenizes __VA_ARGS__ so
-// the dispatch survives MSVC's traditional preprocessor (no /Zc:preprocessor).
+// ---- Logging macros ----
+// LH_LOG(cat, method, ...) is the categorized entry point: `cat` is a bare LogCategory enumerator
+// (Assets, Shaders, ...), `method` the spdlog level method (trace/debug/info/warn/error/critical).
+// LH_EXPAND re-tokenizes __VA_ARGS__ so the dispatch survives MSVC's traditional preprocessor
+// (no /Zc:preprocessor).
 #define FMT(...) fmt::format(__VA_ARGS__)
 #define LH_EXPAND(x) x
 
@@ -123,7 +122,7 @@ namespace Luth
     #define LH_LOG_debug(c, ...) ::Luth::Log::GetLogger(c)->debug(FMT(__VA_ARGS__))
 #endif
 
-// Core-category aliases — every existing LH_CORE_* call site keeps working. LH_CORE_DEBUG
+// Core-category aliases; every existing LH_CORE_* call site keeps working. LH_CORE_DEBUG
 // is new (the level/console always had Debug; nothing emitted it before).
 #define LH_CORE_TRACE(...)    LH_LOG(Core, trace,    __VA_ARGS__)
 #define LH_CORE_DEBUG(...)    LH_LOG(Core, debug,    __VA_ARGS__)
@@ -133,7 +132,6 @@ namespace Luth
 #define LH_CORE_CRITICAL(...) LH_LOG(Core, critical, __VA_ARGS__)
 
 
-// Assert
 #define LH_CORE_ASSERT(condition, ...)                              \
     do {                                                            \
         if (!(condition)) {                                         \

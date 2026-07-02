@@ -9,17 +9,17 @@ namespace Luth
     // them without a separate binding. Persisted alongside PostProcessSettings on the project.
     struct VolumetricSettings
     {
-        // Exponential distance extinction (camera→fragment). σ_t in 1/m (Beer-Lambert);
-        // integrate's (1 − exp(−σ_t · dt)) supplies the slice integral.
-        // Typical: atmospheric haze 0.005-0.02 · light fog 0.05-0.1 · dense fog 0.2+.
+        // Exponential distance extinction (camera->fragment). sigma_t in 1/m (Beer-Lambert);
+        // integrate's (1 - exp(-sigma_t * dt)) supplies the slice integral.
+        // Typical: atmospheric haze 0.005-0.02, light fog 0.05-0.1, dense fog 0.2+.
         bool distanceFogEnabled    = true;
         f32  distanceFogDensity    = 0.1f;
         f32  distanceFogStart      = 0.0f;
         f32  distanceFogMaxOpacity = 0.85f;
         Vec3 distanceFogColor      = Vec3(0.5f, 0.6f, 0.7f);
 
-        // Exponential height extinction (world-space Y vs reference). Same σ_t unit (1/m);
-        // modulated by exp(−falloff · max(refH − y, 0)).
+        // Exponential height extinction (world-space Y vs reference). Same sigma_t unit (1/m);
+        // modulated by exp(-falloff * max(refH - y, 0)).
         bool heightFogEnabled   = false;
         f32  heightFogDensity   = 0.05f;
         f32  heightFogRefHeight = 0.0f;
@@ -30,13 +30,13 @@ namespace Luth
         // negative = backscatter. Typical fog: 0.3-0.7.
         f32  anisotropy = 0.7f;
 
-        // Artistic multiplier on in-scatter (single + multi). HG for the directional light leaves
-        // off-axis voxels ~75× dimmer than the sun-axis peak — physically correct but visually
-        // dim. UE5 "Scattering Distribution" / Frostbite expose the same knob. Energy non-
-        // conservative when > 1; that's intentional artistic control.
+        // Artistic multiplier on in-scatter (single + multi). HG for the directional light leaves off-axis
+        // voxels ~75x dimmer than the sun-axis peak; physically correct but visually dim. UE5 "Scattering
+        // Distribution" / Frostbite expose the same knob. Energy non-conservative when > 1; that's
+        // intentional artistic control.
         f32  scatteringIntensity = 15.0f;
 
-        // 2nd-order multi-scatter: IBL ambient × extinction (Wronski/Frostbite). 0 = disabled.
+        // 2nd-order multi-scatter: IBL ambient x extinction (Wronski/Frostbite). 0 = disabled.
         f32  multiScatterIntensity = 0.15f;
 
         // Temporal accumulation blend (resolve pass). Larger = less smoothing, more responsive;
@@ -47,9 +47,9 @@ namespace Luth
         // the light path (proper sun-self-shadowing in dense fog). 0 = disabled; 2 = balanced.
         i32  sunFogAbsorptionSteps = 2;
 
-        // RT fog shadows (rt-renderer D.2): one shadow ray per froxel per cluster point light + the sun,
-        // giving point-light + arbitrary-occluder fog shadows the CSM-only path lacks. Default off — it's
-        // a per-froxel ray cost (millions of rays at High); enable for the showcase.
+        // RT fog shadows: one shadow ray per froxel per cluster point light + the sun, giving point-light +
+        // arbitrary-occluder fog shadows the CSM-only path lacks. Default off; it's a per-froxel ray cost
+        // (millions of rays at High); enable for the showcase.
         bool rtShadows = false;
 
         // Multiplier on volumetric fog opacity at sky pixels. 1.0 = full fog on sky (skybox can be
@@ -65,14 +65,14 @@ namespace Luth
 
         // 3D Worley-FBM noise modulating fog density per voxel (Larian/BG3 style wispy look). Scale
         // is world-space frequency (units: 1/m); larger = smaller, more frequent clumps. Strength
-        // is the per-voxel modulation amplitude [0..1]: 0 disables, 1.0 swings density 0→2× around
+        // is the per-voxel modulation amplitude [0..1]: 0 disables, 1.0 swings density 0->2x around
         // its mean. Wind animates the sample UV through time for a slow drift.
         f32  noiseScale    = 0.3f;
         f32  noiseStrength = 1.0f;
         Vec3 noiseWind     = Vec3(0.25f, 0.0f, 0.20f);
 
         // Blue-noise dither on the composite slice fetch. Breaks up Wronski log-slice Z-banding by
-        // jittering sliceW ±0.5 slices per fragment. Without TAA shows as grain; with TAA the
+        // jittering sliceW +-0.5 slices per fragment. Without TAA shows as grain; with TAA the
         // dither integrates to smooth gradients over ~6 frames.
         bool blueNoiseDither = true;
 

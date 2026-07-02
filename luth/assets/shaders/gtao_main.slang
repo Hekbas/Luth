@@ -1,4 +1,4 @@
-// GTAO main integration — faithful port of XeGTAO::MainPass (Intel, MIT) minus bent-normal + multi-mip.
+// GTAO main integration: faithful port of XeGTAO::MainPass (Intel, MIT) minus bent-normal + multi-mip.
 // Half-res; reconstructs view-space normals from depth, integrates horizon-based AO, writes R8 visibility.
 // Reference: github.com/GameTechDev/XeGTAO; Jimenez et al. 2016. Standalone Set 0.
 [[vk::binding(0, 0)]] Sampler2D u_LinearDepth;

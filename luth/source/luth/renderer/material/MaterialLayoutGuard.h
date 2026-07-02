@@ -11,7 +11,7 @@ namespace Luth::MaterialLayoutGuard
 
     // Reflect `typeName` from `slangPath` (Slang) and assert its field offsets + total size match the C++
     // table. A real drift logs a per-field dump + LH_CORE_ERROR (asserts in debug); a reflection that can't
-    // run logs a WARN and is skipped — never blocks boot. Returns true iff reflected-and-matching.
+    // run logs a WARN and is skipped, never blocks boot. Returns true iff reflected-and-matching.
     bool Validate(const std::filesystem::path& slangPath, const char* typeName,
                   std::span<const CppField> cppFields, size_t cppSize);
 }

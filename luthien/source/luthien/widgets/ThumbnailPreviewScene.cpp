@@ -61,7 +61,7 @@ namespace Luth::UI::ThumbnailPreviewScene
         VmaAllocation               s_StagingAlloc  = nullptr;
         void*                       s_StagingMapped = nullptr;
 
-        // 1x1 white default texture — bound for mesh bakes (no albedo texture)
+        // 1x1 white default texture: bound for mesh bakes (no albedo texture)
         // and as a fallback when a material has no albedo map. Created via
         // Texture::Create (async upload) then flushed with vkDeviceWaitIdle.
         std::shared_ptr<Texture>    s_WhiteTexture;
@@ -94,15 +94,15 @@ namespace Luth::UI::ThumbnailPreviewScene
         u32                   s_RingHead                = 0;
         ImTextureID           s_LastGoodInspectorTex    = (ImTextureID)0;
 
-        // Material-change gate keys — `RenderMaterialInspector` re-runs
+        // Material-change gate keys. `RenderMaterialInspector` re-runs
         // LoadImmediate + vkDeviceWaitIdle only when the inspected material's
         // identity or its texture-map UUID set changes.
         UUID                  s_LastInspectorMaterialHandle = UUID::Invalid();
         size_t                s_LastInspectorMaterialTexHash = 0;
 
-        // ── Graph-aware preview ─────────────────────────────────────────────
+        // ---- Graph-aware preview ----
         // A graph material previews through its generated Lambert-over-graph fragment (one pipeline per
-        // structure, keyed by the material's preview-shader UUID) reading a self-contained per-call UBO —
+        // structure, keyed by the material's preview-shader UUID) reading a self-contained per-call UBO;
         // the preview submits off the frame loop, so it can't bind MaterialSystem's transient Set 2.
         std::vector<u32>      s_GraphVertSpv;
         VkDescriptorSetLayout s_PreviewUboLayout = VK_NULL_HANDLE;
@@ -193,8 +193,8 @@ namespace Luth::UI::ThumbnailPreviewScene
             pc.size       = sizeof(PushConstants);
             cfg.pushConstantRanges = { pc };
 
-            // Pipeline now references the engine-wide bindless descriptor set layout (Set 1 in
-            // main rendering, Set 0 here — same VkDescriptorSetLayout, different binding index
+            // Pipeline references the engine-wide bindless descriptor set layout (Set 1 in
+            // main rendering, Set 0 here; same VkDescriptorSetLayout, different binding index
             // at the pipeline-layout level). Per-bake sampling uses globalTextures[diffuseIndex].
             return std::make_unique<VKPipeline>(cfg, vert, frag,
                 std::vector<VkDescriptorSetLayout>{ VulkanContext::Get().GetBindlessSet().GetLayout() });
@@ -215,7 +215,7 @@ namespace Luth::UI::ThumbnailPreviewScene
         }
 
         // Resolves a Texture to a GPU-safe bindless slot. Falls back to slot 0 (1x1 white)
-        // when the texture is missing OR not yet registered — visually equivalent to the old
+        // when the texture is missing OR not yet registered; visually equivalent to the old
         // s_WhiteTexture binding for both cases.
         u32 ResolveBindlessIndex(const std::shared_ptr<Texture>& tex)
         {
@@ -237,7 +237,7 @@ namespace Luth::UI::ThumbnailPreviewScene
             return s_PipelineStatic && s_PipelineSkinned;
         }
 
-        // Maps a material's preview-shader UUID to its generated SPIR-V (ShaderLibrary scan, cached) —
+        // Maps a material's preview-shader UUID to its generated SPIR-V (ShaderLibrary scan, cached);
         // mirrors GeometrySubsystem::ResolveFragSpv. Empty until codegen registers the consumer.
         const std::vector<u32>& ResolvePreviewSpv(const UUID& uuid)
         {
@@ -253,7 +253,7 @@ namespace Luth::UI::ThumbnailPreviewScene
 
         // Lambert-over-graph pipeline: graph vert (5 attrs) + the per-material frag, two-set layout
         // { preview UBO @0, bindless @1 }, vertex-only mat4 push. Static stride (material previews
-        // render the static sphere — no skinned graph variant needed).
+        // render the static sphere, no skinned graph variant needed).
         std::unique_ptr<VKPipeline> BuildGraphPipeline(const std::vector<u32>& frag)
         {
             PipelineConfig cfg;
@@ -305,7 +305,7 @@ namespace Luth::UI::ThumbnailPreviewScene
             auto it = s_GraphPipelines.find(previewUUID);
             if (it != s_GraphPipelines.end()) return it->second.get();
             const std::vector<u32>& frag = ResolvePreviewSpv(previewUUID);
-            if (frag.empty()) return nullptr;   // not yet registered — Lambert this frame, retried next
+            if (frag.empty()) return nullptr;   // not yet registered: Lambert this frame, retried next
             auto pipe = BuildGraphPipeline(frag);
             VKPipeline* raw = pipe.get();
             s_GraphPipelines.emplace(previewUUID, std::move(pipe));
@@ -427,7 +427,7 @@ namespace Luth::UI::ThumbnailPreviewScene
         if (!CreateWhiteTexture())      { Shutdown(); return false; }
         // Non-fatal: on failure material graph previews fall back to the stock Lambert shader.
         if (!CreatePreviewResources())
-            LH_LOG(Editor, warn, "Thumbnail: graph-preview resources failed — material previews stay Lambert");
+            LH_LOG(Editor, warn, "Thumbnail: graph-preview resources failed - material previews stay Lambert");
 
         s_Initialized = true;
         return true;
@@ -506,7 +506,7 @@ namespace Luth::UI::ThumbnailPreviewScene
 
     namespace
     {
-        // Sphere primitive UUID — luth/assets/models/primitives/Sphere.fbx.
+        // Sphere primitive UUID: luth/assets/models/primitives/Sphere.fbx.
         // Stable across builds via the .meta file shipped with the engine.
         const UUID kSphereUUID = UUID::FromString("4c5ad301-7125-475e-954d-80c64c38a552");
 
@@ -524,14 +524,14 @@ namespace Luth::UI::ThumbnailPreviewScene
     }
 
     // Shared mesh-bake body. Public BakeMesh / BakeMaterial differ only by
-    // which model + albedo they pass — the GPU work is identical.
+    // which model + albedo they pass; the GPU work is identical.
     static Image::LoadResult8 BakeMeshInternal(const std::shared_ptr<Model>& model, Vec4 albedo, u32 diffuseIndex, const Material* mat);
 
     Image::LoadResult8 BakeMesh(const std::shared_ptr<Model>& model)
     {
         if (!s_Initialized) return {};
-        // Mesh bakes have no per-asset texture — sample slot 0 (1x1 white) so
-        // shader texture × albedo collapses to the flat tint.
+        // Mesh bakes have no per-asset texture: sample slot 0 (1x1 white) so
+        // shader texture x albedo collapses to the flat tint.
         return BakeMeshInternal(model, Vec4(0.85f, 0.85f, 0.85f, 1.0f),
                                 ResolveBindlessIndex(s_WhiteTexture), nullptr);
     }
@@ -682,7 +682,7 @@ namespace Luth::UI::ThumbnailPreviewScene
         auto vkDepth = std::static_pointer_cast<VKTexture>(s_DepthRT);
 
         VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
-            // Color: SHADER_READ_ONLY_OPTIMAL → COLOR_ATTACHMENT_OPTIMAL
+            // Color: SHADER_READ_ONLY_OPTIMAL -> COLOR_ATTACHMENT_OPTIMAL
             Barrier(cmd, vkColor->GetImage(), VK_IMAGE_ASPECT_COLOR_BIT,
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -690,7 +690,7 @@ namespace Luth::UI::ThumbnailPreviewScene
                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                     VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 
-            // Depth: DEPTH_STENCIL_READ_ONLY_OPTIMAL → DEPTH_ATTACHMENT_OPTIMAL
+            // Depth: DEPTH_STENCIL_READ_ONLY_OPTIMAL -> DEPTH_ATTACHMENT_OPTIMAL
             Barrier(cmd, vkDepth->GetImage(), VK_IMAGE_ASPECT_DEPTH_BIT,
                     VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
                     VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
@@ -735,7 +735,7 @@ namespace Luth::UI::ThumbnailPreviewScene
 
             vkCmdEndRendering(cmd);
 
-            // Color: COLOR_ATTACHMENT_OPTIMAL → TRANSFER_SRC_OPTIMAL
+            // Color: COLOR_ATTACHMENT_OPTIMAL -> TRANSFER_SRC_OPTIMAL
             Barrier(cmd, vkColor->GetImage(), VK_IMAGE_ASPECT_COLOR_BIT,
                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -775,7 +775,7 @@ namespace Luth::UI::ThumbnailPreviewScene
         return out;
     }
 
-    // ── Inspector preview path (no readback, separate RT) ───────────────────
+    // ---- Inspector preview path (no readback, separate RT) ----
 
     namespace
     {
@@ -790,7 +790,7 @@ namespace Luth::UI::ThumbnailPreviewScene
 
             VkDevice device = VulkanContext::Get().GetDevice();
 
-            // Cmd pool with RESET_COMMAND_BUFFER_BIT — slot buffers are reused
+            // Cmd pool with RESET_COMMAND_BUFFER_BIT: slot buffers are reused
             // per submission rather than freed/reallocated.
             {
                 VkCommandPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
@@ -892,7 +892,7 @@ namespace Luth::UI::ThumbnailPreviewScene
             pc.emissive     = emissive;
 
             // Pick slot; wait on its previous submission so its cmd buffer is safe to overwrite.
-            // The engine-wide bindless set carries the texture across submissions — no per-slot
+            // The engine-wide bindless set carries the texture across submissions; no per-slot
             // descriptor write is needed any more.
             const u32 slotIdx = s_RingHead % kInspectorRingSize;
             auto&     slot    = s_Ring[slotIdx];
@@ -973,7 +973,7 @@ namespace Luth::UI::ThumbnailPreviewScene
 
             vkEndCommandBuffer(cmd);
 
-            // Submit via timeline semaphore — no wait semaphores (preview is
+            // Submit via timeline semaphore: no wait semaphores (preview is
             // independent of the swapchain), no fence (timeline signal serves
             // as our completion gate).
             const u64 signalValue = ++s_NextSubmitValue;

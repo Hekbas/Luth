@@ -18,7 +18,7 @@ namespace Luth::ComponentDrawers
     {
         const char* kColliderTypeStrings[] = { "Box", "Sphere", "Capsule", "Convex Hull", "Mesh" };
 
-        // Reseat the union with sensible defaults for `c.type`. Members are trivially copyable so
+        // Reseat the union with sensible defaults for `c.type`. Members are trivially copyable, so
         // overwriting the storage in-place is safe.
         void ResetUnionForType(Collider& c)
         {
@@ -126,7 +126,7 @@ namespace Luth::ComponentDrawers
                     Scene* scene = entity.GetScene();
                     entt::entity ent = (entt::entity)entity;
 
-                    // Type combo. Type change reseats the union — capture whole-component snapshot
+                    // Type combo. Type change reseats the union; capture whole-component snapshot
                     // so undo restores both the type and the previous union content.
                     {
                         int current = (int)collider.type;
@@ -175,7 +175,7 @@ namespace Luth::ComponentDrawers
                         }
                     }
 
-                    // Type-specific fields. Whole-component snapshot — anonymous-union members have
+                    // Type-specific fields. Whole-component snapshot: anonymous-union members have
                     // no usable pointer-to-member, and ComponentReplaceCommand would mis-capture
                     // because the live component was already mutated by the widget.
                     switch (collider.type)

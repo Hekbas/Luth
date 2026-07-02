@@ -1,10 +1,10 @@
 // Front-to-back ray march through the volumetric atlas. Each invocation walks one (x,y) froxel column over
 // Z; accumulates per-step transmittance (Beer-Lambert) + in-scatter, written in-place into volInScatter:
 // RGB = accumulated in-scatter, A = transmittance to the slice center (composition samples this).
-// Standalone Set 0 (no global UBO — near/far ride the push constant).
+// Standalone Set 0 (no global UBO; near/far ride the push constant).
 //
-// CONTRACT (Wronski 2014 / Hillaire 2015): inject_scatter writes scat = albedo × J; integrate accumulates
-// transmit × scat × (1 − exp(−σ_t · dt)). Do NOT multiply by σ_t here. see arch/rendering-pipeline.md
+// CONTRACT (Wronski 2014 / Hillaire 2015): inject_scatter writes scat = albedo x J; integrate accumulates
+// transmit x scat x (1 - exp(-sigma_t * dt)). Do NOT multiply by sigma_t here. see arch/rendering-pipeline.md
 [[vk::binding(0, 0)]] Sampler3D volDensity;
 [[vk::binding(1, 0)]] [[vk::image_format("rgba16f")]] RWTexture3D<float4> volInScatter;
 

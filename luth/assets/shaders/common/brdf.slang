@@ -1,7 +1,7 @@
-// Cook-Torrance BRDF + GGX-VNDF importance sampling (Heitz 2018) — single source of truth for the
+// Cook-Torrance BRDF + GGX-VNDF importance sampling (Heitz 2018): single source of truth for the
 // engine's surface BRDF, imported by the raster + RT shading paths. see arch/rendering-pipeline.md
 
-static const float kPi = 3.14159265358979;   // internal — consumers get GI_PI from restir_gi_common
+static const float kPi = 3.14159265358979;   // internal; consumers get GI_PI from restir_gi_common
 
 public float D_GGX(float3 N, float3 H, float roughness)
 {
@@ -27,7 +27,7 @@ public float3 F_Schlick(float cosT, float3 F0)
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosT, 0.0, 1.0), 5.0);
 }
 
-// f(V,L)·NdotL·radiance — the shared evaluate-at-surface-point seam (radiance=1 yields f·NdotL).
+// f(V,L)*NdotL*radiance: the shared evaluate-at-surface-point seam (radiance=1 yields f*NdotL).
 public float3 EvalBRDFTimesNdotL(float3 L, float3 radiance, float3 V, float3 N, float3 albedo, float metallic, float roughness)
 {
     float3 H  = normalize(V + L);
@@ -40,7 +40,7 @@ public float3 EvalBRDFTimesNdotL(float3 L, float3 radiance, float3 V, float3 N, 
     return (kD * albedo / kPi + spec) * radiance * max(dot(N, L), 0.0);
 }
 
-// Analytic Smith G1 for GGX alpha (unbiased VNDF pdf — distinct from the BRDF's approximate G).
+// Analytic Smith G1 for GGX alpha (unbiased VNDF pdf, distinct from the BRDF's approximate G).
 public float G1_GGX(float NdotX, float alpha)
 {
     float a2 = alpha * alpha;

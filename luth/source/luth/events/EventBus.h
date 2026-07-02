@@ -20,7 +20,7 @@ namespace Luth
     // events from any fiber; consumers Subscribe<EventType> and drain via ProcessEvents on the
     // owning thread. invariant: every dispatch happens between frames, so no handler runs
     // concurrent with OnGather or OnDraw and panel-state mutations land race-free.
-    // Edge-frequency by design — hot per-frame data flows through RenderSnapshot, not the bus.
+    // Edge-frequency by design: hot per-frame data flows through RenderSnapshot, not the bus.
 
     // Polymorphic deleter that records the per-type free amount on the engine's MemoryTracker.
     // Constructed at Enqueue time while the concrete type is still known (sizeof(T)), then
@@ -46,10 +46,9 @@ namespace Luth
         COUNT
     };
 
-    // Opaque handle returned by Subscribe; pass to Unsubscribe to revoke. The handle
-    // carries the typeID so Unsubscribe is O(subscribers-of-T) instead of scanning
-    // every type's subscriber list. Default-constructed handle is invalid (no-op
-    // Unsubscribe), letting callers use it as a "not yet subscribed" sentinel.
+    // Opaque handle returned by Subscribe; pass to Unsubscribe to revoke. The handle carries the typeID
+    // so Unsubscribe is O(subscribers-of-T) instead of scanning every type's subscriber list.
+    // Default-constructed handle is invalid (no-op Unsubscribe), usable as a "not yet subscribed" sentinel.
     struct SubscriptionHandle {
         EventTypeID type{static_cast<EventTypeID>(-1)};
         u64 id{0};
@@ -59,7 +58,6 @@ namespace Luth
     class EventBus
     {
     public:
-        // Queue an event for later processing
         template<typename T, typename... Args>
         static void Enqueue(BusType bus, Args&&... args) {
             static_assert(std::is_base_of_v<Event, T>,
@@ -67,23 +65,21 @@ namespace Luth
             GetBus(bus).Enqueue<T>(std::forward<Args>(args)...);
         }
 
-        // Subscribe to specific event type. Discard the return value if the
-        // subscription is process-lifetime (e.g., App.cpp's window/file-drop hooks).
-        // Capture the handle when the subscriber's lifetime is shorter than the bus
-        // (panels, plugins) — call Unsubscribe in their teardown to avoid dangling
-        // handler captures.
+        // Subscribe to specific event type. Discard the return value if the subscription is
+        // process-lifetime (e.g., App.cpp's window/file-drop hooks). Capture the handle when the
+        // subscriber's lifetime is shorter than the bus (panels, plugins); call Unsubscribe in
+        // their teardown to avoid dangling handler captures.
         template<typename T>
         static SubscriptionHandle Subscribe(BusType bus, EventHandler handler) {
             return GetBus(bus).Subscribe<T>(std::move(handler));
         }
 
-        // Revoke a subscription. Safe to call with an invalid (default-constructed)
-        // handle — no-op. Safe across buses; the handle's typeID + id resolve uniquely.
+        // Revoke a subscription. Safe to call with an invalid (default-constructed) handle: no-op.
+        // Safe across buses; the handle's typeID + id resolve uniquely.
         static void Unsubscribe(BusType bus, SubscriptionHandle handle) {
             GetBus(bus).Unsubscribe(handle);
         }
 
-        // Process all queued events
         static void ProcessEvents(BusType bus) {
             GetBus(bus).ProcessEvents();
         }
@@ -92,10 +88,9 @@ namespace Luth
         public:
             template<typename T, typename... Args>
             void Enqueue(Args&&... args) {
-                // Allocate + track outside the lock — payload construction can be
-                // non-trivial and we don't want it serialised. Tracy's global new
-                // hook captures the raw allocation; MemoryTracker adds the
-                // category bucket so ProfilerPanel can budget event traffic.
+                // Allocate + track outside the lock: payload construction can be non-trivial and
+                // shouldn't serialise behind the queue mutex. Tracy's global new hook captures the raw
+                // allocation; MemoryTracker adds the category bucket so ProfilerPanel can budget event traffic.
                 T* raw = new T(std::forward<Args>(args)...);
                 Memory::MemoryTracker::RecordAlloc(Memory::Category::General, sizeof(T));
                 EventPtr ptr(raw, EventDeleter{ Memory::Category::General, sizeof(T) });
@@ -122,15 +117,14 @@ namespace Luth
                           vec.end());
             }
 
-            // Drain the queue and dispatch all events. Single-thread-only by design —
-            // first call captures the calling thread; subsequent calls assert match.
+            // Drain the queue and dispatch all events. Single-thread-only by design: first call
+            // captures the calling thread; subsequent calls assert match.
             //
-            // Reentrancy: if a handler calls Enqueue<T> on the same bus, the new event
-            // goes into m_EventQueue, NOT the processingQueue local. It will fire on
-            // the NEXT ProcessEvents() call (i.e., next frame in the typical setup).
-            // This is intentional — synchronous re-dispatch would risk handler chains
-            // and unbounded recursion. Document at call sites that signal handlers
-            // wanting same-frame follow-on work should write to panel state instead.
+            // Reentrancy: if a handler calls Enqueue<T> on the same bus, the new event goes into
+            // m_EventQueue, NOT the processingQueue local, and fires on the NEXT ProcessEvents() call
+            // (i.e., next frame in the typical setup). Intentional: synchronous re-dispatch would risk
+            // handler chains and unbounded recursion. Handlers wanting same-frame follow-on work
+            // should write to panel state instead.
             void ProcessEvents() {
             #ifdef LUTH_BUILD_DEBUG
                 static const std::thread::id s_DispatchThread = std::this_thread::get_id();
@@ -158,10 +152,9 @@ namespace Luth
             }
 
         private:
-            // A throwing handler must not abort the dispatch loop — surviving handlers
-            // and queued events would be silently lost otherwise. Catch, log, continue.
-            // m_Handled propagation is preserved across exceptions: a thrown handler
-            // is treated as not having consumed the event.
+            // A throwing handler must not abort the dispatch loop; surviving handlers and queued events
+            // would be silently lost otherwise. Catch, log, continue. m_Handled propagation is preserved
+            // across exceptions: a thrown handler is treated as not having consumed the event.
             void DispatchEvent(Event& event, EventTypeID typeID) {
                 auto it = m_Subscribers.find(typeID);
                 if (it == m_Subscribers.end()) return;

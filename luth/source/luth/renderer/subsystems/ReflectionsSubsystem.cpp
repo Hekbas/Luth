@@ -17,22 +17,22 @@
 namespace Luth
 {
     namespace {
-        // Reflection trace push constants. Mirrors rt_reflections.comp's push_constant block; the fixed
+        // Reflection trace push constants. Mirrors rt_reflections.slang's push_constant block; the fixed
         // 128 B range leaves tail headroom so growing this never touches the pipeline layout.
         struct ReflPC {
             Mat4 invViewProj;
             u32  frameSeed;
-            f32  roughnessCutoff;   // skip the trace above this (rough → prefiltered-env IBL fallback)
+            f32  roughnessCutoff;   // skip the trace above this (rough -> prefiltered-env IBL fallback)
             f32  maxRayDistance;
             f32  fireflyClamp;
-            u32  envReady;          // 1 → IBL prefiltered env bound
+            u32  envReady;          // 1 -> IBL prefiltered env bound
             i32  gbufferScale;      // 1 = full-res; 2 = half-res (G-buffer reads remap to full)
             i32  dispatchW;         // reflection working (dispatch) resolution
             i32  dispatchH;
             u64  geomTableBDA;      // secondary-hit material fetch (paired with the bound TLAS)
         };
         static_assert(sizeof(ReflPC) == 104, "ReflPC must match rt_reflections.comp push_constant");
-        constexpr u32 k_ReflPCSize = 128;   // fixed range — tail headroom
+        constexpr u32 k_ReflPCSize = 128;   // fixed range: tail headroom
 
         // Mirrors bilateral_upscale.slang's push_constant (shared with the GI/DI upscale).
         struct ReflUpscalePC {
@@ -57,7 +57,7 @@ namespace Luth
         m_Pipeline = &pipeline;
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // Linear clamp-to-edge — same shape as the ReSTIR passes' SceneDepth / SlimNormal sampler.
+        // Linear clamp-to-edge, same shape as the ReSTIR passes' SceneDepth / SlimNormal sampler.
         VkSamplerCreateInfo sampCI{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
         sampCI.magFilter    = VK_FILTER_LINEAR;
         sampCI.minFilter    = VK_FILTER_LINEAR;
@@ -67,9 +67,9 @@ namespace Luth
         sampCI.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         vkCreateSampler(device, &sampCI, nullptr, &m_Sampler);
 
-        // Set 2 (pass-local) — b0 reflection output (storage image, GENERAL), b1 depth, b2 slim oct-normal,
+        // Set 2 (pass-local): b0 reflection output (storage image, GENERAL), b1 depth, b2 slim oct-normal,
         // b3 slim roughness (combined image samplers, SHADER_READ_ONLY). All stable per-view (written once
-        // at WriteView). S0's stub uses b0 only; the real trace (S2) reads b1-b3.
+        // at WriteView).
         VkDescriptorSetLayoutBinding bindings[4]{};
         bindings[0].binding         = 0;
         bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -97,8 +97,8 @@ namespace Luth
         }
 
         // Sets: 0 = global (UBO b0 + IBL b1-b3 + TLAS b6), 1 = light SSBO, 2 = pass-local, 3 = Material
-        // SSBO, 4 = bindless textures. Mirrors path_trace.comp so S2's hit-surface material fetch + IBL
-        // ambient drop in without a layout change. S0's stub references only Set 2 b0.
+        // SSBO, 4 = bindless textures. Mirrors path_trace.slang so the hit-surface material fetch + IBL
+        // ambient drop in without a layout change.
         const std::vector<VkDescriptorSetLayout> layouts = {
             m_Pipeline->GetGlobal().GetSetLayout(),
             m_Pipeline->GetLighting().GetSetLayout(),
@@ -176,7 +176,7 @@ namespace Luth
             return true;
         }
 
-        // Shared with the GI/DI upscale loaders — the reload dispatch's || short-circuit rebuilds only the
+        // Shared with the GI/DI upscale loaders: the reload dispatch's || short-circuit rebuilds only the
         // first matching subsystem; a restart picks up all three (known watch-item).
         if (name == "bilateral_upscale.slang" && m_UpscaleSetLayout != VK_NULL_HANDLE)
         {
@@ -245,7 +245,7 @@ namespace Luth
         if (!preflightVr || !preflightVr->reflRadiance || preflightVr->reflDescSet == VK_NULL_HANDLE) return {};
         if (m_Pipeline->GetRt().GetTlas() == VK_NULL_HANDLE) return {};
 
-        // Reflection working resolution (half when ReflectionsSettings::halfResolution) — derive from
+        // Reflection working resolution (half when ReflectionsSettings::halfResolution): derive from
         // reflRadiance's extent (the alloc-time source of truth); G-buffer reads remap to full in-shader.
         auto reflTex0 = std::static_pointer_cast<VKTexture>(preflightVr->reflRadiance);
         const i32 reflW = reflTex0 ? static_cast<i32>(reflTex0->GetWidth())  : static_cast<i32>(preflightVr->width);
@@ -274,13 +274,13 @@ namespace Luth
             [&, this](ReflData& data, RG::RenderPassBuilder& builder) {
                 ViewResources* v = m_Pipeline->GetCurrentViewResources();
 
-                // Slim G-buffer reads — barrier ordering only (the stub ignores them; S2 samples b1-b3).
+                // Slim G-buffer reads: barrier ordering only; the trace samples b1-b3 via the pass-local set.
                 if (sceneDepth.IsValid())    data.depth  = builder.ReadStorageImage(sceneDepth);
                 if (slimNormal.IsValid())    data.normal = builder.ReadStorageImage(slimNormal);
                 if (slimRoughness.IsValid()) data.rough  = builder.ReadStorageImage(slimRoughness);
 
-                // Reflection output — fully overwritten each frame (every pixel: reflection or env
-                // fallback), so Undefined import (restirGiDI pattern; no cross-frame read → no clear).
+                // Reflection output: fully overwritten each frame (every pixel gets reflection or env
+                // fallback), so Undefined import (restirGiDI pattern; no cross-frame read -> no clear).
                 auto reflTex = std::static_pointer_cast<VKTexture>(v->reflRadiance);
                 RG::TextureDesc desc;
                 desc.name   = "Reflections";
@@ -293,7 +293,7 @@ namespace Luth
                 data.refl = builder.WriteStorageImage(data.refl);
                 reflHandle = data.refl;
                 // The specular denoiser reads reflHandle (its in.di), so the RG keeps this pass alive in
-                // normal mode and dead-pass-culls it when nothing consumes the chain — e.g. PathTrace mode,
+                // normal mode and dead-pass-culls it when nothing consumes the chain, e.g. PathTrace mode,
                 // where GeometryPass + the denoiser are culled. No SetHasSideEffect (it would force the
                 // ~1 ms trace to run in PT).
             },
@@ -302,7 +302,7 @@ namespace Luth
                 ViewResources*  v   = m_Pipeline->GetCurrentViewResources();
                 if (!v || v->reflDescSet == VK_NULL_HANDLE) return;
 
-                // AS-build → AS-read barrier. dstStageMask is COMPUTE_SHADER (NOT RAY_TRACING) —
+                // AS-build -> AS-read barrier. dstStageMask is COMPUTE_SHADER (NOT RAY_TRACING):
                 // rayQuery executes in the compute stage; a RAY_TRACING dst here is a TDR trap.
                 VkMemoryBarrier2 asBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
                 asBarrier.srcStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;

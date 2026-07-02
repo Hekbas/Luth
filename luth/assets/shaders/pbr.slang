@@ -1,4 +1,4 @@
-// Forward PBR opaque fragment — stock bounded-surface decode (EvalMaterialChannels, RasterFetch tier),
+// Forward PBR opaque fragment: stock bounded-surface decode (EvalMaterialChannels, RasterFetch tier),
 // then the shared PbrShadeSurface shading body (pbr_shade.slang). A node-graph material instead emits a
 // generated pbr_graph_<uuid>.slang that swaps only the decode call. see arch/rendering-pipeline.md
 import globals;

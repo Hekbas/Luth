@@ -1,4 +1,4 @@
-// ReSTIR GI — initial 1-bounce path-sample generation (Ouyang 2021). Per pixel: reconstruct the primary
+// ReSTIR GI initial 1-bounce path-sample generation (Ouyang 2021). Per pixel: reconstruct the primary
 // hit x_v, cosine-sample one hemisphere direction, trace to the secondary hit x_s, shade its outgoing
 // radiance L_o toward x_v (single-light NEE), store a GI reservoir (M=1). Reconnection Jacobian is applied
 // later (temporal/spatial reuse), never here. AsyncCompute. see arch/rendering-pipeline.md
@@ -10,7 +10,7 @@ import material_bindings_rt;   // FetchHitSurface + RtConfirmAlphaCandidates (Se
 
 static const bool GI_USE_SCAFFOLD_LO = false;   // debug: constant albedo + receiver-facing normal
 
-// Set 0 b6: TLAS (b0 = GlobalUniforms via globals). Set 1 b0: LightSSBO — header + flexible point array,
+// Set 0 b6: TLAS (b0 = GlobalUniforms via globals). Set 1 b0: LightSSBO, header + flexible point array,
 // byte-loaded to dodge std430 struct-layout drift. Set 2: scene depth + slim normal + GI reservoir (write).
 [[vk::binding(6, 0)]] RaytracingAccelerationStructure topLevelAS;
 [[vk::binding(0, 1)]] ByteAddressBuffer g_Lights;
@@ -85,7 +85,7 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     float depth      = u_SceneDepth.Load(int3(GiGuide(pixel), 0)).r;
     uint  lightCount = LoadPointCount();
-    if (depth >= 1.0) { reservoirs[flatIdx] = r; return; }   // sky → empty sample
+    if (depth >= 1.0) { reservoirs[flatIdx] = r; return; }   // sky -> empty sample
 
     float2 octNv    = u_SlimNormal.Load(int3(GiGuide(pixel), 0)).rg;
     float3 Nv       = OctDecode(octNv);
@@ -102,14 +102,14 @@ void main(uint3 tid : SV_DispatchThreadID)
     float  pdf;
     float3 d = SampleCosHemisphere(Nv, float2(u0, u1), pdf);
 
-    // Trace the bounce to the closest hit (no terminate flag → committed = nearest).
+    // Trace the bounce to the closest hit (no terminate flag -> committed = nearest).
     float  tMin   = ubo.rtShadowParams.y;
     float3 origin = worldPos + Nv * ubo.rtShadowParams.z + d * tMin;
     RayDesc ray; ray.Origin = origin; ray.TMin = tMin; ray.Direction = d; ray.TMax = 1.0e30;
     RayQuery<RAY_FLAG_NONE> rq;
     rq.TraceRayInline(topLevelAS, RAY_FLAG_NONE, GT_VIS_ALL, ray);
     RtConfirmAlphaCandidates(rq, pc.geomTable);
-    if (rq.CommittedStatus() == COMMITTED_NOTHING) { reservoirs[flatIdx] = r; return; }   // miss → empty
+    if (rq.CommittedStatus() == COMMITTED_NOTHING) { reservoirs[flatIdx] = r; return; }   // miss -> empty
     float  t  = rq.CommittedRayT();
     float3 xs = origin + d * t;
 
@@ -131,7 +131,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     }
 
     // L_o at x_s toward x_v = emission + single-light NEE (Lambertian secondary). One point light picked
-    // uniformly; × lightCount divides out the 1/lightCount source pdf.
+    // uniformly; x lightCount divides out the 1/lightCount source pdf.
     float3 Lo = emission;
     if (lightCount > 0u)
     {
@@ -149,8 +149,8 @@ void main(uint3 tid : SV_DispatchThreadID)
         }
     }
 
-    // Sun (directional) NEE — deterministic every path (lower-noise for the dominant light). Diffuse only,
-    // matching the raster dirRadiance convention (color·intensity, no 1/d²). One shadow ray to infinity.
+    // Sun (directional) NEE: deterministic every path (lower-noise for the dominant light). Diffuse only,
+    // matching the raster dirRadiance convention (color*intensity, no 1/d^2). One shadow ray to infinity.
     DirectionalLightData dl = LoadDirLight();
     if (dl.intensity > 0.0)
     {
@@ -169,8 +169,8 @@ void main(uint3 tid : SV_DispatchThreadID)
     float lum = Luminance(Lo);
     if (lum > pc.maxIndirect) Lo *= pc.maxIndirect / lum;
 
-    // Single-candidate reservoir; GIReservoirUpdate seeds the sample even at w=0 (a valid x_s — see
-    // restir_gi_common). W → 1/pdf when lit (target cancels in finalize), 0 when unlit.
+    // Single-candidate reservoir; GIReservoirUpdate seeds the sample even at w=0 (a valid x_s; see
+    // restir_gi_common). W -> 1/pdf when lit (target cancels in finalize), 0 when unlit.
     float pHat = GiTargetFunction(xs, Lo, worldPos, Nv);
     float w    = (pdf > 0.0) ? pHat / pdf : 0.0;
     GIReservoirUpdate(r, xs, Lo, OctEncode(ns), w, 0.5);

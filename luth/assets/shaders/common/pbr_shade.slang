@@ -23,7 +23,7 @@ struct GTAOUBO
 [[vk::binding(5, 3)]] Sampler2D diIrradiance;    // demodulated DI diffuse irradiance
 [[vk::binding(6, 3)]] Sampler2D giIrradiance;    // demodulated GI indirect-diffuse irradiance
 [[vk::binding(7, 3)]] Sampler2D reflRadiance;    // demodulated RT reflection radiance
-[[vk::binding(8, 3)]] Sampler2D diSpecular;      // demodulated ReSTIR-DI specular (#154)
+[[vk::binding(8, 3)]] Sampler2D diSpecular;      // demodulated ReSTIR-DI specular
 
 // pbr.vert delivers v_TBN as a mat3 at locations 3-5; read its columns as separate T/B/N (layout-safe).
 // Members are public so the per-material entry shaders (pbr.slang / generated pbr_graph_*) can read them.
@@ -46,14 +46,14 @@ public struct FOut
     [[vk::location(1)]] public uint   entityID : SV_Target1;
 };
 
-// RT sun-shadow visibility — samples the per-view R8 mask at screen UV (no cascade selection in RT mode).
+// RT sun-shadow visibility: samples the per-view R8 mask at screen UV (no cascade selection in RT mode).
 ShadowResult ComputeShadowRT(float2 uv)
 {
     ShadowResult r; r.cascade = -1;
     r.shadow = (ubo.shadowBias.x < 0.0) ? 1.0 : sunShadowMask.Sample(uv).r;
     return r;
 }
-// Dispatch: rtShadowParams.x > 0.5 → RT mask sample; else cascade PCF.
+// Dispatch: rtShadowParams.x > 0.5 -> RT mask sample; else cascade PCF.
 ShadowResult ComputeShadow(float3 worldPos, float3 N, float2 uv)
 {
     if (ubo.rtShadowParams.x > 0.5) return ComputeShadowRT(uv);
@@ -86,7 +86,7 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
     float  metallic  = mi.metallic;
     float  roughness = mi.roughness;
 
-    // Tokuyoshi 2019 geometric specular AA — screen-space normal curvature lifted into roughness.
+    // Tokuyoshi 2019 geometric specular AA: screen-space normal curvature lifted into roughness.
     if (ubo.specAaParams.x != 0.0)
     {
         float3 dNdu = ddx(N); float3 dNdv = ddy(N);
@@ -109,7 +109,7 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
     if (i.shadeMode == 14u) { o.color = float4(metallic.xxx, 1.0);    return o; }   // Metallic
     if (i.shadeMode == 15u) { o.color = float4(mi.occlusion.xxx, 1.0);return o; }   // Occlusion (material AO)
 
-    // Raw screen-space signals — sampled where the lit shading reads them, gated on the feature
+    // Raw screen-space signals, sampled where the lit shading reads them, gated on the feature
     // (the picker greys these when off). Ambient Occlusion (17) reuses the gtao.visualize path below.
     float2 dbgUv = fragCoord.xy / ubo.viewportSize;
     // Raw signals always claim their mode: show the sampled buffer when the feature is on, else a
@@ -118,7 +118,7 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
     if (i.shadeMode == 19u) { o.color = ubo.restirParams.x > 0.5 ? float4(diIrradiance.Sample(dbgUv).rgb, 1.0) : float4(1.0, 0.0, 1.0, 1.0); return o; }  // DI Raw
     if (i.shadeMode == 20u) { o.color = ubo.reflParams.x  > 0.5 ? float4(reflRadiance.Sample(dbgUv).rgb, 1.0) : float4(1.0, 0.0, 1.0, 1.0); return o; }  // RT Reflection Raw
 
-    // Material-baked AO × screen-space GTAO (half-res R8).
+    // Material-baked AO x screen-space GTAO (half-res R8).
     float ao = mi.occlusion;
     if (gtao.enabled != 0)
         ao *= gtaoTex.Sample(fragCoord.xy * gtao.invFullResolution).r;
@@ -146,11 +146,11 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
     else
         Lo += EvalClusteredLights(fragCoord, i.worldPos, V, N, albedo.rgb, metallic, roughness, false);
 
-    // ReSTIR GI — demodulated indirect diffuse, added on top (independent of the DI gate).
+    // ReSTIR GI: demodulated indirect diffuse, added on top (independent of the DI gate).
     if (ubo.restirParams.y > 0.5)
         Lo += giIrradiance.Sample(screenUv).rgb * (albedo.rgb * (1.0 - metallic) / GI_PI);
 
-    // ReSTIR-DI specular (#154) — demodulated F0-free lobe, remodulated by F0.
+    // ReSTIR-DI specular: demodulated F0-free lobe, remodulated by F0.
     if (ubo.restirParams.z > 0.0)
     {
         float3 F0 = lerp(float3(0.04), albedo.rgb, metallic);
@@ -160,7 +160,7 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
     IblResult ibl = EvalIblAmbient(N, V, albedo.rgb, metallic, roughness, ao, ubo.iblIntensity);
     float3 color = ibl.ambient + Lo;
 
-    // RT specular reflection (D.1) — supersedes IBL specular above the roughness cutoff. reflRad is a
+    // RT specular reflection supersedes IBL specular above the roughness cutoff. reflRad is a
     // traced scene reflection (decoupled from iblIntensity); subtract the iblSpecular it replaces.
     if (ubo.reflParams.x > 0.5)
     {

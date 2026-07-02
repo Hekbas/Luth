@@ -70,7 +70,7 @@ project "LuthTests"
       runtime "Release"
       optimize "on"
 
-   -- DebugASan — debug-style defines + Release CRT + /fsanitize=address.
+   -- DebugASan: debug-style defines + Release CRT + /fsanitize=address.
    -- MSVC requires Release CRT for ASan; Debug CRT is incompatible.
    -- Symbols on for stack-frame symbolization; edit-and-continue off (ASan rejects).
    -- TRACY_ENABLE omitted; Tracy's dbghelp init trips an ASan strlen false positive

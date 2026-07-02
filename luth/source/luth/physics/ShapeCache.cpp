@@ -43,7 +43,7 @@ namespace Luth::Physics
 
         // Build the un-wrapped inner shape from one mesh's vertex/index data. ConvexHull only needs positions;
         // MeshShape needs positions + indices. Skinned-vertex meshes use SkinnedVertices (positions are at the same
-        // field offset but the strides differ — branch and copy).
+        // field offset but the strides differ; branch and copy).
         JPH::RefConst<JPH::Shape> BuildAssetShape(Component::Collider::Type kind, const MeshData& mesh)
         {
             using Type = Component::Collider::Type;
@@ -132,8 +132,7 @@ namespace Luth::Physics
             case Type::Box:
             case Type::Sphere:
             case Type::Capsule:
-                // One shape per body — caching primitives would cost a lookup per build for no
-                // sharing benefit. Delegate inline.
+                // One shape per body; caching primitives would cost a lookup per build for no sharing benefit.
                 return { Physics::BuildShape(c), false };
 
             case Type::ConvexHullRef:
@@ -153,7 +152,7 @@ namespace Luth::Physics
             { 0, 0, 0 }
         };
 
-        // Fast path — cache hit. Wrap with the per-collider offset and return.
+        // Fast path: cache hit. Wrap with the per-collider offset and return.
         JPH::RefConst<JPH::Shape> inner;
         {
             SpinLockGuard guard(m_Lock);
@@ -183,7 +182,7 @@ namespace Luth::Physics
                         }
                         if (firstTime)
                         {
-                            LH_LOG(Physics, warn, "ShapeCache: model '{}' has PhysicsBake = None — body "
+                            LH_LOG(Physics, warn, "ShapeCache: model '{}' has PhysicsBake = None - body "
                                          "skipped. Set 'Bake Mode' to Auto in the Model importer "
                                          "and reimport to enable.",
                                          meta.Path.filename().string());
@@ -193,7 +192,7 @@ namespace Luth::Physics
                 }
             }
 
-            // Cache miss. Resolve the model — if it hasn't loaded yet (in flight on a worker fiber)
+            // Cache miss. Resolve the model; if it hasn't loaded yet (in flight on a worker fiber)
             // the caller should retry next frame rather than dropping the body request.
             auto model = AssetManager::GetAsset<Model>(modelUUID);
             if (!model)
@@ -206,15 +205,15 @@ namespace Luth::Physics
                 return { nullptr, false };
             }
 
-            // invariant: Model::m_MeshesData persists post-upload — Model.cpp's ProcessMeshData intentionally keeps
+            // invariant: Model::m_MeshesData persists post-upload; Model.cpp's ProcessMeshData intentionally keeps
             // CPU vertex/index data alive for queries. A future on-disk physics-blob bake would replace this
             // build-from-vertices path with a load-from-blob branch and let MeshesData be dropped after upload.
             inner = BuildAssetShape(c.type, meshes[c.meshRef.meshIndex]);
             if (!inner)
                 return { nullptr, false };
 
-            // Insert under lock. If a parallel build raced us, the existing entry wins and ours is
-            // dropped (Jolt's ref-count releases it).
+            // Insert under lock. If a parallel build won the race, the existing entry wins and the
+            // duplicate is dropped (Jolt's ref-count releases it).
             SpinLockGuard guard(m_Lock);
             auto [it, _] = m_Map.emplace(key, inner);
             inner = it->second;
@@ -235,7 +234,7 @@ namespace Luth::Physics
             if (match) it = m_Map.erase(it);
             else       ++it;
         }
-        // Drop the once-per-UUID warn gate too — flipping PhysicsBake None→Auto→None should
+        // Drop the once-per-UUID warn gate too; flipping PhysicsBake None->Auto->None should
         // produce a fresh warning the next time the user accidentally opts out.
         for (const UUID& d : dirtyUUIDs) m_WarnedOptOut.erase(d);
     }
@@ -295,7 +294,7 @@ namespace Luth::Physics
         mix64(rb.isSensor ? 1ull : 0ull);
         mix64(static_cast<u64>(rb.motionQuality));
         mixf(rb.mass);
-        // materialUUID drives bcs.mFriction / mRestitution / density-from-mass at body create —
+        // materialUUID drives bcs.mFriction / mRestitution / density-from-mass at body create;
         // a UUID swap requires rebuild because Jolt sets those at construction. Asset *content*
         // changes (same UUID, edited friction/restitution) leave the hash stable; those route
         // through the explicit force-rebuild path in PhysicsSystem::DrainDirtyAssets.

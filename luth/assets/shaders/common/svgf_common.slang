@@ -1,11 +1,11 @@
-// SVGF (Schied 2017) shared helpers — twin of svgf_common.glsl. SvgfLinearizeDepth reads ubo.nearZ/farZ,
+// SVGF (Schied 2017) shared helpers; twin of svgf_common.glsl. SvgfLinearizeDepth reads ubo.nearZ/farZ,
 // so this imports globals. Intentionally independent of restir_common (OctDecode would collide); SVGF binds
 // no light/reservoir state. see arch/rendering-pipeline.md
 import globals;
 
 public float SvgfLuminance(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 
-// Octahedral decode — inverse of slim_gbuffer OctEncode (mirrors restir_common OctDecode).
+// Octahedral decode: inverse of slim_gbuffer OctEncode (mirrors restir_common OctDecode).
 public float3 SvgfOctDecode(float2 enc)
 {
     enc = enc * 2.0 - 1.0;

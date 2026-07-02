@@ -86,7 +86,7 @@ namespace Luth
 
         Scene* GetScene() const { return m_Scene; }
 
-        // Backed by Component::Disabled — survives wrapper rebinds and save/load.
+        // Backed by Component::Disabled; survives wrapper rebinds and save/load.
         void SetActive(bool active);
         bool IsActive() const;
 

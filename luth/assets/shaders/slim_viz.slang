@@ -1,5 +1,5 @@
-// Live slim G-buffer visualization — decoded slim attachment to LDR for the editor ShadeMode toggle.
-//   0 = normal · 1 = roughness · 2 = motion · 3 = matID. Standalone Set 0.
+// Live slim G-buffer visualization: decoded slim attachment to LDR for the editor ShadeMode toggle.
+//   0 = normal, 1 = roughness, 2 = motion, 3 = matID. Standalone Set 0.
 [[vk::binding(0, 0)]] Sampler2D       u_SlimNormal;      // RG16F oct
 [[vk::binding(1, 0)]] Sampler2D       u_SlimRoughness;   // R8
 [[vk::binding(2, 0)]] Sampler2D       u_SlimMotion;      // RG16F NDC delta

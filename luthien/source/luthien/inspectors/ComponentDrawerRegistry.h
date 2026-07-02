@@ -24,20 +24,20 @@ namespace Luth
     {
         bool Removable     = true;
         bool ShowInAddMenu = true;
-        std::string AddLabel;                                       // empty → Name
-        std::function<bool(Entity)> CanAdd;                         // empty → !HasComponent<T>()
-        std::function<void(Entity)> OnAdd;                          // empty → issue ComponentAddCommand<T>
-        std::function<void(Entity)> OnReset;                        // empty → issue ComponentResetCommand<T>
-        std::function<std::string(Entity)> OnCopy;                  // empty → menu item disabled
-        std::function<bool(Entity, const std::string&)> OnPaste;    // empty → menu item disabled
+        std::string AddLabel;                                       // empty -> Name
+        std::function<bool(Entity)> CanAdd;                         // empty -> !HasComponent<T>()
+        std::function<void(Entity)> OnAdd;                          // empty -> issue ComponentAddCommand<T>
+        std::function<void(Entity)> OnReset;                        // empty -> issue ComponentResetCommand<T>
+        std::function<std::string(Entity)> OnCopy;                  // empty -> menu item disabled
+        std::function<bool(Entity, const std::string&)> OnPaste;    // empty -> menu item disabled
     };
 
     struct ComponentDrawerDescriptor
     {
         std::string                 Name;
-        std::string                 AddCommandName;    // "Add <Name>" — owns the const char* lifetime
+        std::string                 AddCommandName;    // "Add <Name>"; owns the const char* lifetime
         std::type_index             Type;
-        entt::id_type               ComponentTypeId;   // entt::type_hash<T>::value() — clipboard key
+        entt::id_type               ComponentTypeId;   // entt::type_hash<T>::value(); clipboard key
         std::function<bool(Entity)> HasComponent;
         std::function<void(Entity)> Draw;
         std::function<bool(Entity)> CanAdd;
@@ -70,8 +70,8 @@ namespace Luth
     template<typename T, typename DrawFn>
     void ComponentDrawerRegistry::Register(const char* name, DrawFn drawFn, ComponentDrawerOptions opts)
     {
-        // Reserve once — descriptors hold std::functions whose captured strings
-        // must remain at a stable address after the push_back move settles.
+        // Reserve once: descriptors hold std::functions whose captured strings must remain at a
+        // stable address after the push_back move settles.
         if (s_Drawers.capacity() == 0) s_Drawers.reserve(32);
 
         ComponentDrawerDescriptor d{
@@ -114,9 +114,8 @@ namespace Luth
             };
         }
 
-        // Draw built last so the contextMenu lambda can capture OnReset/OnCopy/
-        // OnPaste by value — std::function copies are independent of d's move
-        // into s_Drawers below.
+        // Draw built last so the contextMenu lambda can capture OnReset/OnCopy/OnPaste by value:
+        // std::function copies are independent of d's move into s_Drawers below.
         std::string headerName = name;
         bool removable = opts.Removable;
         auto userDraw = std::move(drawFn);
@@ -157,8 +156,8 @@ namespace Luth
                 }
             };
             if (UI::BeginCollapsingHeader(headerName.c_str(), true, contextMenu)) {
-                // contextMenu runs INSIDE BeginCollapsingHeader; Remove Component
-                // synchronously detaches T before this line runs. Re-guard.
+                // contextMenu runs INSIDE BeginCollapsingHeader; Remove Component synchronously
+                // detaches T before this line runs. Re-guard.
                 if (entity.HasComponent<T>())
                     userDraw(entity, entity.GetComponent<T>());
                 UI::EndCollapsingHeader();

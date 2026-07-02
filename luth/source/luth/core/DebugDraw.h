@@ -24,7 +24,7 @@ namespace Luth::DebugDraw
     // read them once per frame. Frame-indexed double-buffering: each frame writes to slot
     // (frameIndex mod 2), the previous frame's slot stays valid for the render stage to read.
     //
-    // Thread model: the game stage runs as one fiber that owns the producer slot for that frame —
+    // Thread model: the game stage runs as one fiber that owns the producer slot for that frame:
     // single-writer, no locking. Render reads the slot whose game writer has already finished (the
     // main thread waits on GameReady before that slot is reused), so the read side is also
     // race-free as long as BeginGameFrame is only called from the main thread between frames.
@@ -37,8 +37,8 @@ namespace Luth::DebugDraw
     // into that slot.
     void BeginGameFrame(u64 gameFrameIdx);
 
-    // Producer API. Game-stage callers append line segments. Triangle decomposes to three lines —
-    // a separate filled-triangle path will land if/when we need solid debug shapes.
+    // Producer API. Game-stage callers append line segments. Triangle decomposes to three lines;
+    // a separate filled-triangle path lands if/when solid debug shapes are needed.
     void Line(const Vec3& from, const Vec3& to, u32 colorRGBA);
     void Triangle(const Vec3& v0, const Vec3& v1, const Vec3& v2, u32 colorRGBA);
 
@@ -54,7 +54,7 @@ namespace Luth::DebugDraw
     void Cross(const Vec3& center, float size, u32 color);  // 3 axis ticks (joint markers)
 
     // Consumer API. Returns the slot for the requested render frame (renderFrameIdx mod 2).
-    // The span is valid until BeginGameFrame is called again for the same modulo-2 slot — the
+    // The span is valid until BeginGameFrame is called again for the same modulo-2 slot; the
     // frame pipeline guarantees that's at least two frames out.
     std::span<const DebugVertex> GetForRender(u64 renderFrameIdx);
 }

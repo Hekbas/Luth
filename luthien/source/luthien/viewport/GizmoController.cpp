@@ -34,12 +34,10 @@ namespace Luth
         auto& tc = selected.GetComponent<Transform>();
         Mat4 worldMatrix = selected.GetComponent<WorldTransform>().Matrix;
 
-        // If dirty, reconstruct world matrix on the fly to be responsive
+        // Reconstructing the world matrix here would need parent info. The system update loop runs
+        // before Render, so the WorldTransform above is already current.
         if (tc.IsDirty)
         {
-             // We can't easily reconstruct world matrix here without parent info.
-             // Rely on the System to have updated it, OR force a quick calc if needed.
-             // For now, let's trust the system update loop which runs before Render.
         }
 
         // Only draw & interact with the manipulator when visible and a tool is active
@@ -71,7 +69,7 @@ namespace Luth
 
                 // Multi-select: snapshot the root-filtered selection's start TRS so the group moves
                 // rigidly and undoes as one step. A selected entity whose ancestor is also selected
-                // is skipped — it follows its parent through the hierarchy (no double transform).
+                // is skipped: it follows its parent through the hierarchy (no double transform).
                 m_DragStarts.clear();
                 if (multi) {
                     for (Entity e : selection) {
@@ -157,8 +155,8 @@ namespace Luth
             m_WasUsing = isUsing;
         }
 
-        // Gizmo Shortcuts — armed on viewport hover. !WantTextInput so typing a letter that
-        // happens to be W/E/R/Q in another panel doesn't flip the tool while the viewport is hovered.
+        // Gizmo shortcuts, armed on viewport hover. !WantTextInput so typing a letter that happens to
+        // be W/E/R/Q in another panel doesn't flip the tool while the viewport is hovered.
         if (acceptsShortcuts && !ImGuizmo::IsUsing() && !cameraFlying && !ImGui::GetIO().WantTextInput)
         {
             if (ImGui::IsKeyPressed(ImGuiKey_Q))
@@ -178,7 +176,7 @@ namespace Luth
     {
         // Billboard size: a base on-screen size scaled by camera distance about a reference distance,
         // clamped to [kMinPx, the large-bake size]. Rendering from the 64-px fill font means the glyph
-        // only ever MINIFIES (crisp) — upscaling the 14-px UI bake blurs. Icon Size shifts the curve.
+        // only ever MINIFIES (crisp); upscaling the 14-px UI bake blurs. Icon Size shifts the curve.
         // Callers pass the *_FILL glyphs (the large bake carries the Fill range).
         ImFont* gf = Editor::GetIconFillLarge();
         constexpr float kBasePx = 22.0f, kRefDist = 12.0f, kMinPx = 14.0f;
@@ -194,8 +192,8 @@ namespace Luth
         ImVec2 textPos = { screenPos.x - textSize.x * k * 0.5f, screenPos.y - textSize.y * k * 0.5f };
         drawList->AddText(gf, px, textPos, color, icon);
 
-        // Only consider ImGuizmo::IsOver() when a transform gizmo is actually active —
-        // otherwise it returns stale state from the previous frame
+        // ImGuizmo::IsOver() is only meaningful when a transform gizmo is active; otherwise it returns
+        // stale state from the previous frame.
         bool gizmoActive = hasValidSelection && m_ShowTransformGizmo && m_Operation != -1;
 
         // Hit-test for click-to-select

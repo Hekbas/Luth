@@ -12,10 +12,9 @@
 
 namespace Luth
 {
-    // Per-frame snapshot fragment for InspectorPanel. Captures the selection version
-    // + locked-entity flag — enough for a future skip-gather optimization. Heavyweight
-    // component-drawer state (notably MaterialEditor's shader-combo enumeration) stays
-    // inline in OnDraw; a later polish pass can move asset-DB lookups into gather.
+    // Per-frame snapshot fragment for InspectorPanel. Captures the selection version + locked-entity
+    // flag only; heavyweight component-drawer state (MaterialEditor's shader-combo enumeration) stays
+    // inline in OnDraw.
     struct InspectorSnapshot
     {
         u32  selectionVersion = 0;

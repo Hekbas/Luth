@@ -9,9 +9,9 @@
 
 namespace Luth::Physics
 {
-    // u32 bitmask layout: bit N set ↔ layer N participates in the query. Mask == 0 means "no
-    // filtering" (every layer participates) — gameplay default for "hit anything". Mirrors Unity's
-    // LayerMask semantics: bit position == layer index.
+    // u32 bitmask layout: bit N set means layer N participates in the query. Mask == 0 means "no filtering"
+    // (every layer participates), the gameplay default for "hit anything". Mirrors Unity's LayerMask
+    // semantics: bit position == layer index.
     //
     // Broadphase and object layers share indices 1:1 here (see BPLayerInterfaceImpl in
     // PhysicsLayers.h), so the same mask drives both filter passes.

@@ -12,8 +12,8 @@ namespace Luth::UI
         if (ImGui::BeginChild("##InspectorHeader", { 0, headerH },
                               false, ImGuiWindowFlags_NoScrollbar))
         {
-            // Anchor inside child with both top + left padding. Dummy+SameLine
-            // can give one or the other but not both — SetCursorPos avoids that.
+            // Anchor inside child with both top + left padding. Dummy+SameLine can give one or the
+            // other but not both; SetCursorPos avoids that.
             ImGui::SetCursorPos({ pad, pad });
 
             const ImVec2 boxStart = ImGui::GetCursorScreenPos();
@@ -36,9 +36,9 @@ namespace Luth::UI
 
             ImGui::SameLine(0.0f, pad);
 
-            // Vertically center the right column against the thumbnail. Callers
-            // use 2 lines today (name + summary); estimate via TextLineHeightWith
-            // Spacing × 2 and shift the cursor by half the leftover space.
+            // Vertically center the right column against the thumbnail. Callers use 2 lines today
+            // (name + summary); estimate via TextLineHeightWithSpacing * 2 and shift the cursor by
+            // half the leftover space.
             const float estContentH = ImGui::GetTextLineHeightWithSpacing() * 2.0f;
             const float yShift = std::max(0.0f, (thumbSize - estContentH) * 0.5f);
             if (yShift > 0.0f)

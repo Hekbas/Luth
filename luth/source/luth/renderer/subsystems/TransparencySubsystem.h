@@ -13,12 +13,12 @@ namespace Luth
     class RenderPipeline;
     struct ViewResources;
 
-    // Owns the transparent tier — the pass slot after skybox + volumetric composite where
+    // Owns the transparent tier: the pass slot after skybox + volumetric composite where
     // Transparent/Fade draws land (GeometryPass renders opaque + cutout only). Sorted mode:
     // per-view back-to-front indirect draws with pbr_transparent.frag (corrected inputs: rayQuery
-    // sun shadow, cluster lights, fragment-depth froxel fog — never the opaque-coupled screen-space
-    // buffers). OIT mode (PPLL store + resolve) layers on in the material-system arc's M.4 effort.
-    // invariant: Init() before RenderPipeline's BuildPipelines block — Set 6 joins geoLayouts there.
+    // sun shadow, cluster lights, fragment-depth froxel fog; never the opaque-coupled screen-space
+    // buffers). OIT mode layers a PPLL store + resolve on top.
+    // invariant: Init() before RenderPipeline's BuildPipelines block; Set 6 joins geoLayouts there.
     class TransparencySubsystem
     {
     public:
@@ -30,20 +30,20 @@ namespace Luth
         // invalidate the cached variants but return false so GeometrySubsystem still owns them.
         bool OnShaderReloaded(const std::string& name, const std::vector<u32>& spv);
 
-        // Set 6 b0 ← parity-picked resolved fog atlas (the volumetric composite's b1 rule).
+        // Set 6 b0 <- parity-picked resolved fog atlas (the volumetric composite's b1 rule).
         void WritePerFrame(ViewResources& vr, u32 frameAbs);
 
-        // Set 6 b1/b2 (heads + nodes, all cycled slots) + the resolve set ← the view's OIT
+        // Set 6 b1/b2 (heads + nodes, all cycled slots) + the resolve set <- the view's OIT
         // resources. Called from AllocateViewResources + on resize/budget reallocation.
         void WriteOitView(ViewResources& vr);
 
-        // Reserved Garlic tag range for per-view OIT node pools — disjoint from ReSTIR DI
+        // Reserved Garlic tag range for per-view OIT node pools: disjoint from ReSTIR DI
         // (0xFFFF0000+) and GI (0xFFFF8000+); outside the per-frame FreeTag(N-2) sweep.
         u32 NextNodePoolTag() { return m_NextNodePoolTag++; }
 
         // Contributes the transparent pass(es) after the volumetric composite. sceneColor/entityID/
-        // sceneDepth are GeometryPass-chain handles (same nodes — never re-imported); fogResolved is
-        // the post-resolve atlas handle (invalid when volumetric is off → fog flag cleared).
+        // sceneDepth are GeometryPass-chain handles (same nodes; never re-imported); fogResolved is
+        // the post-resolve atlas handle (invalid when volumetric is off -> fog flag cleared).
         // Returns the sceneColor handle downstream passes consume.
         RG::ResourceHandle AddPasses(RG::RenderGraph& rg,
                                      RG::ResourceHandle sceneColor,
@@ -63,7 +63,7 @@ namespace Luth
                                          RG::ResourceHandle fogResolved,
                                          RG::BufferHandle indirectBufferHandle);
 
-        // OITClear (transfer: heads → OIT_EMPTY, node count → 0) → OITStore (shade + list push) →
+        // OITClear (transfer: heads -> OIT_EMPTY, node count -> 0) -> OITStore (shade + list push) ->
         // OITResolve (fullscreen sort-K + composite). Heads/nodes are imported once in OITClear in
         // their end-of-frame state (FragmentStorageRead) so the clear orders after last frame's
         // resolve reads (cross-frame WAR); downstream passes reuse the returned handles.
@@ -88,7 +88,7 @@ namespace Luth
         RenderPipeline* m_Pipeline = nullptr;
 
         // Set 6 (transparent pass-local): b0 fog atlas sampler3D (UAB, parity rewrite), b1 OIT heads
-        // storage image + b2 OIT nodes SSBO (UAB + partially-bound — written when the PPLL lands;
+        // storage image + b2 OIT nodes SSBO (UAB + partially-bound: written when the PPLL lands;
         // the sorted pipeline never statically uses them).
         VkDescriptorSetLayout m_TransparentSetLayout = VK_NULL_HANDLE;
         // OIT resolve pass-local (Set 1 of the fullscreen pipeline): b0 heads, b1 nodes.

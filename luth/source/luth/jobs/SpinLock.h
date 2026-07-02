@@ -5,10 +5,9 @@
 
 namespace Luth
 {
-    // SpinLock (V1 — see arch/version-glossary.md).
-    // Pure spin-lock for micro-critical sections (< 100 cycles).
-    // NEVER yields, NEVER sleeps. If your critical section is long enough
-    // to need either, restructure it as a lock-free atomic state or a job chain.
+    // SpinLock (V1; see arch/version-glossary.md). Pure spin-lock for micro-critical sections (< 100 cycles).
+    // NEVER yields, NEVER sleeps. If a critical section is long enough to need either, restructure it
+    // as a lock-free atomic state or a job chain.
     //
     // Contract: Never call Fiber::Yield() while holding this lock.
 
@@ -24,11 +23,10 @@ namespace Luth
             // Slow path: spin with backoff
             while (true)
             {
-                // Spin without writing (reduces cache-line bouncing)
-                // test() is a read-only check — doesn't invalidate other cores' caches
+                // Spin without writing (reduces cache-line bouncing); test() is read-only, doesn't invalidate other cores' caches
                 while (m_Flag.test(std::memory_order_relaxed))
                 {
-                    _mm_pause(); // Intel PAUSE — reduces pipeline stalls during spin
+                    _mm_pause(); // Intel PAUSE; reduces pipeline stalls during spin
                 }
 
                 // Try to acquire

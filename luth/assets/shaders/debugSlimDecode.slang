@@ -1,5 +1,5 @@
 // Slim G-buffer preview decoder (float attachments) for frame-debugger thumbnails.
-//   mode 0 = SlimNormal (oct → RGB normal) · 1 = SlimMotion (|motion|·scale) · 2 = SlimRoughness.
+//   mode 0 = SlimNormal (oct -> RGB normal); 1 = SlimMotion (|motion|*scale); 2 = SlimRoughness.
 [[vk::binding(0, 0)]] Sampler2D u_Source;
 struct PC { uint mode; float scale; };
 [[vk::push_constant]] PC pc;

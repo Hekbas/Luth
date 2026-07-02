@@ -1,4 +1,4 @@
-// Bloom pyramid downsample — Jimenez "Next Gen Post Processing in CoD:AW" 13-tap filter.
+// Bloom pyramid downsample: Jimenez "Next Gen Post Processing in CoD:AW" 13-tap filter.
 // The scene -> mip0 step sets prefilter: bright-pass (soft-knee threshold) + Karis partial
 // average over the 5 box groups, which suppresses fireflies at the brightest source. Later
 // mip[i] -> mip[i+1] steps run the plain 13-tap. see arch/rendering-pipeline.md (PostProcess).
@@ -8,7 +8,7 @@
 
 struct PC
 {
-    float2 srcTexel;   // 1 / sourceResolution — tap spacing (source is 2x the dest extent)
+    float2 srcTexel;   // 1 / sourceResolution; tap spacing (source is 2x the dest extent)
     int2   dstSize;    // dest extent, for the dispatch bounds + UV denominator
     float  threshold;  // bright-pass cutoff (prefilter only)
     float  knee;       // soft-knee half-width (prefilter only)

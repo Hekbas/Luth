@@ -21,7 +21,7 @@ namespace Luth
     namespace
     {
         // fetch.Sample(...) for a TextureSample node's map slot. Maps carrying a per-map UV-index bit follow
-        // it; the rest sample UV0 — mirrors EvalMaterialChannels in material.slang.
+        // it; the rest sample UV0; mirrors EvalMaterialChannels in material.slang.
         std::string TexSampleExpr(u32 tex)
         {
             switch (static_cast<MapType>(tex))
@@ -49,7 +49,7 @@ namespace Luth
         {
             if (t == MatNodeType::Lerp) return 3;
             if (t == MatNodeType::Multiply || t == MatNodeType::Add) return 2;
-            return 1;   // Remap / Split (Const / TextureSample have none — slot 0 simply stays unlinked)
+            return 1;   // Remap / Split (Const / TextureSample have none; slot 0 stays unlinked)
         }
 
         const MatLink* Incoming(const MaterialGraph& g, u32 nodeId, u8 slot)
@@ -60,7 +60,7 @@ namespace Luth
         }
 
         // DFS post-order from Output's connected inputs; unreachable nodes dead-strip. invariant: the order
-        // depends only on structure (slots + topology), not node IDs — canonicalizes SSA names + param slots.
+        // depends only on structure (slots + topology), not node IDs; canonicalizes SSA names + param slots.
         std::vector<u32> CanonicalOrder(const MaterialGraph& g)
         {
             std::unordered_map<u32, const MatNode*> byId;
@@ -89,7 +89,7 @@ namespace Luth
             return order;
         }
 
-        // Graph constants in canonical order — the float4 sequence the generated EvalGraph reads via fetch.Param(k).
+        // Graph constants in canonical order: the float4 sequence the generated EvalGraph reads via fetch.Param(k).
         // invariant: same CanonicalOrder + IsValueNode walk as the Lowerer's paramSlot, else the reads desync.
         std::vector<Vec4> BuildParams(const MaterialGraph& g)
         {
@@ -141,7 +141,7 @@ namespace Luth
                 return Name(prod.id);
             }
 
-            // float4 feeding a consumer node's input slot — linked source, else an identity-aware default.
+            // float4 feeding a consumer node's input slot: linked source, else an identity-aware default.
             std::string Input(const MatNode& n, u8 slot) const
             {
                 if (const MatLink* l = Incoming(g, n.id, slot))
@@ -160,7 +160,7 @@ namespace Luth
             {
                 switch (n.type)
                 {
-                    // Const values are per-material data — ConstFloat broadcasts (BuildParams stores float4(x)).
+                    // Const values are per-material data; ConstFloat broadcasts (BuildParams stores float4(x)).
                     case MatNodeType::ConstFloat:
                     case MatNodeType::ConstColor:    return "fetch.Param(" + std::to_string(paramSlot.at(n.id)) + ")";
                     case MatNodeType::TextureSample: return TexSampleExpr(n.tex);
@@ -231,7 +231,7 @@ namespace Luth
         }
 
         // The per-material preview consumer: graph decode + a Lambert+ambient mini-shade for the editor
-        // thumbnail/inspector. Self-contained (PreviewFetch + per-call UBO + bindless) — no MaterialSystem set.
+        // thumbnail/inspector. Self-contained (PreviewFetch + per-call UBO + bindless); no MaterialSystem set.
         std::string EmitPreviewConsumer(const std::string& moduleName, const std::string& fnName)
         {
             std::ostringstream ss;
@@ -260,9 +260,9 @@ namespace Luth
             return ss.str();
         }
 
-        // The project variant registry — a switch over every distinct structure's EvalGraph_<hash>, shadowing
+        // The project variant registry: a switch over every distinct structure's EvalGraph_<hash>, shadowing
         // the engine-default mat_graph_registry on the Slang search path. material_bindings_rt imports it so
-        // the shared RT megakernel can decode any graph material. entries are {variantIndex, structure-hash hex}.
+        // the shared RT megakernel can decode any graph material. Entries are {variantIndex, structure-hash hex}.
         std::string EmitAggregator(const std::vector<std::pair<u32, std::string>>& entries)
         {
             std::ostringstream ss;
@@ -277,12 +277,12 @@ namespace Luth
             return ss.str();
         }
 
-        constexpr u32 kMaxGraphVariants = 16;   // RT megakernel switch-arm cap — now counts distinct STRUCTURES
+        constexpr u32 kMaxGraphVariants = 16;   // RT megakernel switch-arm cap; counts distinct structures
 
         struct StructInfo { u32 variant; UUID shaderUUID; UUID previewUUID; std::string canonSrc; };
         std::unordered_map<u64, StructInfo> s_Structures;   // structure hash -> shared variant + compiled shader
 
-        // FNV-1a over the canonical (value-free, ID-free) module source — the structure key. Materials with the
+        // FNV-1a over the canonical (value-free, ID-free) module source: the structure key. Materials with the
         // same graph shape hash equal and share one shader + variant; their constants differ only in gMatParams.
         u64 Fnv1a(const std::string& s)
         {
@@ -298,7 +298,7 @@ namespace Luth
         }
 
         // Reload every shared consumer of the variant registry (RT megakernels + the two raster
-        // transparent shaders) against the regenerated version. Main-thread only — not fiber-safe.
+        // transparent shaders) against the regenerated version. Main-thread only; not fiber-safe.
         void ScheduleGraphConsumerReload()
         {
             MainThreadPump::Post([]() {
@@ -326,27 +326,27 @@ namespace Luth
         if (!material.HasGraph()) return UUID::Invalid();
         if (!FileSystem::HasProject())
         {
-            LH_LOG(Renderer, warn, "MaterialGraphCodegen: no project loaded — cannot emit a graph shader");
+            LH_LOG(Renderer, warn, "MaterialGraphCodegen: no project loaded - cannot emit a graph shader");
             return UUID::Invalid();
         }
 
-        // Value-node count is hard-bounded by the per-material gMatParams stride — beyond it, fetch.Param(k)
+        // Value-node count is hard-bounded by the per-material gMatParams stride; beyond it, fetch.Param(k)
         // would read into the next material's region. Fail loud (renders stock) rather than corrupt.
         Lowerer low(material.GetGraph());
         if (low.paramCount > MAT_GRAPH_STRIDE)
         {
-            LH_LOG(Renderer, error, "MaterialGraphCodegen: '{}' has {} graph constants (> MAT_GRAPH_STRIDE {}) — renders stock",
+            LH_LOG(Renderer, error, "MaterialGraphCodegen: '{}' has {} graph constants (> MAT_GRAPH_STRIDE {}) - renders stock",
                           material.Handle.ToString(), low.paramCount, MAT_GRAPH_STRIDE);
             return UUID::Invalid();
         }
         material.SetGraphParams(BuildParams(material.GetGraph()));
 
-        // Structure key: the canonical module source under a fixed fn name — value-free + ID-free. Structurally
+        // Structure key: the canonical module source under a fixed fn name (value-free + ID-free). Structurally
         // identical materials hash equal and share the compiled shader + RT variant; their constants live in data.
         const std::string canonSrc   = low.Run("EvalGraph");
         const u64         structHash = Fnv1a(canonSrc);
 
-        // Hash hit: this structure was already compiled — reuse its shader + variant, skip codegen and the RT
+        // Hash hit: this structure was already compiled; reuse its shader + variant, skip codegen and the RT
         // reload entirely. The source memcmp rules out a (vanishingly rare) hash collision before reusing.
         if (auto it = s_Structures.find(structHash); it != s_Structures.end() && it->second.canonSrc == canonSrc)
         {
@@ -402,7 +402,7 @@ namespace Luth
                 }
         }
         if (!previewUUID.IsValid())
-            LH_LOG(Renderer, warn, "MaterialGraphCodegen: '{}' preview consumer failed — editor preview stays stock", prevBase);
+            LH_LOG(Renderer, warn, "MaterialGraphCodegen: '{}' preview consumer failed - editor preview stays stock", prevBase);
 
         // New structure -> assign an RT eval variant (capped on distinct structures). Beyond the cap the
         // material renders correctly in raster (per-structure shader) but stays stock in RT.
@@ -410,7 +410,7 @@ namespace Luth
         if (s_Structures.size() < kMaxGraphVariants)
             variant = static_cast<u32>(s_Structures.size()) + 1;
         else
-            LH_LOG(Renderer, warn, "MaterialGraphCodegen: RT variant cap ({}) reached — '{}' renders stock in RT", kMaxGraphVariants, consBase);
+            LH_LOG(Renderer, warn, "MaterialGraphCodegen: RT variant cap ({}) reached - '{}' renders stock in RT", kMaxGraphVariants, consBase);
 
         s_Structures[structHash] = StructInfo{ variant, shader->Handle, previewUUID, canonSrc };
         material.SetGraphShaderUUID(shader->Handle);
@@ -419,7 +419,7 @@ namespace Luth
         material.UpdateGPUData();   // pack the variant into flags 8-15 for the per-frame material SSBO upload
 
         // Regenerate the project registry + recompile the RT megakernels so the shared megakernel decodes this
-        // new structure. Only fires on a brand-new structure — value edits and clones hash-hit above.
+        // new structure. Only fires on a brand-new structure; value edits and clones hash-hit above.
         if (variant != 0)
         {
             std::vector<std::pair<u32, std::string>> entries;

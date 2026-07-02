@@ -8,11 +8,11 @@
 namespace Luth
 {
     // Thin wrapper over VK_KHR_dynamic_rendering. Every pass calls BeginRendering / EndRendering
-    // directly — Luth has no VkRenderPass or VkFramebuffer anywhere in the codebase.
+    // directly; Luth has no VkRenderPass or VkFramebuffer anywhere in the codebase.
     struct AttachmentInfo
     {
         VkImageView ImageView = VK_NULL_HANDLE;
-        VkFormat Format = VK_FORMAT_UNDEFINED; // Added Format
+        VkFormat Format = VK_FORMAT_UNDEFINED;
         VkAttachmentLoadOp LoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         VkAttachmentStoreOp StoreOp = VK_ATTACHMENT_STORE_OP_STORE;
         VkClearValue ClearValue = {};
@@ -29,7 +29,7 @@ namespace Luth
         
         VkRect2D RenderArea = {};
         u32 LayerCount = 1;
-        VkRenderingFlags Flags = 0; // Added Flags
+        VkRenderingFlags Flags = 0;
     };
 
     class DynamicRendering
@@ -80,7 +80,7 @@ namespace Luth
 
             VkRenderingInfo renderingInfo{};
             renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-            renderingInfo.flags = info.Flags; // Use flags
+            renderingInfo.flags = info.Flags;
             renderingInfo.renderArea = info.RenderArea;
             renderingInfo.layerCount = info.LayerCount;
             renderingInfo.colorAttachmentCount = (u32)colorInfos.size();

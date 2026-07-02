@@ -20,7 +20,7 @@
 namespace Luth
 {
     namespace {
-        // GPU push block for the selection-mask pipelines — ObjectPushConstants plus the per-view TAA
+        // GPU push block for the selection-mask pipelines: ObjectPushConstants plus the per-view TAA
         // jitter the vertex shader subtracts to draw the mask un-jittered. Pass-local so the engine-wide
         // ObjectPushConstants contract stays frozen. 80 + 8 = 88 B, within the 128 B push floor.
         struct MaskPushConstants {
@@ -127,9 +127,9 @@ namespace Luth
             bindings[1].descriptorCount = 1;
             bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-            // invariant: binding 0 (per-view GlobalUBO) shares lifetime AND slot with
-            // Set 0 binding 0 — rewritten per render-stage; cycling alone doesn't
-            // avoid the in-pending-cmdbuf race. UAB needed (validation 03047).
+            // invariant: binding 0 (per-view GlobalUBO) shares lifetime AND slot with Set 0 binding 0,
+            // rewritten per render-stage; cycling alone doesn't avoid the in-pending-cmdbuf race.
+            // UAB needed (validation 03047).
             VkDescriptorBindingFlags bindingFlags[2] = {
                 VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
                 VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
@@ -158,7 +158,7 @@ namespace Luth
     void EditorOverlaysSubsystem::BuildSelectionPipelines(const std::vector<VkDescriptorSetLayout>& geoLayouts)
     {
         LH_PROFILE_FUNCTION();
-        // Selection mask uses Sets 0-4 (no Set 5 / no GPUObject SSBO — uses ObjectPushConstants).
+        // Selection mask uses Sets 0-4 (no Set 5 / no GPUObject SSBO; uses ObjectPushConstants).
         std::vector<VkDescriptorSetLayout> layouts(geoLayouts.begin(),
                                                    geoLayouts.begin() + std::min<size_t>(5, geoLayouts.size()));
 
@@ -596,7 +596,7 @@ namespace Luth
                 VkRect2D sc{}; sc.extent = { w, h };
                 vkCmdSetScissor(cmd, 0, 1, &sc);
 
-                // Push constants flow EditorSettings → EditorViewportState → CameraParams (App.cpp).
+                // Push constants flow EditorSettings -> EditorViewportState -> CameraParams (App.cpp).
                 const auto& cp = sys.GetCameraParams();
                 struct OutlinePushConstants {
                     float outlineWidth;

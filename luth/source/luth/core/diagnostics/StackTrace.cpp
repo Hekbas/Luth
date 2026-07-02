@@ -80,7 +80,7 @@ namespace Luth::StackTrace
 
     void LogStackTrace(int skip, int max)
     {
-        // skip + 1 to drop ourselves; caller's catch block becomes the top frame.
+        // skip + 1 drops this frame; caller's catch block becomes the top frame.
         auto frames = Capture(skip + 1, max);
         for (const auto& f : frames) {
             LH_CORE_ERROR("{}", f);

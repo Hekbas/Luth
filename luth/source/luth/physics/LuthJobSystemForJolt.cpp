@@ -11,17 +11,16 @@
 
 namespace Luth::Physics
 {
-    // ── LuthBarrier ──
+    // ---- LuthBarrier ----
 
-    // Counter must be incremented BEFORE SetBarrier opens the gate. If we incremented after, a
-    // worker running the job concurrently could swap mBarrier into cBarrierDoneState and call
-    // OnJobFinished's Decrement on a counter that's still at zero — and AtomicCounter::Decrement
-    // clamps at zero (its DecrementCounter has `if (old < 2) break;`). The decrement is then
-    // silently swallowed and the subsequent Increment leaves the counter permanently +1, deadlocking
-    // any WaitForJobs on this barrier.
+    // Counter must be incremented BEFORE SetBarrier opens the gate. Incrementing after would let a
+    // worker running the job concurrently swap mBarrier into cBarrierDoneState and call OnJobFinished's
+    // Decrement on a counter that's still at zero, and AtomicCounter::Decrement clamps at zero (its
+    // DecrementCounter has `if (old < 2) break;`). The decrement is then silently swallowed and the
+    // subsequent Increment leaves the counter permanently +1, deadlocking any WaitForJobs on this barrier.
     //
     // Jolt's reference JobSystemWithBarrier doesn't have this problem because its counter is a
-    // semaphore — releases stack up and are never lost. AtomicCounter doesn't, so the order matters.
+    // semaphore: releases stack up and are never lost. AtomicCounter doesn't, so the order matters.
 
     void LuthJobSystemForJolt::LuthBarrier::AddJob(const JobHandle& handle)
     {
@@ -92,14 +91,14 @@ namespace Luth::Physics
         Counter.Decrement(1);
     }
 
-    // ── LuthJobSystemForJolt ──
+    // ---- LuthJobSystemForJolt ----
 
     LuthJobSystemForJolt::LuthJobSystemForJolt(JPH::uint maxJobs, JPH::uint maxBarriers)
     {
         m_Jobs.Init(maxJobs, maxJobs);
         m_Barriers.reserve(maxBarriers);
 
-        // Cap our advertised concurrency below Luth's worker count so non-physics game-stage jobs always
+        // Cap advertised concurrency below Luth's worker count so non-physics game-stage jobs always
         // have free workers to run on. GetStats() requires Luth::JobSystem::Init() to have been called;
         // adapter construction happens after engine init, so this is safe.
         const auto stats = Luth::JobSystem::GetStats();
@@ -108,7 +107,7 @@ namespace Luth::Physics
                          : 1;
 
         // Watchdog detects WaitForJobs calls that hang past the threshold (typically a job that never
-        // fires OnJobFinished — lost in scheduling, ran without setting its barrier, or stuck inside
+        // fires OnJobFinished: lost in scheduling, ran without setting its barrier, or stuck inside
         // Jolt). Logs the names of the still-pending jobs the first time each stuck period is detected.
         m_WatchdogRunning.store(true, std::memory_order_release);
         m_WatchdogThread = std::thread(&LuthJobSystemForJolt::WatchdogLoop, this);
@@ -172,7 +171,7 @@ namespace Luth::Physics
     void LuthJobSystemForJolt::DestroyBarrier(Barrier* barrier)
     {
         // Per Jolt's contract, the barrier is empty (all jobs finished) by the time the user calls
-        // DestroyBarrier — they must have waited.
+        // DestroyBarrier; they must have waited.
         std::lock_guard<std::mutex> lk(m_BarriersMutex);
         auto it = std::find_if(m_Barriers.begin(), m_Barriers.end(),
             [barrier](const std::unique_ptr<LuthBarrier>& b) { return b.get() == barrier; });
@@ -198,7 +197,7 @@ namespace Luth::Physics
 
     void LuthJobSystemForJolt::QueueJob(Job* job)
     {
-        // We're storing the job for async execution — take a ref so it survives until the trampoline runs. The
+        // The job is stored for async execution; take a ref so it survives until the trampoline runs. The
         // trampoline Releases after Execute. (Jolt's JobSystem.h: "If you store the job in your own data
         // structure you need to call AddRef().")
         job->AddRef();
@@ -224,15 +223,15 @@ namespace Luth::Physics
     {
         auto* job = static_cast<Job*>(args.data);
         // Job::Execute() runs the job function and, at the end, atomically swaps mBarrier to
-        // cBarrierDoneState and calls Barrier::OnJobFinished — which our LuthBarrier uses to decrement its
-        // counter and wake any fibers waiting in WaitForJobs → WaitForCounter.
+        // cBarrierDoneState and calls Barrier::OnJobFinished, which LuthBarrier uses to decrement its
+        // counter and wake any fibers waiting in WaitForJobs -> WaitForCounter.
         job->Execute();
-        // Drop the ref we took in QueueJob. When the last ref drops (which happens here if the user already
-        // let their JobHandle expire), FreeJob is called via Job::Release().
+        // Drop the ref taken in QueueJob. When the last ref drops (here, if the user already let their
+        // JobHandle expire), FreeJob is called via Job::Release().
         job->Release();
     }
 
-    // ── Watchdog ──
+    // ---- Watchdog ----
 
     void LuthJobSystemForJolt::WatchdogLoop()
     {

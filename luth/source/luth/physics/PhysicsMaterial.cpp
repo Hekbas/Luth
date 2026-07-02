@@ -22,7 +22,7 @@ namespace Luth
 
     const PhysicsMaterial& PhysicsMaterial::Default()
     {
-        static const PhysicsMaterial sDefault;  // value-initialized — matches in-class defaults
+        static const PhysicsMaterial sDefault;  // value-initialized; matches in-class defaults
         return sDefault;
     }
 }

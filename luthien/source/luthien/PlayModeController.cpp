@@ -20,7 +20,7 @@ namespace Luth
 
         auto scene = Editor::GetActiveScene();
         if (!scene) {
-            LH_LOG(Editor, warn, "PlayModeController::EnterPlay — no active scene");
+            LH_LOG(Editor, warn, "PlayModeController::EnterPlay - no active scene");
             return;
         }
 
@@ -61,7 +61,7 @@ namespace Luth
         auto scene = Editor::GetActiveScene();
         if (scene && !s_Snapshot.empty()) {
             if (!SceneSerializer::LoadFromString(*scene, s_Snapshot, /*preserveAssets=*/true)) {
-                LH_LOG(Editor, error, "PlayModeController::Stop — failed to restore scene snapshot");
+                LH_LOG(Editor, error, "PlayModeController::Stop - failed to restore scene snapshot");
             }
         }
         s_Snapshot.clear();

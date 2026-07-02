@@ -29,7 +29,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     if (fp.x >= pc.fullW || fp.y >= pc.fullH) return;
 
     float dC = u_Depth.Load(int3(fp, 0)).r;
-    if (dC >= 1.0) { u_Out[fp] = float4(0.0); return; }   // sky → no GI
+    if (dC >= 1.0) { u_Out[fp] = float4(0.0); return; }   // sky -> no GI
     float  zC = SvgfLinearizeDepth(dC);
     float3 nC = SvgfOctDecode(u_Normal.Load(int3(fp, 0)).rg);
 

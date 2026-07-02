@@ -1,6 +1,6 @@
 #pragma once
 
-// LH_PROFILE_GPU_* — Tracy Vulkan GPU-zone macros. Kept out of core Profiler.h so <vulkan/vulkan.h>
+// LH_PROFILE_GPU_*: Tracy Vulkan GPU-zone macros. Kept out of core Profiler.h so <vulkan/vulkan.h>
 // and TracyVulkan.hpp stay scoped to the renderer; include only where Vulkan is already in scope.
 // GpuTracyCtx is one persistent context per queue (graphics + async-compute); collect once per frame.
 

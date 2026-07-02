@@ -7,9 +7,8 @@
 namespace Luth
 {
     // Concrete Shader implementation backed by a VkShaderModule. Owns the SPIR-V blob and the
-    // pre-built VkPipelineShaderStageCreateInfo so VKPipeline construction can fold this in
-    // directly. Reload tears down the module and rebuilds from the new SPIR-V — used by
-    // ShaderWatcher to support hot reload without restarting the engine.
+    // pre-built VkPipelineShaderStageCreateInfo so VKPipeline construction can fold this in directly.
+    // Reload tears down the module and rebuilds from the new SPIR-V; used by ShaderWatcher for hot reload.
     class VulkanShader : public Shader
     {
     public:

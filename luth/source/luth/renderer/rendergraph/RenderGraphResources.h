@@ -37,19 +37,19 @@ namespace Luth::RG
         TransferSrc,                // Copy Source
         TransferDst,                // Copy Dest / Clear
         Present,                    // Swapchain Present
-        ComputeRead,                // Compute/RT shader read, SAMPLED — transitions to SHADER_READ_ONLY
-        ComputeWrite,               // Compute shader write (storage image) — GENERAL
-        ComputeReadStorage,         // Compute/RT read of a STORAGE image (imageLoad) — stays GENERAL
+        ComputeRead,                // Compute/RT shader read, SAMPLED; transitions to SHADER_READ_ONLY
+        ComputeWrite,               // Compute shader write (storage image); GENERAL
+        ComputeReadStorage,         // Compute/RT read of a STORAGE image (imageLoad); stays GENERAL
         StorageBufferRead,          // Compute shader read (SSBO)
         StorageBufferWrite,         // Compute shader write (SSBO)
-        FragmentStorageRead,        // Fragment-shader storage read (image stays GENERAL) — PPLL resolve
-        FragmentStorageWrite,       // Fragment-shader storage write, RMW access for atomics — PPLL store
+        FragmentStorageRead,        // Fragment-shader storage read (image stays GENERAL); PPLL resolve
+        FragmentStorageWrite,       // Fragment-shader storage write, RMW access for atomics; PPLL store
         IndirectRead,               // Indirect draw/dispatch command read
         AccelerationStructureBuild, // vkCmdBuildAccelerationStructuresKHR write
         AccelerationStructureRead,  // Ray-query / RT-pipeline / fragment-shader read of AS
     };
 
-    // Which queue family a pass executes on. Default Graphics — opt into AsyncCompute via the 4-arg
+    // Which queue family a pass executes on. Default Graphics; opt into AsyncCompute via the 4-arg
     // AddComputePass overload. SolveBarriers detects cross-queue handoffs and substitutes TOP_OF_PIPE for the
     // cross-family src stage on the reader's pre-barrier (cross-queue semaphore at submit covers the actual
     // memory dependency per Vulkan spec). See docs/development/arch/multi-queue.md.
@@ -62,7 +62,7 @@ namespace Luth::RG
     enum class TextureFormat
     {
         RGBA8_Unorm,
-        BGRA8_Unorm, // Added for Swapchain
+        BGRA8_Unorm, // Swapchain format
         R8_Unorm,     // Compute storage (GTAO raw/final AO, etc.)
         RGBA16_Float, // HDR render target
         RG16_Float,   // Slim G-buffer normal (octahedral) + motion vectors
@@ -91,7 +91,7 @@ namespace Luth::RG
         VkBufferUsageFlags usage = 0;
     };
 
-    // Why a barrier was emitted — set by SolveBarriers, surfaced by the graph dump + barrier trace.
+    // Why a barrier was emitted; set by SolveBarriers, surfaced by the graph dump + barrier trace.
     enum class BarrierReason : u8 { Raw, Waw, Final };
 
     struct Barrier

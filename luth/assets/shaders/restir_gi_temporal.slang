@@ -1,7 +1,7 @@
-// ReSTIR GI — temporal reuse (Ouyang 2021). Reprojects each pixel to the previous frame via the motion
+// ReSTIR GI temporal reuse (Ouyang 2021). Reprojects each pixel to the previous frame via the motion
 // vector and merges the previous reservoir into this frame's fresh candidate, confidence-weighted (Bitterli
 // relative M-cap) and age-capped. Because a GI reservoir stores a WORLD-SPACE sample point, reusing the
-// previous sample at the current receiver is a reconnection SHIFT — the resampling weight is multiplied by
+// previous sample at the current receiver is a reconnection SHIFT: the resampling weight is multiplied by
 // the reconnection Jacobian (Eq. 11). Runs between initial and shade; the merged result stays in CURR (b2).
 // AsyncCompute. see arch/rendering-pipeline.md
 import globals;
@@ -19,7 +19,7 @@ struct PC
     float4x4 invViewProj;
     uint     mCapMaxAge;       // mCap in low 16 bits, maxReservoirAge in high 16 bits
     uint     frameSeed;
-    float    depthThreshold;   // disocclusion tolerance — fraction of view distance
+    float    depthThreshold;   // disocclusion tolerance: fraction of view distance
     float    normalThreshold;  // min dot(prevN, currN)
     int      gbufferScale;     // 1 = full-res; 2 = half-res GI (G-buffer reads remap to full)
     int      dispatchW;
@@ -45,7 +45,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     uint flatIdx = uint(pixel.y) * uint(size.x) + uint(pixel.x);
 
     float depth = u_CurrDepth.Load(int3(GiGuide(pixel), 0)).r;
-    if (depth >= 1.0) return;   // sky — leave the (empty) candidate untouched
+    if (depth >= 1.0) return;   // sky; leave the (empty) candidate untouched
 
     GIReservoir r   = curr[flatIdx];   // this frame's fresh candidate (from initial)
     float2 octN     = u_CurrNormal.Load(int3(GiGuide(pixel), 0)).rg;
@@ -59,8 +59,8 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     uint seed = PcgHash(flatIdx ^ (pc.frameSeed * 2246822519u));
 
-    // Start with this frame's candidate — already at this pixel, identity shift. GIReservoirMerge seeds
-    // the sample on the first merge even at w=0 (confident-zero invariant: M>0 ⇒ samplePos valid).
+    // Start with this frame's candidate: already at this pixel, identity shift. GIReservoirMerge seeds
+    // the sample on the first merge even at w=0 (confident-zero invariant: M>0 => samplePos valid).
     GIReservoir c; GIReservoirReset(c);
     if (r.M > 0u)
     {

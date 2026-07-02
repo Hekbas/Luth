@@ -1,4 +1,4 @@
-// Slim G-buffer material-ID preview — reads the R16U integer attachment, emits a per-slot palette.
+// Slim G-buffer material-ID preview: reads the R16U integer attachment, emits a per-slot palette.
 [[vk::binding(0, 0)]] Sampler2D<uint> u_SourceMatID;
 struct FIn { [[vk::location(0)]] float2 uv; };
 

@@ -23,10 +23,9 @@ namespace Luth
         bool IsOpen = false;
     };
 
-    // Placeholder snapshot — real opportunity: move BuildDirectoryTree + UpdateSearchResults
-    // into OnGather (both heavy CPU work in Tracy captures). The lifecycle migration ships
-    // first; a follow-on polish commit can shift that work onto the gather fiber.
-    struct ProjectSnapshot { /* placeholder; populated by future polish */ };
+    // BuildDirectoryTree + UpdateSearchResults (both heavy CPU work in Tracy captures) still run in
+    // OnDraw; moving them onto the gather fiber is the open optimization here.
+    struct ProjectSnapshot {};
 
     class ProjectPanel : public Panel
     {
@@ -82,7 +81,7 @@ namespace Luth
 
         float m_ThumbnailSize = 64.0f;
         float m_Padding = 4.0f;
-        // Slider min stays 16; threshold raised so list view covers 16–32 and
+        // Slider min stays 16; threshold raised so list view covers 16-32 and
         // grid mode starts at 33 (smallest grid icons used to be unusably tiny).
         static constexpr float k_ListModeThreshold = 32.0f;
         static constexpr int   k_MaxNameLines      = 3;     // grid-mode label cap, Unreal-style

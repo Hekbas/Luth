@@ -16,7 +16,7 @@
 #include "luthien/widgets/IconsPhosphor.h"
 #include "luthien/widgets/IconsPhosphorFill.h"
 
-// ── Generic UI ──
+// ---- Generic UI ----
 #define ICON_SEARCH            ICON_PH_MAGNIFYING_GLASS
 #define ICON_PLUS              ICON_PH_PLUS
 #define ICON_MINUS             ICON_PH_MINUS
@@ -42,7 +42,7 @@
 #define ICON_ARROW_RIGHT       ICON_PH_ARROW_RIGHT
 #define ICON_ARROWS_VERTICAL   ICON_PH_ARROWS_VERTICAL
 
-// ── Status / logs ──
+// ---- Status / logs ----
 #define ICON_WARNING           ICON_PH_WARNING
 #define ICON_WARNING_CIRCLE    ICON_PH_WARNING_CIRCLE
 #define ICON_INFO              ICON_PH_INFO
@@ -52,7 +52,7 @@
 #define ICON_BUG_BEETLE_FILL   ICON_PHF_BUG_BEETLE
 #define ICON_CIRCLE            ICON_PH_CIRCLE
 
-// ── Edit / history / transport ──
+// ---- Edit / history / transport ----
 #define ICON_UNDO              ICON_PH_ARROW_COUNTER_CLOCKWISE
 #define ICON_REDO              ICON_PH_ARROW_CLOCKWISE
 #define ICON_REFRESH           ICON_PH_ARROWS_CLOCKWISE
@@ -68,7 +68,7 @@
 #define ICON_STOP_FILL         ICON_PHF_STOP
 #define ICON_STEP_FORWARD_FILL ICON_PHF_SKIP_FORWARD
 
-// ── Viewport / gizmo ──
+// ---- Viewport / gizmo ----
 #define ICON_MOVE              ICON_PH_ARROWS_OUT_CARDINAL
 #define ICON_RESIZE            ICON_PH_RESIZE
 #define ICON_SELECT            ICON_PH_CURSOR
@@ -77,7 +77,7 @@
 #define ICON_WIREFRAME_SHADED  ICON_PHF_SPHERE
 #define ICON_ATOM              ICON_PH_ATOM
 
-// ── Scene / components ──
+// ---- Scene / components ----
 #define ICON_ENTITY            ICON_PH_DOT_OUTLINE
 #define ICON_MESH              ICON_PH_GRID_NINE
 #define ICON_BONE              ICON_PH_BONE
@@ -101,7 +101,7 @@
 #define ICON_CUBE              ICON_PH_CUBE
 #define ICON_SHAPES            ICON_PH_SHAPES
 
-// ── Assets / content ──
+// ---- Assets / content ----
 #define ICON_MODEL             ICON_PH_CUBE
 #define ICON_IMAGE             ICON_PH_IMAGE
 #define ICON_MATERIAL          ICON_PH_CIRCLE_HALF
@@ -116,7 +116,7 @@
 #define ICON_FOLDER_FILL       ICON_PHF_FOLDER      // filled  (push Editor::GetIconFill)
 #define ICON_FOLDER_OPEN       ICON_PH_FOLDER_OPEN
 
-// ── Panels / misc ──
+// ---- Panels / misc ----
 #define ICON_VIEWPORT          ICON_PH_CUBE_FOCUS
 #define ICON_NODE_GRAPH        ICON_PH_GRAPH
 #define ICON_DATABASE          ICON_PH_DATABASE

@@ -81,7 +81,7 @@ namespace Luth
             bindings[2].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
 
             // invariant: cycling alone doesn't avoid the in-pending-cmdbuf race for
-            // these per-render-stage rewrites — UAB needed (validation 03047).
+            // these per-render-stage rewrites; UAB needed (validation 03047).
             VkDescriptorBindingFlags bindingFlags[3] = {
                 VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
                 VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
@@ -233,10 +233,10 @@ namespace Luth
         ubo.invFullResolution[0] = 1.0f / float(fullW);
         ubo.invFullResolution[1] = 1.0f / float(fullH);
 
-        // invariant: Set 0 binding 5 + GTAO main set binding 2 share the same per-frame
-        // region AND the same per-frame slot. The two writes MUST stay in one batched call
-        // so we don't double-allocate, and both must use the same `slot` so the next frame's
-        // allocator doesn't overwrite a region the previous frame's binding still references.
+        // invariant: Set 0 binding 5 + GTAO main set binding 2 share the same per-frame region AND the
+        // same per-frame slot. The two writes MUST stay in one batched call to avoid double-allocating,
+        // and both must use the same `slot` so the next frame's allocator doesn't overwrite a region the
+        // previous frame's binding still references.
         auto* jobCtx = JobSystem::GetCurrentJobContext();
         if (!jobCtx) return;
         const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
@@ -411,7 +411,7 @@ namespace Luth
         rg.AddComputePass<GTAOPrefilterData>("GTAODepthPrefilter", RG::QueueFamily::AsyncCompute,
             [&](GTAOPrefilterData& data, RG::RenderPassBuilder& builder)
             {
-                // ReadStorageImage despite the name gives ComputeRead → SHADER_READ_ONLY layout.
+                // ReadStorageImage despite the name gives ComputeRead -> SHADER_READ_ONLY layout.
                 data.sceneDepth = builder.ReadStorageImage(sceneDepth);
 
                 ViewResources* vr = m_Pipeline->GetCurrentViewResources();

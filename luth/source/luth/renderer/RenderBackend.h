@@ -7,9 +7,9 @@
 namespace Luth
 {
     // Abstract GPU API surface owned by Renderer. The concrete VulkanBackend handles swapchain
-    // acquire, per-view × per-frame primary command buffers across three queue streams (gA / compute / gB), and
+    // acquire, per-view x per-frame primary command buffers across three queue streams (gA / compute / gB), and
     // the per-view 3-submit topology that sequences cross-queue work. AcquireImage can legitimately fail on resize
-    // or a suboptimal swapchain — the caller yields the fiber and retries the same frameIndex on the next tick.
+    // or a suboptimal swapchain; the caller yields the fiber and retries the same frameIndex on the next tick.
     class RenderBackend
     {
     public:
@@ -28,7 +28,7 @@ namespace Luth
         virtual bool AcquireImage(u64 frameIndex) = 0;
 
         // Submit one view's triplet of primary command buffers using the per-view 3-submit topology
-        // (gA → compute → gB; compute submit skipped if hasComputeWork is false). The first view's gA waits on
+        // (gA -> compute -> gB; compute submit skipped if hasComputeWork is false). The first view's gA waits on
         // imageAvailable; subsequent views' gA waits on the previous view's gB signal at EARLY_FRAGMENT_TESTS.
         // The last view's gB signals renderFinished + caches the per-frame final timeline values consumed by
         // AcquireImage's GPU-N-2 reclaim predicate. No-op if AcquireImage skipped.

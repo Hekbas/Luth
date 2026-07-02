@@ -1,4 +1,4 @@
-// Path-traced reference mode (rt-renderer C.5) — megakernel. Traces its own jittered primary rays (free
+// Path-traced reference mode: megakernel. Traces its own jittered primary rays (free
 // AA on convergence), then a multi-bounce NEE walk with cosine/GGX-VNDF BSDF sampling, Russian-roulette
 // termination, emission + environment-on-miss, progressively accumulated to an fp32 running mean.
 // see arch/rendering-pipeline.md
@@ -9,7 +9,7 @@ import brdf;                // Cook-Torrance + GGX-VNDF sampling + lobe pdfs
 import material;
 import material_bindings_rt; // FetchHitSurface + RtConfirmAlphaCandidates (Set 3 material, Set 4 bindless)
 
-[[vk::binding(2, 0)]] SamplerCube u_PrefilteredEnv;   // IBL prefiltered env (LOD 0 ≈ sky radiance)
+[[vk::binding(2, 0)]] SamplerCube u_PrefilteredEnv;   // IBL prefiltered env (LOD 0 ~ sky radiance)
 [[vk::binding(6, 0)]] RaytracingAccelerationStructure topLevelAS;
 [[vk::binding(0, 1)]] ByteAddressBuffer g_Lights;
 [[vk::binding(0, 2)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> u_Accum;   // fp32 progressive mean
@@ -23,10 +23,10 @@ struct PC
     uint         samplesPerFrame;
     uint         maxBounces;
     uint         rrStartDepth;
-    uint         reset;             // 1 → ignore the accumulator this frame
+    uint         reset;             // 1 -> ignore the accumulator this frame
     float        fireflyClamp;      // per-bounce indirect clamp
     float        pad0;
-    uint         envReady;          // 1 → IBL prefiltered env bound
+    uint         envReady;          // 1 -> IBL prefiltered env bound
     uint         pad1;
     GtGeomEntry* geomTable;
 };
@@ -72,7 +72,7 @@ bool Visible(float3 x, float3 offsetN, float3 dir, float maxDist)
     return sq.CommittedStatus() == COMMITTED_NOTHING;
 }
 
-// Full-BRDF NEE at (x, surface s) with view dir V. One random point light (× count undoes the 1/count
+// Full-BRDF NEE at (x, surface s) with view dir V. One random point light (x count undoes the 1/count
 // pick pdf) + deterministic sun, each shadow-rayed.
 float3 DirectLighting(float3 x, float3 V, HitSurface s, inout uint seed)
 {
@@ -98,7 +98,7 @@ float3 DirectLighting(float3 x, float3 V, HitSurface s, inout uint seed)
 }
 
 // BSDF importance sampling: pick diffuse or specular lobe, sample it, weight by one-sample lobe MIS.
-// Returns the next ray direction; multiplies `tp` by f·cos/pdf. false → dead path.
+// Returns the next ray direction; multiplies `tp` by f*cos/pdf. false -> dead path.
 bool SampleBSDF(float3 V, HitSurface s, inout uint seed, out float3 newDir, inout float3 tp)
 {
     float3 F0    = lerp(float3(0.04), s.baseColor, s.metalness);
@@ -125,7 +125,7 @@ bool SampleBSDF(float3 V, HitSurface s, inout uint seed, out float3 newDir, inou
     }
 
     float NdotL = dot(s.ns, newDir);
-    if (NdotL <= 0.0) return false;   // below the surface → terminate
+    if (NdotL <= 0.0) return false;   // below the surface: terminate
 
     float3 fCos = EvalBRDFTimesNdotL(newDir, float3(1.0), V, s.ns, s.baseColor, s.metalness, s.roughness);
     float  pdf  = pSpec * PdfSpec(s.ns, V, newDir, s.roughness) + (1.0 - pSpec) * PdfDiffuse(s.ns, newDir);
@@ -135,7 +135,7 @@ bool SampleBSDF(float3 V, HitSurface s, inout uint seed, out float3 newDir, inou
 }
 
 // One full sample path: jittered primary ray, then a multi-bounce NEE walk (punctual via NEE only,
-// emissive via BSDF hit only, environment via miss only — disjoint, so no cross-technique MIS needed).
+// emissive via BSDF hit only, environment via miss only; disjoint, so no cross-technique MIS needed).
 float3 SamplePath(int2 pixel, int2 size, inout uint seed)
 {
     float jx = RandFromSeed(seed); float jy = RandFromSeed(seed);
@@ -180,7 +180,7 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
         float3 newDir;
         if (!SampleBSDF(V, s, seed, newDir, throughput)) break;
 
-        // Russian roulette after a few guaranteed bounces — ÷survival keeps the estimator unbiased.
+        // Russian roulette after a few guaranteed bounces; /survival keeps the estimator unbiased.
         if (bounce >= pc.rrStartDepth)
         {
             float p = clamp(max(throughput.r, max(throughput.g, throughput.b)), 0.05, 1.0);
@@ -210,7 +210,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     for (uint i = 0u; i < spp; ++i)
         sum += SamplePath(pixel, size, seed);
 
-    // Unbiased running mean. Reset / first frame → this frame seeds; else blend by accumulated count.
+    // Unbiased running mean. Reset / first frame: this frame seeds; else blend by accumulated count.
     float3 result;
     if (pc.reset != 0u || pc.sampleCount == 0u)
     {

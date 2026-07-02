@@ -15,12 +15,12 @@ namespace Luth
 {
     namespace
     {
-        // Category tabs, ordered by pipeline stage (light → denoise → world → finish → reference path).
+        // Category tabs, ordered by pipeline stage (light -> denoise -> world -> finish -> reference path).
         // Section bodies gate on the active tab; search mode renders every title-matching section flat.
         enum RenderTab { Tab_Lighting, Tab_Denoise, Tab_Environment, Tab_Post, Tab_PathTrace, Tab_Count };
         const char* const kTabLabels[Tab_Count] = { "Lighting", "Denoise", "Environment", "Post FX", "Path Tracing" };
 
-        // ⚠ glyph flagging a control that reallocates GPU resources (not just a live-mutated value) on change.
+        // Warning glyph flagging a control that reallocates GPU resources (not just a live-mutated value) on change.
         void ReallocHint(const char* tip)
         {
             ImGui::SameLine();
@@ -43,7 +43,7 @@ namespace Luth
                 UI::Property("Color Alpha", sv.alphaColor, 0.01f, 0.0f, 1.0f);
                 Tip("Temporal EMA blend for color at steady state.\nLower = more accumulation / stability, more lag under motion.");
                 UI::Property("Moments Alpha", sv.alphaMoments, 0.01f, 0.0f, 1.0f);
-                Tip("Temporal EMA blend for the luminance moments (variance estimate)\nthat drives à-trous edge-stopping. Usually tracks Color Alpha.");
+                Tip("Temporal EMA blend for the luminance moments (variance estimate)\nthat drives a-trous edge-stopping. Usually tracks Color Alpha.");
                 UI::Property("Depth Threshold", sv.depthThreshold, 0.005f, 0.0f, 1.0f);
                 Tip("Relative linear-depth tolerance for accepting reprojected history.");
                 UI::Property("Normal Threshold", sv.normalThreshold, 0.005f, 0.0f, 1.0f);
@@ -100,7 +100,7 @@ namespace Luth
             auto& settings = Editor::GetSettings();
             auto& pp       = m_RS->GetPostProcessSettings();
 
-            // ── Top bar: search only (the Raster/Path-Trace toggle lives in the Scene toolbar) ──
+            // ---- Top bar: search only (the Raster/Path-Trace toggle lives in the Scene toolbar) ----
             UI::FilterBox("RenderSearch", m_Filter, sizeof(m_Filter), "Search settings...");
             ImGui::Separator();
 
@@ -114,7 +114,7 @@ namespace Luth
                 ImGui::Spacing();
             }
 
-            // Section gate — in tab mode a collapsing header (drawn only on its tab); in search mode a flat
+            // Section gate: tab mode uses a collapsing header (drawn only on its tab); search mode uses a flat
             // always-open block when the title matches. curHeader tells endSection whether to close a header.
             bool curHeader = false;
             auto beginSection = [&](RenderTab owner, const char* label) -> bool {
@@ -130,7 +130,7 @@ namespace Luth
             };
             auto endSection = [&]() { if (curHeader) UI::EndCollapsingHeader(); };
 
-            // ──────────────────────────── Lighting (AO + direct/indirect RT) ────────────────────────────
+            // ---- Lighting (AO + direct/indirect RT) ----
             if (beginSection(Tab_Lighting, "Ambient Occlusion (GTAO)")) {
                 auto& gtao = pp.gtao;
                 if (UI::BeginProperties("GTAOProps")) {
@@ -217,7 +217,7 @@ namespace Luth
                     UI::Property("Spatial Normal Threshold", gi.spatialNormalThreshold, 0.005f, 0.0f, 1.0f);
 
                     UI::Property("Secondary Albedo (scaffold)", gi.secondaryAlbedo, 0.01f, 0.0f, 1.0f);
-                    Tip("Constant fallback albedo for the secondary hit — only used when the\nshader's GI_USE_SCAFFOLD_LO debug path is enabled (real material otherwise).");
+                    Tip("Constant fallback albedo for the secondary hit - only used when the\nshader's GI_USE_SCAFFOLD_LO debug path is enabled (real material otherwise).");
                     UI::EndProperties();
                 }
                 endSection();
@@ -243,7 +243,7 @@ namespace Luth
                 endSection();
             }
 
-            // ──────────────────────────── Denoisers ────────────────────────────
+            // ---- Denoisers ----
             if (beginSection(Tab_Denoise, "Denoisers (SVGF)")) {
                 const char* kChannels[] = { "DI", "GI", "Specular", "DI-Spec" };
                 int dt = settings.renderDenoiserTab;
@@ -260,9 +260,9 @@ namespace Luth
                 endSection();
             }
 
-            // ──────────────────────────── Environment ────────────────────────────
+            // ---- Environment ----
             // IBL/Skybox intensity are editor-owned (EditorSettings, also in Preferences) but affect the
-            // rendered image — surfaced here, read live each frame via the viewport-state hook.
+            // rendered image, so surfaced here; read live each frame via the viewport-state hook.
             if (beginSection(Tab_Environment, "Image-Based Lighting")) {
                 if (UI::BeginProperties("IblProps")) {
                     UI::Property("IBL Intensity", settings.iblIntensity, 0.01f, 0.0f, 8.0f);
@@ -297,12 +297,12 @@ namespace Luth
                     UI::Property("Scattering Intensity", vs.scatteringIntensity, 0.5f, 0.0f, 100.0f);
                     Tip("Artistic multiplier on total in-scatter. 1.0 = energy-conserving; 10-50 = visible at default scenes.");
                     UI::Property("Multi-Scatter", vs.multiScatterIntensity, 0.01f, 0.0f, 1.0f);
-                    Tip("2nd-order multi-scatter — lifts shadowed fog that single-scatter leaves black.");
+                    Tip("2nd-order multi-scatter - lifts shadowed fog that single-scatter leaves black.");
                     UI::Property("Sky Fog Strength", vs.skyFogStrength, 0.01f, 0.0f, 1.0f);
                     UI::Property("Sun Absorption Steps", vs.sunFogAbsorptionSteps, 0, 16);
                     Tip("Sun light-path absorption ray-march steps. 0 = disabled; 4 = quality default.");
                     UI::Property("RT Shadows", vs.rtShadows);
-                    Tip("Ray-traced fog shadows (one ray per froxel per cluster light + sun). Costly — showcase only.");
+                    Tip("Ray-traced fog shadows (one ray per froxel per cluster light + sun). Costly - showcase only.");
                     UI::EndProperties();
                 }
                 if (UI::BeginProperties("VolumetricTemporal")) {
@@ -367,7 +367,7 @@ namespace Luth
                 endSection();
             }
 
-            // ──────────────────────────── Post FX ────────────────────────────
+            // ---- Post FX ----
             if (beginSection(Tab_Post, "Transparency (OIT)")) {
                 auto& ts = m_RS->GetTransparencySettings();
                 if (UI::BeginProperties("TransparencyProps")) {
@@ -399,7 +399,7 @@ namespace Luth
                 }
                 if (UI::BeginProperties("SpecAaProps")) {
                     UI::Property("Specular AA", pp.specularAaEnabled);
-                    Tip("Tokuyoshi 2019 — lifts BRDF roughness from screen-space normal curvature.\nKills specular sparkle on curved metal at glancing angles.");
+                    Tip("Tokuyoshi 2019 - lifts BRDF roughness from screen-space normal curvature.\nKills specular sparkle on curved metal at glancing angles.");
                     UI::Property("Sigma", pp.specularAaSigma, 0.01f, 0.0f, 1.0f);
                     UI::EndProperties();
                 }
@@ -452,7 +452,7 @@ namespace Luth
                 endSection();
             }
 
-            // ──────────────────────────── Path Tracing ────────────────────────────
+            // ---- Path Tracing ----
             if (beginSection(Tab_PathTrace, "Path Tracer")) {
                 auto& pt = m_RS->GetPathTraceSettings();
                 ImGui::TextDisabled("Activate via the Raster/Path Trace switch at the top.");

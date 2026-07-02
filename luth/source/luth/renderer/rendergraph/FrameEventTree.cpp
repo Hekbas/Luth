@@ -6,9 +6,8 @@ namespace Luth::RG
 {
     namespace
     {
-        // Pick the most useful archive to display when a pass is selected.
-        // Strategy: first non-depth archive if any (color is what users usually
-        // want to see); else first depth archive; else -1 (no preview).
+        // Pick the most useful archive to display when a pass is selected. Strategy: first non-depth archive
+        // if any (color is what users usually want to see); else first depth archive; else -1 (no preview).
         int PickPrimaryArchive(const CapturedFrame& frame, u32 passIdx)
         {
             if (passIdx >= frame.passArchives.size()) return -1;
@@ -26,8 +25,8 @@ namespace Luth::RG
             return firstDepth;
         }
 
-        // [C] marks compute dispatches; indirect draws (the dominant case in PBR)
-        // get no prefix — every Geometry/Shadow draw row would otherwise carry [I].
+        // [C] marks compute dispatches; indirect draws (the dominant case in PBR) get no prefix;
+        // every Geometry/Shadow draw row would otherwise carry [I].
         std::string DrawLabel(const CapturedDrawCall& dc, u32 globalIdx)
         {
             const char* prefix = (dc.kind == DispatchKind::Compute) ? "[C] " : "";
@@ -39,7 +38,7 @@ namespace Luth::RG
                 label += dc.pipelineState.shaderName;
                 label += ")";
             }
-            // Render-mode tag — only useful on PBR draws (Material::RenderMode 0/1/2/3).
+            // Render-mode tag: only useful on PBR draws (Material::RenderMode 0/1/2/3).
             if (dc.kind != DispatchKind::Compute && dc.pipelineState.shaderName == "pbr")
             {
                 static const char* k_ModeTags[] = { " [Op]", " [Cu]", " [Tr]", " [Fa]" };
@@ -58,8 +57,8 @@ namespace Luth::RG
             node.label              = pass.name;
             node.passIndex          = passIdx;
             node.gpuTimeMs          = pass.gpuTimeMs;
-            // passArchives is keyed by graph pass index (sparse) — passIdx here
-            // is the dense passes[] index, so route through pass.graphPassIndex.
+            // passArchives is keyed by graph pass index (sparse); passIdx here is the dense passes[] index,
+            // so route through pass.graphPassIndex.
             node.archivedImageIndex = PickPrimaryArchive(frame, pass.graphPassIndex);
 
             node.children.reserve(pass.drawCallCount);
@@ -72,7 +71,7 @@ namespace Luth::RG
                 dn.kind               = EventNodeKind::Draw;
                 dn.passIndex          = passIdx;
                 dn.drawIndex          = globalIdx;
-                // Draw nodes inherit the pass's primary archive — i.e. show "the pass output"
+                // Draw nodes inherit the pass's primary archive, i.e. show "the pass output"
                 // while inside the pass. Per-draw replay overrides this with a per-draw preview
                 // produced by replay-then-copy when the user steps inside a draw.
                 dn.archivedImageIndex = node.archivedImageIndex;
@@ -82,9 +81,8 @@ namespace Luth::RG
             return node;
         }
 
-        // Post-order walk: each node's lastDrawIndex = max draw index in its
-        // subtree (UINT32_MAX if no Draw descendants). Drives Unity-style
-        // tree-click snap on the panel's draw scrub slider.
+        // Post-order walk: each node's lastDrawIndex = max draw index in its subtree (UINT32_MAX if no Draw
+        // descendants). Drives Unity-style tree-click snap on the panel's draw scrub slider.
         u32 PopulateLastDrawIndex(EventNode& node)
         {
             if (node.kind == EventNodeKind::Draw)
@@ -102,9 +100,8 @@ namespace Luth::RG
                     maxDraw = childLast;
             }
             node.lastDrawIndex = maxDraw;
-            // Surface a badge on empty Pass/Cascade nodes so users can tell
-            // "no models in scene" from "click for output." Skip on the root
-            // ("Frame") and on Group nodes that contain only empty children.
+            // Surface a badge on empty Pass/Cascade nodes so users can tell "no models in scene" from
+            // "click for output." Skip on the root ("Frame") and on Group nodes that contain only empty children.
             if (maxDraw == UINT32_MAX &&
                 (node.kind == EventNodeKind::Pass || node.kind == EventNodeKind::Cascade))
             {
@@ -158,7 +155,7 @@ namespace Luth::RG
             const u32 graphIdx = pass.graphPassIndex;
             EventNode passNode = BuildPassNode(frame, pi);
 
-            // --- Group routing (explicit prefix registry, not split-on-dot) ---
+            // ---- Group routing (explicit prefix registry, not split-on-dot) ----
             int cascadeIdx = CascadeIndexFromName(pass.name);
             if (cascadeIdx >= 0)
             {
@@ -176,7 +173,7 @@ namespace Luth::RG
                 }
                 passNode.kind         = EventNodeKind::Cascade;
                 passNode.archiveLayer = cascadeIdx;
-                // "Cascade N (a-b m)" — splits cover [prev_split..this_split].
+                // "Cascade N (a-b m)"; splits cover [prev_split..this_split].
                 // First cascade starts at the camera's near plane (~0.1 m).
                 const float prevSplit = (cascadeIdx == 0) ? 0.1f : frame.cascadeSplitsViewZ[cascadeIdx - 1];
                 const float thisSplit = frame.cascadeSplitsViewZ[cascadeIdx];

@@ -8,7 +8,7 @@ namespace Luth
 {
     // Channel-routing node vocabulary for the material graph. Each type lowers to one derivative-free
     // Slang SSA expression in MaterialGraphCodegen, so the emitted EvalGraph<F> stays two-tier-safe (no
-    // ddx / screen-space ops, valid in both the raster and ray-hit tiers). Authoring data only — the
+    // ddx / screen-space ops, valid in both the raster and ray-hit tiers). Authoring data only; the
     // graph is persisted on Material and lowered to a generated fragment shader at codegen time.
     enum class MatNodeType : u8
     {

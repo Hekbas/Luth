@@ -28,7 +28,7 @@ namespace Luth
         for (u32 i = 0; i < MAX_SKINNED_ENTITIES; ++i)
             m_FreeBlocks.push_back(i);
 
-        // Persistent CPU staging — game-stage writers fill m_CpuScratch; Update() copies it AND
+        // Persistent CPU staging: game-stage writers fill m_CpuScratch; Update() copies it AND
         // m_PrevCpuScratch (frame N-1 snapshot) into a dual-region GPU SSBO. Identity-fill both
         // so unallocated blocks render bind pose for current AND zero motion for previous.
         m_CpuScratch     = static_cast<byte*>(LH_ALLOC(Memory::Category::Rendering, BUFFER_SIZE));
@@ -102,8 +102,8 @@ namespace Luth
         if (!m_CpuScratch) return;
         if (baseIndex + count > TOTAL_MATRICES) return;
 
-        // Per-entity baseIndex is unique → concurrent fiber writes hit disjoint ranges,
-        // so no lock is needed against other UploadBones callers on the same frame.
+        // Per-entity baseIndex is unique, so concurrent fiber writes hit disjoint ranges;
+        // no lock is needed against other UploadBones callers on the same frame.
         memcpy(m_CpuScratch + baseIndex * MATRIX_SIZE, matrices, count * MATRIX_SIZE);
     }
 
@@ -137,8 +137,8 @@ namespace Luth
         // Next frame's Update will read m_PrevCpuScratch = frame N's bones as its "previous".
         memcpy(m_PrevCpuScratch, m_CpuScratch, BUFFER_SIZE);
 
-        // Write the GAME-frame slot. Render stage K-1 reads slot (K-1)%N while we write slot K%N — distinct in
-        // steady state. UAB on the binding (see CreateDescriptors) covers the pipeline-depth race where the GPU
+        // Write the GAME-frame slot. Render stage K-1 reads slot (K-1)%N while the game stage writes slot K%N;
+        // distinct in steady state. UAB on the binding (see CreateDescriptors) covers the pipeline-depth race where the GPU
         // falls behind enough that an earlier frame's pending cmd buffer still references this slot.
         const u32 slot = static_cast<u32>(gameFrame) % MAX_FRAMES_IN_FLIGHT;
 
@@ -172,8 +172,8 @@ namespace Luth
     {
         VkDevice device = VulkanContext::Get().GetDevice();
 
-        // Set 4 layout — UAB on the storage-buffer binding. Cycling provides slot isolation in steady-state
-        // (game frame K writes slot K%3, render reads (K-1)%3 — distinct slots); UAB is a safety net for
+        // Set 4 layout: UAB on the storage-buffer binding. Cycling provides slot isolation in steady-state
+        // (game frame K writes slot K%3, render reads (K-1)%3; distinct slots); UAB is a safety net for
         // cases where the GPU falls behind the CPU pipeline enough that frame K+3's game write hits a slot
         // still referenced by frame K+1's pending cmd buffer (e.g., heavy multi-view frames under per-view
         // 3-submit). VUID 03047 fires without it. Same pattern as GTAOMain's per-render-stage rewrites.
@@ -198,7 +198,7 @@ namespace Luth
         vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_DescriptorSetLayout);
 
         // Pool sized for MAX_FRAMES_IN_FLIGHT sets; one storage-buffer descriptor each. UAB pool flag pairs with
-        // the layout's UPDATE_AFTER_BIND_POOL flag — without both, vkAllocateDescriptorSets fails validation.
+        // the layout's UPDATE_AFTER_BIND_POOL flag; without both, vkAllocateDescriptorSets fails validation.
         VkDescriptorPoolSize poolSize{};
         poolSize.type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         poolSize.descriptorCount = MAX_FRAMES_IN_FLIGHT;

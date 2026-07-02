@@ -51,7 +51,7 @@ namespace Luth
             (u8)(alpha * 255.0f));
     }
 
-    // ── Light Icons ──
+    // ---- Light Icons ----
 
     void ViewportOverlays::DrawLights(const std::shared_ptr<Scene>& scene,
                                       const EditorCamera& camera, Entity selected)
@@ -94,7 +94,7 @@ namespace Luth
         drawList->PopClipRect();
     }
 
-    // ── Camera Icons ──
+    // ---- Camera Icons ----
 
     void ViewportOverlays::DrawCameras(const std::shared_ptr<Scene>& scene,
                                        const EditorCamera& camera, Entity selected)
@@ -124,7 +124,7 @@ namespace Luth
         drawList->PopClipRect();
     }
 
-    // ── Fog Volume Icons ──
+    // ---- Fog Volume Icons ----
 
     void ViewportOverlays::DrawFog(const std::shared_ptr<Scene>& scene,
                                    const EditorCamera& camera, Entity selected)
@@ -155,7 +155,7 @@ namespace Luth
         drawList->PopClipRect();
     }
 
-    // ── Wind Icons ──
+    // ---- Wind Icons ----
 
     void ViewportOverlays::DrawWind(const std::shared_ptr<Scene>& scene,
                                     const EditorCamera& camera, Entity selected)

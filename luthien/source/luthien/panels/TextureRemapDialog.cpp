@@ -21,7 +21,7 @@ namespace Luth
     std::vector<std::string> TextureRemapDialog::s_UserPaths;
     char             TextureRemapDialog::s_SearchDir[512] = {};
 
-    // ── Public API ─────────────────────────────────────────────────────────────
+    // ---- Public API ----
 
     void TextureRemapDialog::Open(const ImportReport& report)
     {
@@ -44,7 +44,7 @@ namespace Luth
         if (ImGui::BeginPopupModal("##TextureRemap", nullptr,
             ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize))
         {
-            // --- Title bar ---
+            // ---- Title bar ----
             ImGui::PushFont(Editor::GetIconRegular());
             ImGui::TextColored(EditorColors::WarningYellow, ICON_WARNING "  Missing Textures");
             ImGui::PopFont();
@@ -60,7 +60,7 @@ namespace Luth
             ImGui::Separator();
             ImGui::Spacing();
 
-            // --- Per-texture rows ---
+            // ---- Per-texture rows ----
             std::string lastMat;
             for (int i = 0; i < (int)s_Report.Unresolved.size(); ++i)
             {
@@ -110,7 +110,7 @@ namespace Luth
             ImGui::Separator();
             ImGui::Spacing();
 
-            // --- Search-directory shortcut ---
+            // ---- Search-directory shortcut ----
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted("Search Directory:");
             ImGui::SameLine();
@@ -118,8 +118,8 @@ namespace Luth
             ImGui::InputText("##SearchDir", s_SearchDir, sizeof(s_SearchDir));
             ImGui::SameLine();
             if (ImGui::Button("Browse##dir", ImVec2(60, 0))) {
-                // Reuse OpenFile in a directory-pick fashion by letting the user type the path
-                // (native folder picker requires platform extension; use file picker for now)
+                // Directory pick via the file picker, deriving the parent path from the chosen file.
+                // A native folder picker needs a platform extension.
                 auto picked = FileDialog::OpenFile("All Files\0*.*\0");
                 if (picked) {
                     fs::path dir = picked->parent_path();
@@ -145,7 +145,7 @@ namespace Luth
             ImGui::Separator();
             ImGui::Spacing();
 
-            // --- Action buttons ---
+            // ---- Action buttons ----
             float btnW = 110.0f;
             float totalW = btnW * 2 + ImGui::GetStyle().ItemSpacing.x;
             ImGui::SetCursorPosX((ImGui::GetContentRegionAvail().x - totalW) * 0.5f + ImGui::GetStyle().WindowPadding.x);
@@ -175,7 +175,7 @@ namespace Luth
         return closed;
     }
 
-    // ── Private ────────────────────────────────────────────────────────────────
+    // ---- Private ----
 
     void TextureRemapDialog::ApplyResolutions()
     {

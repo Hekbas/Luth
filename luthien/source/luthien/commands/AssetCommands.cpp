@@ -11,9 +11,7 @@ namespace Luth
 {
     using namespace Component;
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    //  MaterialSnapshotCommand
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ---- MaterialSnapshotCommand ----
 
     MaterialSnapshotCommand::MaterialSnapshotCommand(UUID materialUUID,
                                                      nlohmann::json oldState,
@@ -34,9 +32,7 @@ namespace Luth
         mat->MarkDirty();
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    //  ModelInstantiateCommand
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ---- ModelInstantiateCommand ----
 
     ModelInstantiateCommand::ModelInstantiateCommand(Scene* scene, UUID modelUUID, UUID parentUUID)
         : m_Scene(scene), m_ModelUUID(modelUUID), m_ParentUUID(parentUUID) {}

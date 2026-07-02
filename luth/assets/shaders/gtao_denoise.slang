@@ -1,4 +1,4 @@
-// GTAO spatial denoise — 3x3 cross-bilateral on the raw AO, depth-weighted so silhouette edges don't bleed.
+// GTAO spatial denoise: 3x3 cross-bilateral on the raw AO, depth-weighted so silhouette edges don't bleed.
 // Output is the half-res AO buffer the PBR shader samples. Standalone Set 0.
 [[vk::binding(0, 0)]] Sampler2D u_RawAO;
 [[vk::binding(1, 0)]] Sampler2D u_LinearDepth;

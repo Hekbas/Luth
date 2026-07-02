@@ -21,7 +21,7 @@ namespace Luth
         VkDevice device = VulkanContext::Get().GetDevice();
 
         // Loud init-time guard: GlobalUniforms (Set 0 UBO) must stay byte-identical to globals.slang's
-        // std140 mirror — a reordered/inserted field silently desyncs every shader that reads the UBO.
+        // std140 mirror; a reordered/inserted field silently desyncs every shader that reads the UBO.
         #define LH_GU(f) MaterialLayoutGuard::CppField{ #f, offsetof(GlobalUniforms, f) }
         static constexpr MaterialLayoutGuard::CppField kGuFields[] = {
             LH_GU(viewProjection), LH_GU(prevViewProjection), LH_GU(view), LH_GU(projection),
@@ -65,8 +65,8 @@ namespace Luth
         bindings[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
         // TLAS binding. Stage flags span ray-query (frag/compute) + future RT-pipeline consumers.
-        // PARTIALLY_BOUND keeps boot / scene-empty frames legal — shaders that don't statically
-        // access binding 6 (B.2 ships none) don't require the descriptor to be populated.
+        // PARTIALLY_BOUND keeps boot / scene-empty frames legal: shaders that don't statically
+        // access binding 6 don't require the descriptor to be populated.
         bindings[6].binding         = 6;
         bindings[6].descriptorType  = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
         bindings[6].descriptorCount = 1;
@@ -76,7 +76,7 @@ namespace Luth
                                     | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR
                                     | VK_SHADER_STAGE_MISS_BIT_KHR;
 
-        // invariant: cycled per-frame slots still need UAB — write-vs-still-pending
+        // invariant: cycled per-frame slots still need UAB; write-vs-still-pending
         // races slip past the slot rotation in practice (validation layer 03047).
         VkDescriptorBindingFlags bindingFlags[7] = {};
         for (u32 i = 0; i < 6; ++i)
@@ -105,12 +105,11 @@ namespace Luth
         }
     }
 
-    // Allocates a per-frame UBO region from GPUTaggedPageAllocator and rebinds Set 0
-    // binding 0 + Grid set binding 0 to it. invariant: the Grid set's binding 0
-    // shares this exact region AND the same per-frame slot — the two writes MUST
-    // stay in one batched call so we don't double-allocate per frame, and both must
-    // use the same `slot` so the next frame's allocator doesn't overwrite a region
-    // the previous frame's Grid binding still references (see arch/rendering-pipeline.md).
+    // Allocates a per-frame UBO region from GPUTaggedPageAllocator and rebinds Set 0 binding 0 + Grid set
+    // binding 0 to it. invariant: the Grid set's binding 0 shares this exact region AND the same per-frame
+    // slot; the two writes MUST stay in one batched call to avoid double-allocating per frame, and both must
+    // use the same `slot` so the next frame's allocator doesn't overwrite a region the previous frame's
+    // Grid binding still references (see arch/rendering-pipeline.md).
     void GlobalSubsystem::UpdateUBO(const CameraParams& camera, const CascadeData& cascades,
                                     const DirectionalLightShadowParams& shadowParams)
     {
@@ -123,13 +122,13 @@ namespace Luth
         ubo.projection = camera.projection;
         ubo.projection[1][1] *= -1.0f;  // Vulkan Y-flip (shader only, not ImGuizmo)
 
-        // Per-view prev-VP + viewport size — stored on ViewResources, NOT on GlobalSubsystem. A single
+        // Per-view prev-VP + viewport size: stored on ViewResources, NOT on GlobalSubsystem. A single
         // global cross-contaminates between Scene + Game panels (huge motion vectors for static geometry).
-        // Frame 0: prevViewProj is Identity → motion nonsense for one frame, settles by frame 1.
+        // Frame 0: prevViewProj is Identity -> motion nonsense for one frame, settles by frame 1.
         ViewResources* vr = m_Pipeline->GetCurrentViewResources();
         const PostProcessSettings& pps = m_Pipeline->GetSystem().GetPostProcessSettings();
 
-        // TAA jitter — Halton(2,3) sub-pixel offset on the projection matrix BEFORE viewProjection
+        // TAA jitter: Halton(2,3) sub-pixel offset on the projection matrix BEFORE viewProjection
         // compute. All rendered passes (DepthPrepass, SlimGBuffer, Geometry, Shadow, Skybox) use the
         // jittered projection; motion vectors naturally absorb the jitter delta (standard Karis recipe).
         // Disabled when TAA is off so users don't see pure shimmer with no resolve pass to integrate it.
@@ -151,21 +150,20 @@ namespace Luth
             ubo.prevViewProjection = vr->prevViewProj;
             vr->prevViewProj       = ubo.viewProjection;
             ubo.viewportSize       = Vec2(static_cast<float>(vr->width), static_cast<float>(vr->height));
-            // Cross-frame near/far cache — read for the resolve pass's reprojection. Bootstrap to
+            // Cross-frame near/far cache, read for the resolve pass's reprojection. Bootstrap to
             // current frame's values if uninitialized so frame 0's slice reconstruction is sane.
             const f32 pNearZ = (vr->prevNearZ != 0.0f) ? vr->prevNearZ : camera.nearZ;
             const f32 pFarZ  = (vr->prevFarZ  != 0.0f) ? vr->prevFarZ  : camera.farZ;
             ubo.prevViewParams = Vec4(pNearZ, pFarZ, 0.0f, 0.0f);
             vr->prevNearZ      = camera.nearZ;
             vr->prevFarZ       = camera.farZ;
-            // Cache prev/curr jitter. ubo.prevJitter feeds slim_gbuffer.slang's source-side de-jitter
-            // (consumed in the next commit); resolve's push-constant jitterDelta still rides
-            // ViewResources::prevJitter directly until that move lands.
+            // Cache prev/curr jitter. ubo.prevJitter feeds slim_gbuffer.slang's source-side de-jitter;
+            // the resolve pass's push-constant jitterDelta still rides ViewResources::prevJitter directly.
             vr->prevJitter    = vr->currentJitter;
             vr->currentJitter = thisFrameJitter;
             ubo.prevJitter    = Vec4(vr->prevJitter, 0.0f, 0.0f);
         } else {
-            ubo.prevViewProjection = ubo.viewProjection;  // no view yet → zero motion
+            ubo.prevViewProjection = ubo.viewProjection;  // no view yet -> zero motion
             ubo.viewportSize       = Vec2(0.0f);
             ubo.prevViewParams     = Vec4(camera.nearZ, camera.farZ, 0.0f, 0.0f);
             ubo.prevJitter         = Vec4(0.0f);
@@ -186,8 +184,8 @@ namespace Luth
         ubo.debugVisualizeCascades = shadowParams.debugVisualizeCascades ? 1.0f : 0.0f;
         ubo.cascadeBlendWidth      = shadowParams.cascadeBlendWidth;
 
-        // Volumetric fog params — distance fog + height fog + multi-scatter + temporal/sun-absorption/
-        // sky tunables. heightFogParams.w carries multiScatterIntensity for std140 packing.
+        // Volumetric fog params: distance fog + height fog + multi-scatter + temporal/sun-absorption/sky
+        // tunables. heightFogParams.w carries multiScatterIntensity for std140 packing.
         const VolumetricSettings& vs = m_Pipeline->GetSystem().GetVolumetricSettings();
         ubo.distanceFogColorDensity = Vec4(vs.distanceFogColor, vs.distanceFogDensity);
         ubo.distanceFogParams       = Vec4(vs.distanceFogStart, vs.distanceFogMaxOpacity,
@@ -203,10 +201,10 @@ namespace Luth
         ubo.volNoiseWind            = Vec4(vs.noiseWind, 0.0f);
         ubo.volScatterParams        = Vec4(vs.scatteringIntensity,
                                            vs.blueNoiseDither ? 1.0f : 0.0f,
-                                           vs.rtShadows ? 1.0f : 0.0f,   // .z = RT fog shadows (D.2)
+                                           vs.rtShadows ? 1.0f : 0.0f,   // .z = RT fog shadows
                                            0.0f);
 
-        // Image-quality toggles. Tail of GlobalUniforms — pbr.frag's common/globals.glsl mirrors
+        // Image-quality toggles. Tail of GlobalUniforms: pbr.frag's common/globals.glsl mirrors
         // the std140 layout exactly so offsets stay in lockstep.
         ubo.specAaParams = Vec4(pps.specularAaEnabled ? 1.0f : 0.0f, pps.specularAaSigma, 0.0f, 0.0f);
         ubo.taaParams    = Vec4(pps.taaEnabled ? 1.0f : 0.0f, pps.taaTemporalAlpha,
@@ -219,22 +217,22 @@ namespace Luth
                                   shadowParams.rtNormalEpsilon,
                                   0.0f);
 
-        // ReSTIR DI consumption flag — set only when the subsystem is enabled AND this view's DI
+        // ReSTIR DI consumption flag: set only when the subsystem is enabled AND this view's DI
         // image exists AND a TLAS is available (the conditions under which AddPasses actually writes
         // the DI). Otherwise pbr.frag must run its own point-light loop, so leave x = 0.
         const bool restirActive = m_Pipeline->GetRestir().IsEnabled()
                                && vr && vr->restirDI
                                && m_Pipeline->GetRt().GetTlas() != VK_NULL_HANDLE;
-        // .y mirrors .x for the GI path — pbr.frag adds the demodulated indirect-diffuse image when set.
+        // .y mirrors .x for the GI path; pbr.frag adds the demodulated indirect-diffuse image when set.
         const bool restirGiActive = m_Pipeline->GetRestirGi().IsEnabled()
                                  && vr && vr->restirGiDI
                                  && m_Pipeline->GetRt().GetTlas() != VK_NULL_HANDLE;
-        // .z = ReSTIR-DI specular gate × intensity (#154); 0 when DI inactive or the specular toggle is off.
+        // .z = ReSTIR-DI specular gate x intensity; 0 when DI inactive or the specular toggle is off.
         const RestirSettings& restirS = m_Pipeline->GetSystem().GetRestirSettings();
         const float specZ = (restirActive && restirS.specular) ? restirS.specularIntensity : 0.0f;
         ubo.restirParams = Vec4(restirActive ? 1.0f : 0.0f, restirGiActive ? 1.0f : 0.0f, specZ, 0.0f);
 
-        // Path-traced reference mode (informational — PT bypasses pbr.frag; the megakernel reads its own
+        // Path-traced reference mode (informational: PT bypasses pbr.frag; the megakernel reads its own
         // push constants). x gates nothing in pbr.frag; carried for debug viz + frame-debugger UBO dumps.
         const bool ptActive = m_Pipeline->GetSystem().GetRenderMode() == RenderMode::PathTrace;
         const PathTraceSettings& ptS = m_Pipeline->GetSystem().GetPathTraceSettings();
@@ -242,7 +240,7 @@ namespace Luth
         ubo.pathTraceParams = Vec4(ptActive ? 1.0f : 0.0f, static_cast<f32>(ptS.samplesPerFrame),
                                    static_cast<f32>(ptS.maxBounces), static_cast<f32>(ptSamples));
 
-        // RT reflections (D.1) — gate the pbr.frag composite on enabled AND a valid TLAS (the reflection
+        // RT reflections: gate the pbr.frag composite on enabled AND a valid TLAS (the reflection
         // pass + denoiser no-op before the first build, leaving svgfSpecDenoised stale).
         const ReflectionsSettings& reflS = m_Pipeline->GetSystem().GetReflectionsSettings();
         const bool reflActive = reflS.enabled && m_Pipeline->GetRt().GetTlas() != VK_NULL_HANDLE;
@@ -278,10 +276,9 @@ namespace Luth
         bi.offset = region.offset;
         bi.range  = region.size;
 
-        // TLAS write rides the same per-frame slot rotation as binding 0. Reads the handle the
-        // current frame's TlasBuildPass published into RtSubsystem; on frame 0 the handle is null
-        // (TlasBuildPass hasn't run yet) — legal under PARTIALLY_BOUND + UAB when no shader
-        // statically accesses binding 6, which is the B.2 case (B.3 brings the first reader).
+        // TLAS write rides the same per-frame slot rotation as binding 0. Reads the handle the current
+        // frame's TlasBuildPass published into RtSubsystem; on frame 0 the handle is null (TlasBuildPass
+        // hasn't run yet), legal under PARTIALLY_BOUND + UAB when no shader statically accesses binding 6.
         VkAccelerationStructureKHR tlas = m_Pipeline->GetRt().GetTlas();
         VkWriteDescriptorSetAccelerationStructureKHR asWrite{
             VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR };
@@ -308,7 +305,7 @@ namespace Luth
             ++n;
         }
 
-        // TLAS write skipped when handle is null — descriptor stays in its prior populated state
+        // TLAS write skipped when handle is null; descriptor stays in its prior populated state
         // (or unbound first frame) per PARTIALLY_BOUND semantics; saves an extra descriptor write.
         if (tlas != VK_NULL_HANDLE)
         {
@@ -352,9 +349,9 @@ namespace Luth
         gtaoFinalInfo.imageView   = ctx.gtaoFinalView;
         gtaoFinalInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-        // Stable bindings — propagate to every cycled slot. Allocate-time write;
-        // resize path (RenderPipeline::EnsureViewResources) gates on WaitForGPU
-        // before re-entering WriteView so no in-flight cmd buffer is bound.
+        // Stable bindings: propagate to every cycled slot. Allocate-time write; the resize path
+        // (RenderPipeline::EnsureViewResources) gates on WaitForGPU before re-entering WriteView
+        // so no in-flight cmd buffer is bound.
         VkWriteDescriptorSet writes[4 * MAX_FRAMES_IN_FLIGHT] = {};
         u32 n = 0;
         for (u32 s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s)

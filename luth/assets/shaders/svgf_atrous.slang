@@ -1,4 +1,4 @@
-// SVGF variance-guided edge-aware a-trous wavelet (Schied 2017). One level of the wavelet transform —
+// SVGF variance-guided edge-aware a-trous wavelet (Schied 2017). One level of the wavelet transform,
 // dispatched N times with a doubling step size for a 65x65 effective footprint. The 5x5 cross-bilateral
 // filter is gated by depth (gradient-normalized), world-normal (power), and luminance (driven by the moment
 // variance) edge-stops. Variance is co-filtered with the SQUARED weights; the luminance weight uses a 3x3
@@ -17,7 +17,7 @@ import svgf_common;
 struct PC
 {
     int   stepSize;     // a-trous hole size (1, 2, 4, ...)
-    int   writeFinal;   // 1 on the last level — also write the denoised output
+    int   writeFinal;   // 1 on the last level; also write the denoised output
     float phiColor;     // luminance edge-stop sigma
     float phiNormal;    // normal edge-stop exponent
     float phiDepth;     // depth edge-stop scale
@@ -51,7 +51,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     float  lc    = SvgfLuminance(c.rgb);
     float  depth = u_Depth.Load(int3(SvgfGuide(pixel), 0)).r;
 
-    if (depth >= 1.0)            // sky — passthrough
+    if (depth >= 1.0)            // sky: passthrough
     {
         outAtrous[pixel] = c;
         if (pc.writeFinal != 0) outDenoised[pixel] = float4(c.rgb, 1.0);
@@ -65,7 +65,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     float dzdx = 0.5 * (linZAt(min(pixel + int2(1, 0), size - int2(1))) - linZAt(max(pixel - int2(1, 0), int2(0))));
     float dzdy = 0.5 * (linZAt(min(pixel + int2(0, 1), size - int2(1))) - linZAt(max(pixel - int2(0, 1), int2(0))));
 
-    // 3x3 gaussian of the variance — drives the luminance weight only (not propagated).
+    // 3x3 gaussian of the variance: drives the luminance weight only (not propagated).
     float gaussVar = 0.0, gaussW = 0.0;
     const float g2[3] = { 1.0, 2.0, 1.0 };
     for (int yy = -1; yy <= 1; ++yy)

@@ -9,7 +9,7 @@
 namespace Luth
 {
     // Thread-safe pool of CommandAllocator instances. Fibers Acquire one to record commands and
-    // Release it when done. Released allocators are not reset at Release time — they're reset only
+    // Release it when done. Released allocators are not reset at Release time; they're reset only
     // when the owning frame is recycled past the GPU fence, so V3 thread-affinity rules stay safe
     // for any in-flight command buffers the GPU is still consuming.
 
@@ -22,16 +22,13 @@ namespace Luth
         void Init();
         void Shutdown();
 
-        // Acquires a CommandAllocator for the current thread/fiber.
-        // If no pool is available, a new one is created.
+        // Acquires a CommandAllocator for the current thread/fiber; creates a new one if none are available.
         CommandAllocator* Acquire();
 
-        // Returns an allocator to the pool.
-        // Should be called when the fiber is done recording for the frame.
+        // Returns an allocator to the pool once the fiber is done recording for the frame.
         void Release(CommandAllocator* allocator);
 
-        // Resets all allocators in the pool.
-        // WARNING: Only call this when you are sure NO allocators are in use (e.g. after GPU wait).
+        // Resets all allocators. WARNING: only safe when no allocator is in use (e.g. after a GPU wait).
         void ResetAll();
 
     private:

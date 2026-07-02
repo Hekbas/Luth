@@ -4,10 +4,10 @@
 // the interleaved Vertex layout (13 floats) to an output BDA the BLAS refit + geometry table consume.
 //
 // CONTRACT: input layout MUST match Model.h::SkinnedVertex (scalar/tight, 84 B / 21 floats): pos@0,
-// normal@3, uv0@6, uv1@8, tangent@10, boneIDs@13 (int, negative = "no bone"), boneWeights@17 — locked by
+// normal@3, uv0@6, uv1@8, tangent@10, boneIDs@13 (int, negative = "no bone"), boneWeights@17; locked by
 // static_assert in VulkanAccelerationStructure.cpp.
 //
-// CONTRACT: the deformed output MUST match the Vertex layout material.slang::GatherHitGeometry reads —
+// CONTRACT: the deformed output MUST match the Vertex layout material.slang::GatherHitGeometry reads,
 // 13 floats/vert: pos@0-2, normal@3-5, uv0@6-7, uv1@8-9, tangent@10-12. Normal/tangent use mat3(skin),
 // mirroring pbr_skinned so raster==RT once raster reads this buffer.
 //
@@ -43,7 +43,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     float4 boneWeights = float4(pc.inputBuf[inB + 17u], pc.inputBuf[inB + 18u],
                                 pc.inputBuf[inB + 19u], pc.inputBuf[inB + 20u]);
 
-    // Blended skin matrix (LBS) — identical construction to pbr_skinned so the deformed vertex matches
+    // Blended skin matrix (LBS): identical construction to pbr_skinned so the deformed vertex matches
     // the raster vertex bit-for-bit once raster reads this buffer.
     float4x4 skin = (float4x4)0.0;
     for (int i = 0; i < 4; ++i)
@@ -52,7 +52,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         if (boneId < 0) continue;
         skin += boneWeights[i] * bones[pc.boneOffset + uint(boneId)];
     }
-    // No-bones sentinel: a zero diagonal means an unweighted vertex → rigid passthrough.
+    // No-bones sentinel: a zero diagonal means an unweighted vertex -> rigid passthrough.
     if (skin[0][0] == 0.0 && skin[1][1] == 0.0 && skin[2][2] == 0.0)
         skin = float4x4(1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1);
 

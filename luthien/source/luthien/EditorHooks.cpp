@@ -74,7 +74,7 @@ namespace
             out.gridFadeEnd       = s.gridFadeEnd;
             out.gridLineThickness = s.gridLineThickness;
 
-            // Gizmo toggles (settings) + palette (EditorColors, unpacked IM_COL32 → linear Vec4).
+            // Gizmo toggles (settings) + palette (EditorColors, unpacked IM_COL32 -> linear Vec4).
             auto colToVec4 = [](ImU32 c) {
                 return Vec4(((c >> IM_COL32_R_SHIFT) & 0xFFu) / 255.0f,
                             ((c >> IM_COL32_G_SHIFT) & 0xFFu) / 255.0f,

@@ -28,7 +28,7 @@ namespace Luth
             m_WatchPaths.erase(it);
 
         // Drop tracked files that lived under this watch root so the next poll
-        // doesn't report them as Deleted (they're simply no longer watched).
+        // doesn't report them as Deleted (they're no longer watched).
         const std::string prefix = path.lexically_normal().string();
         for (auto pit = m_Paths.begin(); pit != m_Paths.end();) {
             std::string p = pit->first.lexically_normal().string();
@@ -49,7 +49,7 @@ namespace Luth
         if (m_Running) return;
 
         m_Running = true;
-        m_InitialScanComplete = !initialScan; // Set based on parameter
+        m_InitialScanComplete = !initialScan;
         m_WatcherThread = std::thread(&FileWatcher::WatchLoop, this);
     }
 
@@ -63,7 +63,6 @@ namespace Luth
 
     void FileWatcher::WatchLoop()
     {
-        // Perform initial scan if needed
         if (!m_InitialScanComplete) {
             LH_PROFILE_SCOPE("InitialScan");
             std::lock_guard lock(m_Mutex);
@@ -94,7 +93,7 @@ namespace Luth
             for (const auto& watchPath : m_WatchPaths) {
                 if (!fs::exists(watchPath)) continue;
 
-                // Process directory recursively — guarded against mid-traversal deletion
+                // Process directory recursively; guarded against mid-traversal deletion
                 std::vector<fs::path> currentPaths;
                 try {
                     for (auto& entry : fs::recursive_directory_iterator(
@@ -104,12 +103,11 @@ namespace Luth
                             currentPaths.push_back(entry.path());
                     }
                 } catch (...) {
-                    // Directory deleted mid-scan; treat all tracked files as potentially stale.
-                    // Next poll cycle will reconcile.
+                    // Directory deleted mid-scan; treat all tracked files as potentially stale. Next poll reconciles.
                     continue;
                 }
 
-                // Check for deleted files — only consider files under this watchPath
+                // Check for deleted files; only consider files under this watchPath
                 std::unordered_set<fs::path> currentSet(currentPaths.begin(), currentPaths.end());
                 std::string watchPrefix = watchPath.lexically_normal().string();
                 for (auto it = m_Paths.begin(); it != m_Paths.end();) {
