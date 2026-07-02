@@ -12,9 +12,9 @@
 namespace Luth
 {
     // Node-based material editor: renders the selected material's MaterialGraph on an ImGuizmo GraphEditor
-    // canvas and reflects edits back. Connecting / disconnecting pins re-emits the material's fragment
-    // shader via MaterialGraphCodegen, so the result shows live in the scene viewport. (Node-add palette,
-    // per-node param editing, undo, and a graph-aware sphere preview are follow-up efforts.)
+    // canvas and reflects edits back. Structural edits re-emit the material's fragment shader via
+    // MaterialGraphCodegen (live in the viewport); Const/Remap values flow to per-material data with no
+    // recompile. The left pane edits the selected node and can expose it as a named Inspector parameter.
     class MaterialGraphPanel : public Panel
     {
     public:

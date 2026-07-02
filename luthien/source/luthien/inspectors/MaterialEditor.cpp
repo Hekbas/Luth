@@ -7,6 +7,7 @@
 #include "luthien/widgets/ThumbnailPreviewScene.h"
 #include "luthien/widgets/Icons.h"
 #include "luth/renderer/material/Material.h"
+#include "luth/renderer/material/MaterialGraphCodegen.h"
 #include "luth/renderer/resources/Texture.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/resources/AssetDatabase.h"
@@ -323,6 +324,87 @@ namespace Luth
         }
 
         ImGui::Dummy({ 0, 4 });
+
+        // Exposed graph parameters: named value nodes edited without opening the graph. Value edits land
+        // as per-material data (RefreshParams, no recompile); the TextureSample slot is structure and
+        // recompiles, mirroring the graph panel's split.
+        if (material.HasGraph())
+        {
+            std::vector<MatNode*> params;   // per-frame walk; pointers must not outlive this Draw
+            for (MatNode& n : material.GetGraphMutable().nodes)
+                if (IsExposableNode(n.type) && !n.name.empty()) params.push_back(&n);
+            std::stable_sort(params.begin(), params.end(),
+                [](const MatNode* a, const MatNode* b) { return a->group < b->group; });
+
+            if (!params.empty() && UI::BeginCollapsingHeader("Parameters", true))
+            {
+                bool valueEdit = false, structureEdit = false;
+
+                auto drawParam = [&](MatNode& n)
+                {
+                    ImGui::PushID((int)n.id);
+                    const char* label = n.name.c_str();
+                    switch (n.type)
+                    {
+                        case MatNodeType::ConstFloat:
+                            if (n.ui == 1)
+                            {
+                                bool b = n.value.x != 0.0f;
+                                if (UI::Property(label, b)) { n.value.x = b ? 1.0f : 0.0f; valueEdit = true; }
+                            }
+                            else if (UI::Property(label, n.value.x, 0.01f))
+                                valueEdit = true;
+                            break;
+                        case MatNodeType::ConstColor:
+                            if (UI::PropertyColor(label, n.value)) valueEdit = true;
+                            break;
+                        case MatNodeType::Remap:
+                            if (UI::Property(label, n.value, 0.01f)) valueEdit = true;
+                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("(in min, in max, out min, out max)");
+                            break;
+                        case MatNodeType::TextureSample:
+                        {
+                            static const char* kMap[] = { "Diffuse","Alpha","Normal","Metallic","Roughness","Specular","Occlusion","Emissive","Thickness" };
+                            int t = (n.tex < 9) ? (int)n.tex : 0;
+                            if (UI::PropertyCombo(label, t, kMap, 9)) { n.tex = (u32)t; structureEdit = true; }
+                            break;
+                        }
+                        default: break;
+                    }
+                    ImGui::PopID();
+                };
+
+                // Group runs (stable-sorted, ungrouped "" first): ungrouped rows sit directly under the
+                // header; each named group is a framed tree node wrapping its own properties table.
+                size_t i = 0;
+                while (i < params.size())
+                {
+                    const std::string& grp = params[i]->group;
+                    size_t end = i;
+                    while (end < params.size() && params[end]->group == grp) ++end;
+
+                    bool open = true;
+                    if (!grp.empty())
+                        open = ImGui::TreeNodeEx(grp.c_str(), ImGuiTreeNodeFlags_Framed
+                            | ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth);
+                    if (open)
+                    {
+                        if (UI::BeginProperties("GraphParams"))
+                        {
+                            for (size_t k = i; k < end; ++k) drawParam(*params[k]);
+                            UI::EndProperties();
+                        }
+                        if (!grp.empty()) ImGui::TreePop();
+                    }
+                    i = end;
+                }
+
+                if (structureEdit)  { MaterialGraphCodegen::GenerateAndCompile(material); material.MarkDirty(); }
+                else if (valueEdit) { MaterialGraphCodegen::RefreshParams(material);      material.MarkDirty(); }
+                UI::EndCollapsingHeader();
+                ImGui::Dummy({ 0, 4 });
+            }
+        }
 
         if (auto shader = material.GetShader())
         {

@@ -1,6 +1,7 @@
 #include "lepch.h"
 #include "luthien/panels/MaterialGraphPanel.h"
 #include "luthien/EditorSelection.h"
+#include "luthien/widgets/Charts.h"
 #include "luthien/widgets/Icons.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/material/MaterialGraphCodegen.h"
@@ -94,12 +95,56 @@ namespace Luth
         }
 
         // A settled node-param edit, split by downstream cost: a Const/Remap VALUE change is pure data (refresh
-        // gMatParams, no recompile); a TextureSample slot change is STRUCTURE (re-emit the per-material shader).
-        struct NodeEdit { bool value = false; bool structure = false; };
+        // gMatParams, no recompile); a TextureSample slot change is STRUCTURE (re-emit the per-material shader);
+        // exposed-parameter METADATA (name/group/ui) only needs saving.
+        struct NodeEdit { bool value = false; bool structure = false; bool meta = false; };
+
+        std::string Trimmed(const std::string& s)
+        {
+            const size_t b = s.find_first_not_of(" \t");
+            const size_t e = s.find_last_not_of(" \t");
+            return b == std::string::npos ? std::string{} : s.substr(b, e - b + 1);
+        }
+
+        // Name/group/checkbox fields that expose a value node as a named Inspector parameter. Metadata is
+        // codegen-blind (never enters the canonical source), so naming can't split structure-shared shaders.
+        void DrawExposeFields(const MaterialGraph& g, MatNode& n, NodeEdit& e)
+        {
+            UI::SeparatorText("Parameter");
+
+            char nameBuf[64] = {};
+            snprintf(nameBuf, sizeof(nameBuf), "%s", n.name.c_str());
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::InputTextWithHint("##pname", "expose as...", nameBuf, sizeof(nameBuf)))
+                n.name = nameBuf;
+            if (ImGui::IsItemDeactivatedAfterEdit()) { n.name = Trimmed(n.name); e.meta = true; }
+            if (n.name.empty()) return;
+
+            char groupBuf[64] = {};
+            snprintf(groupBuf, sizeof(groupBuf), "%s", n.group.c_str());
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::InputTextWithHint("##pgroup", "group...", groupBuf, sizeof(groupBuf)))
+                n.group = groupBuf;
+            if (ImGui::IsItemDeactivatedAfterEdit()) { n.group = Trimmed(n.group); e.meta = true; }
+
+            if (n.type == MatNodeType::ConstFloat)
+            {
+                bool cb = n.ui == 1;
+                if (ImGui::Checkbox("Checkbox (0/1)", &cb)) { n.ui = cb ? 1 : 0; e.meta = true; }
+            }
+
+            // Advisory only: identity is the node id, so duplicate labels are harmless but confusing.
+            for (const auto& other : g.nodes)
+                if (other.id != n.id && !other.name.empty() && other.name == n.name)
+                {
+                    ImGui::TextDisabled("name also used by another node");
+                    break;
+                }
+        }
 
         // Draws the selected node's editable parameters; flags settled edits (release / combo change). Const
         // values now flow to per-material data, so they no longer recompile; only structural edits re-emit.
-        NodeEdit DrawNodeParams(MatNode& n)
+        NodeEdit DrawNodeParams(const MaterialGraph& g, MatNode& n)
         {
             NodeEdit e;
             switch (n.type)
@@ -129,6 +174,8 @@ namespace Luth
                     ImGui::TextDisabled("No parameters.");
                     break;
             }
+            if (IsExposableNode(n.type))
+                DrawExposeFields(g, n, e);
             return e;
         }
 
@@ -285,7 +332,8 @@ namespace Luth
         const float h = 34.0f + pins * 20.0f;
 
         GraphEditor::Node node;
-        node.mName          = t.name;
+        // Exposed nodes are titled by their parameter name (string stays alive on the bound graph).
+        node.mName          = n.name.empty() ? t.name : n.name.c_str();
         node.mTemplateIndex = (GraphEditor::TemplateIndex)n.type;
         node.mRect          = ImRect(ImVec2(n.pos.x, n.pos.y), ImVec2(n.pos.x + w, n.pos.y + h));
         node.mSelected      = index < selected.size() ? selected[index] : false;
@@ -366,6 +414,7 @@ namespace Luth
         MaterialGraph& graph = material->GetGraphMutable();
         bool recodegen = false;   // structural edit -> re-emit the shader
         bool valueEdit = false;   // Const/Remap value -> per-material data only (no recompile)
+        bool metaEdit  = false;   // expose name/group/ui -> save only
 
         // Left: parameters for the selected node. Right: the graph canvas.
         ImGui::BeginChild("##ParamPane", ImVec2(210.0f, 0.0f), true);
@@ -379,9 +428,10 @@ namespace Luth
                 MatNode& n = graph.nodes[selNode];
                 ImGui::TextUnformatted(kTypes[(int)n.type].name);
                 ImGui::Separator();
-                NodeEdit edit = DrawNodeParams(n);
+                NodeEdit edit = DrawNodeParams(graph, n);
                 if (edit.structure) recodegen = true;
                 if (edit.value)     valueEdit = true;
+                if (edit.meta)      metaEdit  = true;
                 if (n.type != MatNodeType::Output)
                 {
                     ImGui::Separator();
@@ -468,6 +518,10 @@ namespace Luth
             // Value-only edit: lower the constants into per-material data; the generated shader is untouched.
             MaterialGraphCodegen::RefreshParams(*material);
             material->MarkDirty();
+        }
+        else if (metaEdit)
+        {
+            material->MarkDirty();   // expose metadata is structure-neutral; just persist it
         }
     }
 }
