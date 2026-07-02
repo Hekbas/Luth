@@ -1,5 +1,5 @@
-// Skinned shadow depth — reads the deformation seam (post-skin positions) into the per-cascade light
-// clip space. CPU pushes the cascade index per ShadowPass.Ci invocation.
+// Skinned shadow depth: reads the deformation seam (post-skin positions) into the per-cascade light
+// clip space. CPU pushes the cascade index per shadow-cascade invocation.
 import globals;
 import object_data;
 
@@ -11,7 +11,7 @@ float4 main(uint vid : SV_VertexID, uint baseInstance : SV_StartInstanceLocation
 {
     GPUObjectData obj = objects[baseInstance];
 
-    // Guard: deformed buffer not ready (skinned BLAS still loading) — clip off-screen, no null deref.
+    // Guard: deformed buffer not ready (skinned BLAS still loading); clip off-screen, no null deref.
     if (obj.deformedBufCurr == nullptr) return float4(0.0, 0.0, 2.0, 1.0);
 
     uint   b    = vid * 13u;

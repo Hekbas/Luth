@@ -1,4 +1,4 @@
-// Depth visualization — linearize + normalize + invert (close = bright).
+// Depth visualization: linearize + normalize + invert (close = bright).
 [[vk::binding(0, 0)]] Sampler2D u_DepthTexture;
 struct PC { float nearPlane; float farPlane; };
 [[vk::push_constant]] PC pc;

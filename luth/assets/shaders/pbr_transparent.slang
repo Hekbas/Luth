@@ -1,4 +1,4 @@
-// Sorted transparent forward pass — back-to-front, depth-test-no-write, alpha blend onto sceneColor.
+// Sorted transparent forward pass: back-to-front, depth-test-no-write, alpha blend onto sceneColor.
 // The shaded body lives in pbr_transparent_shading; the PPLL store path consumes the identical helper.
 import globals;
 import pbr_transparent_shading;

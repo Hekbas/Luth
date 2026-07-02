@@ -1,6 +1,6 @@
-// Volumetric fog inject — scatter pass. Per froxel: CSM/RT-shadowed dir light + clustered point lights +
+// Volumetric fog inject, scatter pass. Per froxel: CSM/RT-shadowed dir light + clustered point lights +
 // IBL multi-scatter, HG phase-weighted + density-aware sun absorption, written as vec4(inScatter, 0).
-// scat = albedo × J; integrate supplies the σ_t path factor — do NOT pre-multiply by density here.
+// scat = albedo x J; integrate supplies the sigma_t path factor; do NOT pre-multiply by density here.
 // see arch/rendering-pipeline.md
 import globals;
 import restir_common;       // DirectionalLightData / PointLightData
@@ -91,7 +91,7 @@ float SampleCSM(float3 worldPos, uint cascade)
     return shadowMap.SampleCmp(float3(uv, float(cascade)), depthRef);
 }
 
-// World→atlas UVW for sun-ray density sampling; .w = 0 when outside the camera frustum atlas.
+// World->atlas UVW for sun-ray density sampling; .w = 0 when outside the camera frustum atlas.
 float4 WorldToAtlasUVW(float3 worldPos)
 {
     float3 vp = mul(ubo.view, float4(worldPos, 1.0)).xyz;
@@ -119,7 +119,7 @@ float SunFogTransmittance(float3 worldPos, int steps)
     return exp(-opticalDepth);
 }
 
-// RT shadow ray (froxel is free space → no normal offset). Drops the opaque flag so cutout instances
+// RT shadow ray (froxel is free space -> no normal offset). Drops the opaque flag so cutout instances
 // surface as candidates, alpha-tested in RtConfirmAlphaCandidates (god rays carve leaf holes).
 bool Visible(float3 x, float3 dir, float maxDist)
 {
@@ -140,7 +140,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     int3 volDim = int3(int(pc.volDimX), int(pc.volDimY), int(pc.volDimZ));
     if (any(voxel >= volDim)) return;
 
-    // Voxel center → world (matches inject_density).
+    // Voxel center -> world (matches inject_density).
     float2 uv    = (float2(voxel.xy) + 0.5) / float2(volDim.xy);
     float2 ndcXY = uv * 2.0 - 1.0;
     float  viewZ = SliceToViewZ(voxel.z, ubo.nearZ, ubo.farZ);
@@ -161,7 +161,7 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     DirectionalLightData dl = LoadDirLight();
 
-    // Dir light: CSM/RT shadow × HG forward-scatter × density-aware sun absorption.
+    // Dir light: CSM/RT shadow x HG forward-scatter x density-aware sun absorption.
     float3 dirContrib = float3(0.0);
     if (dl.intensity > 0.0)
     {
@@ -172,7 +172,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         dirContrib = dl.color * dl.intensity * shadow * phase * sunAbs;
     }
 
-    // Clustered point lights — windowed 1/d² × HG phase.
+    // Clustered point lights: windowed 1/d^2 x HG phase.
     float3 pointContrib = float3(0.0);
     {
         uint  cid = ComputeClusterIDForVoxel(voxel.xy, viewZ);
@@ -195,12 +195,12 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     float3 inScatter = tint * (dirContrib + pointContrib);
 
-    // 2nd-order multi-scatter: IBL ambient × albedo (survives in shadow).
+    // 2nd-order multi-scatter: IBL ambient x albedo (survives in shadow).
     float msK = ubo.heightFogParams.w;
     if (msK > 0.0)
         inScatter += irradianceMap.SampleLevel(float3(0.0, 1.0, 0.0), 0.0).rgb * ubo.iblIntensity * msK * tint;
 
-    // Artistic post-canonical multiplier (UE5/Frostbite knob — energy non-conserving by design).
+    // Artistic post-canonical multiplier (UE5/Frostbite knob; energy non-conserving by design).
     inScatter *= ubo.volScatterParams.x;
 
     volInScatter[uint3(voxel)] = float4(inScatter, 0.0);

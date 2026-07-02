@@ -1,4 +1,4 @@
-// ReSTIR DI — final shading. Reads each pixel's resolved reservoir and writes the selected point light's
+// ReSTIR DI final shading. Reads each pixel's resolved reservoir and writes the selected point light's
 // contribution to the direct-lighting image. AsyncCompute.
 //
 // CONTRACT: this image stores DEMODULATED diffuse irradiance  E = Li * NdotL * W  (no albedo, no 1/PI).
@@ -7,17 +7,17 @@
 import globals;
 import restir_common;
 import restir_di_target;
-import brdf;                 // D_GGX / G_Smith (#154 specular shade)
+import brdf;                 // D_GGX / G_Smith (specular shade)
 
 [[vk::binding(0, 1)]] ByteAddressBuffer g_Lights;
 [[vk::binding(0, 2)]] Sampler2D u_SceneDepth;
 [[vk::binding(1, 2)]] Sampler2D u_SlimNormal;
-// Reads the final reservoir at b6 (spatial-reuse output), not b2 — the temporal buffer stays untouched as
+// Reads the final reservoir at b6 (spatial-reuse output), not b2; the temporal buffer stays untouched as
 // next frame's history; the spatial pass writes the per-frame final result here.
 [[vk::binding(6, 2)]] StructuredBuffer<Reservoir> reservoirs;
 [[vk::binding(3, 2)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> outDirectLighting;
-[[vk::binding(7, 2)]] Sampler2D u_SlimRoughness;                                              // #154
-[[vk::binding(8, 2)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> outDirectSpec;      // #154 demodulated specular
+[[vk::binding(7, 2)]] Sampler2D u_SlimRoughness;
+[[vk::binding(8, 2)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> outDirectSpec;      // demodulated specular
 
 struct PC
 {
@@ -59,7 +59,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     uint flatIdx = uint(pixel.y) * uint(size.x) + uint(pixel.x);
 
     float3 E = float3(0.0);
-    float3 S = float3(0.0);   // #154 demodulated specular (F0-free lobe)
+    float3 S = float3(0.0);   // demodulated specular (F0-free lobe)
 
     float depth = u_SceneDepth.Load(int3(GbufCoord(pixel), 0)).r;
     Reservoir r = reservoirs[flatIdx];
@@ -75,8 +75,8 @@ void main(uint3 tid : SV_DispatchThreadID)
         float3 Li = PointLightRadiance(pl, worldPos, L, dist);
         E = Li * max(dot(N, L), 0.0) * r.W;
 
-        // #154 demodulated specular: S = Li·D·G/(4·NoV)·W (F0-free — pbr.slang applies the per-pixel F0).
-        // The spec BRDF's NoL (D·F·G/(4·NoL·NoV)·NoL) cancels, leaving /(4·NoV). D/G via brdf.slang.
+        // Demodulated specular: S = Li*D*G/(4*NoV)*W (F0-free; pbr.slang applies the per-pixel F0).
+        // The spec BRDF's NoL (D*F*G/(4*NoL*NoV)*NoL) cancels, leaving /(4*NoV). D/G via brdf.slang.
         float3 V     = normalize(ubo.cameraPos - worldPos);
         float  rough = u_SlimRoughness.Load(int3(GbufCoord(pixel), 0)).r;
         float3 H     = normalize(V + L);

@@ -1,10 +1,10 @@
-// ReSTIR DI — initial candidate generation (Bitterli 2020). Per pixel: RIS over M uniformly-sampled point
-// lights (unshadowed combined diffuse+spec target, #154), then ONE rayQuery shadow ray to the selected
+// ReSTIR DI initial candidate generation (Bitterli 2020). Per pixel: RIS over M uniformly-sampled point
+// lights (unshadowed combined diffuse+spec target), then ONE rayQuery shadow ray to the selected
 // light (visibility-in-target). Writes a per-pixel reservoir; restir_shade consumes it. AsyncCompute.
 // see arch/rendering-pipeline.md
 import globals;
 import restir_common;       // Reservoir + PCG/oct + PointLightRadiance
-import restir_di_target;    // RestirTargetPdf (#154)
+import restir_di_target;    // RestirTargetPdf
 import material;
 import material_bindings_rt; // RtConfirmAlphaCandidates (Set 3 material, Set 4 bindless)
 
@@ -13,7 +13,7 @@ import material_bindings_rt; // RtConfirmAlphaCandidates (Set 3 material, Set 4 
 [[vk::binding(0, 2)]] Sampler2D u_SceneDepth;
 [[vk::binding(1, 2)]] Sampler2D u_SlimNormal;     // RG16F oct
 [[vk::binding(2, 2)]] RWStructuredBuffer<Reservoir> reservoirs;
-[[vk::binding(7, 2)]] Sampler2D u_SlimRoughness;  // #154 combined diffuse+spec target
+[[vk::binding(7, 2)]] Sampler2D u_SlimRoughness;  // combined diffuse+spec target
 
 struct PC
 {
@@ -72,7 +72,7 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     uint  seed = PcgHash(flatIdx ^ pc.frameSeed);
     uint  M    = max(pc.candidateCount, 1u);
-    float sourceScale = float(lightCount);   // uniform source pdf = 1/lightCount → w = pHat × lightCount
+    float sourceScale = float(lightCount);   // uniform source pdf = 1/lightCount -> w = pHat x lightCount
 
     for (uint i = 0u; i < M; ++i)
     {
@@ -85,7 +85,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     }
     ReservoirFinalize(r);
 
-    // Visibility of the selected sample — fold into the reservoir (occluded → no contribution).
+    // Visibility of the selected sample: fold into the reservoir (occluded -> no contribution).
     if (r.lightIndex != RESTIR_NO_LIGHT && r.W > 0.0)
     {
         PointLightData pl = LoadPoint(r.lightIndex);

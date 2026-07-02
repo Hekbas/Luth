@@ -1,4 +1,4 @@
-// ReSTIR GI — spatial reuse (Ouyang 2021) with RTXDI BASIC bias correction. Merges each pixel's
+// ReSTIR GI spatial reuse (Ouyang 2021) with RTXDI BASIC bias correction. Merges each pixel's
 // temporal-output reservoir (b2, read-only) with a few disk neighbours into a SEPARATE spatial output (b6);
 // neighbours read un-modified, never in-place. Each reused neighbour is reweighted by the reconnection
 // Jacobian (Eq. 11). The final unbiased weight uses BASIC normalization (pi/piSum, no extra rays) instead
@@ -48,7 +48,7 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     float depth = u_SceneDepth.Load(int3(GiGuide(pixel), 0)).r;
     GIReservoir canonical = inRes[flatIdx];
-    if (depth >= 1.0) { outRes[flatIdx] = canonical; return; }   // sky → passthrough
+    if (depth >= 1.0) { outRes[flatIdx] = canonical; return; }   // sky -> passthrough
 
     float2 octN     = u_SlimNormal.Load(int3(GiGuide(pixel), 0)).rg;
     float3 N        = OctDecode(octN);
@@ -71,7 +71,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     GIReservoir c; GIReservoirReset(c);
     int selDomain = -1;
 
-    // Canonical (this pixel) — identity shift, no Jacobian. ALWAYS seeds the reservoir's sample.
+    // Canonical (this pixel): identity shift, no Jacobian. ALWAYS seeds the reservoir's sample.
     {
         float pHat = GiTargetFunction(canonical.samplePos, canonical.sampleRadiance, worldPos, N);
         domPos[domCount] = worldPos; domN[domCount] = N; domM[domCount] = canonical.M;
@@ -124,7 +124,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     }
 
     // RTXDI BASIC bias correction. W = wSum * selPi / (selTgt * piSum); piSum sums the SELECTED sample's
-    // target re-evaluated at every contributing domain (× that domain's M). No accepted neighbours →
+    // target re-evaluated at every contributing domain (x that domain's M). No accepted neighbours
     // collapses to canonical.W (passthrough).
     float selTgt = GiTargetFunction(c.samplePos, c.sampleRadiance, worldPos, N);
     float piSum  = 0.0;

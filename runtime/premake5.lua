@@ -52,7 +52,7 @@ project "Runtime"
 
    postbuildcommands
    {
-      -- Slang in-process compiler — the engine's only shader backend. slang-compiler.dll is the
+      -- Slang in-process compiler: the engine's only shader backend. slang-compiler.dll is the
       -- post-rename real compiler; it LoadLibrary's its siblings on demand, so stage all four.
       "{COPY} " .. LibraryDir["vulkan"] .. "/slang-compiler.dll %{cfg.targetdir}",
       "{COPY} " .. LibraryDir["vulkan"] .. "/slang-glslang.dll %{cfg.targetdir}",

@@ -1,4 +1,4 @@
-// Split-sum BRDF LUT bake (Karis 2013) — RG16F (scale, bias) over (NdotV, roughness). Standalone Set 0.
+// Split-sum BRDF LUT bake (Karis 2013): RG16F (scale, bias) over (NdotV, roughness). Standalone Set 0.
 [[vk::binding(0, 0)]] [[vk::image_format("rg16f")]] RWTexture2D<float4> outLUT;
 
 static const float PI = 3.14159265359;

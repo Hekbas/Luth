@@ -1,10 +1,10 @@
-// ReSTIR GI shared types + helpers (Ouyang 2021) — twin of restir_gi_common.glsl. GIReservoir layout
+// ReSTIR GI shared types + helpers (Ouyang 2021); twin of restir_gi_common.glsl. GIReservoir layout
 // mirrors the C++ GPUGIReservoir; distinct from the DI Reservoir. see arch/rendering-pipeline.md
 import restir_common;   // Luminance + light structs
 
 public static const float GI_PI = 3.14159265358979;
 
-// 64 B, std430 — a 1-bounce path sample: secondary hit x_s, its normal n_s (oct), outgoing radiance
+// 64 B, std430: a 1-bounce path sample: secondary hit x_s, its normal n_s (oct), outgoing radiance
 // L_o, reservoir state, and the receiver's self-carried world pos + normal for temporal validation.
 public struct GIReservoir
 {
@@ -22,7 +22,7 @@ public void GIReservoirReset(out GIReservoir r)
     r.visPos = float3(0.0); r.visNormalPacked = 0u;
 }
 
-// Octahedral encode — inverse of restir_common OctDecode (Cigolle et al. [0,1] mapping).
+// Octahedral encode: inverse of restir_common OctDecode (Cigolle et al. [0,1] mapping).
 public float2 OctEncode(float3 n)
 {
     n /= (abs(n.x) + abs(n.y) + abs(n.z));
@@ -32,8 +32,8 @@ public float2 OctEncode(float3 n)
     return e * 0.5 + 0.5;
 }
 
-// Stream one path-sample candidate (weighted reservoir sampling, Chao 1982). invariant: M>0 ⇒ samplePos
-// valid — the first candidate seeds even at w=0 (an unlit hit is a confident zero, not an empty reservoir).
+// Stream one path-sample candidate (weighted reservoir sampling, Chao 1982). invariant: M>0 -> samplePos
+// valid; the first candidate seeds even at w=0 (an unlit hit is a confident zero, not an empty reservoir).
 public void GIReservoirUpdate(inout GIReservoir r, float3 xs, float3 Lo, float2 nsOct, float w, float rnd)
 {
     r.wSum += w;
@@ -62,7 +62,7 @@ public void GIReservoirFinalize(inout GIReservoir r, float targetPdfAtSurface)
     r.W = (targetPdfAtSurface > 0.0 && r.M > 0u) ? (r.wSum / (float(r.M) * targetPdfAtSurface)) : 0.0;
 }
 
-// GI target — albedo-free (matches the demodulated output). 1/dist^2 + cos at x_s ride in the Jacobian.
+// GI target, albedo-free (matches the demodulated output). 1/dist^2 + cos at x_s ride in the Jacobian.
 public float GiTargetFunction(float3 xs, float3 Lo, float3 receiverPos, float3 receiverN)
 {
     float3 L = xs - receiverPos;
@@ -72,7 +72,7 @@ public float GiTargetFunction(float3 xs, float3 Lo, float3 receiverPos, float3 r
     return Luminance(Lo) * max(dot(receiverN, L), 0.0);
 }
 
-// Pixar branchless orthonormal basis (Duff et al.) — TBN from a unit normal.
+// Pixar branchless orthonormal basis (Duff et al.): TBN from a unit normal.
 public void BranchlessONB(float3 n, out float3 b1, out float3 b2)
 {
     float s = (n.z >= 0.0) ? 1.0 : -1.0;

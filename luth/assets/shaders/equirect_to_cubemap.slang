@@ -1,4 +1,4 @@
-// Equirectangular HDR → cubemap face array. Standalone Set 0.
+// Equirectangular HDR to cubemap face array. Standalone Set 0.
 [[vk::binding(0, 0)]] Sampler2D equirectMap;
 [[vk::binding(1, 0)]] [[vk::image_format("rgba16f")]] RWTexture2DArray<float4> cubemapOut;
 

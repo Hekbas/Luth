@@ -1,5 +1,5 @@
 // Slim G-buffer vertex (skinned). Reads the deformation seam: CURRENT clip from the CURR deformed region
-// (+ TBN), PREVIOUS clip from the PREV region — the double-buffered deformed buffer replaces the dual-region
+// (+ TBN), PREVIOUS clip from the PREV region; the double-buffered deformed buffer replaces the dual-region
 // bone skin for motion vectors. Output interface matches slim_gbuffer.frag. see arch/multi-queue.md
 import globals;
 import object_data;
@@ -23,7 +23,7 @@ VOut main(uint vid : SV_VertexID, uint baseInstance : SV_StartInstanceLocation)
     VOut o = (VOut)0;
     GPUObjectData obj = objects[baseInstance];
 
-    // Guard: deformed buffer not ready (skinned BLAS still loading) — clip off-screen, no null deref.
+    // Guard: deformed buffer not ready (skinned BLAS still loading); clip off-screen, no null deref.
     if (obj.deformedBufCurr == nullptr) { o.clipPos = float4(0.0, 0.0, 2.0, 1.0); return o; }
 
     uint   b        = vid * 13u;

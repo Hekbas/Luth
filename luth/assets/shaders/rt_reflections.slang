@@ -1,7 +1,7 @@
-// RT specular reflections (rt-renderer D.1). One GGX-VNDF reflection ray per opaque pixel below a
+// RT specular reflections. One GGX-VNDF reflection ray per opaque pixel below a
 // roughness cutoff, traced from the slim G-buffer, shaded at the hit (NEE + emission + diffuse IBL) or the
 // sharp environment on miss. Outputs lobe-mean incoming radiance (rgb) + world hitDist (a) for the
-// specular denoiser; pbr.frag composites it (S4). Opaque-only. see arch/rendering-pipeline.md
+// specular denoiser; pbr.frag composites it. Opaque-only. see arch/rendering-pipeline.md
 import globals;
 import restir_common;       // light structs + PCG/luminance/oct + PointLightRadiance
 import restir_gi_common;    // BranchlessONB + GI_PI
@@ -24,10 +24,10 @@ struct PC
 {
     float4x4     invViewProj;
     uint         frameSeed;
-    float        roughnessCutoff;   // skip the trace above this (rough → prefiltered-env IBL fallback)
+    float        roughnessCutoff;   // skip the trace above this (rough -> prefiltered-env IBL fallback)
     float        maxRayDistance;
     float        fireflyClamp;
-    uint         envReady;          // 1 → IBL prefiltered env bound
+    uint         envReady;          // 1 -> IBL prefiltered env bound
     int          gbufferScale;      // 1 = full-res; 2 = half-res (G-buffer reads remap to full)
     int          dispatchW;         // reflection working (dispatch) resolution
     int          dispatchH;
@@ -95,7 +95,7 @@ float3 ShadeHit(float3 xs, HitSurface hs, inout uint seed)
         float3 Li  = PointLightRadiance(pl, xs, Lw, ld);
         float  ndl = max(dot(ns, Lw), 0.0);
         if (ndl > 0.0 && Visible(xs, hs.ng, Lw, ld - 2.0 * ubo.rtShadowParams.y))
-            Lo += (diffAlb / GI_PI) * Li * ndl * float(lc);   // × count undoes the 1/count pick pdf
+            Lo += (diffAlb / GI_PI) * Li * ndl * float(lc);   // x count undoes the 1/count pick pdf
     }
     DirectionalLightData dl = LoadDirLight();
     if (dl.intensity > 0.0)
@@ -141,7 +141,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     float3 R  = reflect(-V, H);
     if (dot(N, R) <= 0.0)           { u_Refl[uint2(pixel)] = float4(0.0); return; }   // below horizon
 
-    // Trace to the nearest hit; origin offset grows as R grazes (slim normal ≠ geometric → self-hit guard).
+    // Trace to the nearest hit; origin offset grows as R grazes (slim normal != geometric -> self-hit guard).
     float  tMin = ubo.rtShadowParams.y;
     float3 ro   = worldPos + N * (ubo.rtShadowParams.z * (2.0 - dot(N, R))) + R * tMin;
     RayDesc ray; ray.Origin = ro; ray.TMin = tMin; ray.Direction = R; ray.TMax = pc.maxRayDistance;
@@ -153,7 +153,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     float  hitDist;
     if (rq.CommittedStatus() == COMMITTED_NOTHING)
     {
-        // Miss → SHARP environment along R (LOD 0; the VNDF already spread R), × iblIntensity.
+        // Miss -> SHARP environment along R (LOD 0; the VNDF already spread R), x iblIntensity.
         Li      = (pc.envReady != 0u) ? u_PrefilteredEnv.SampleLevel(R, 0.0).rgb * ubo.iblIntensity : float3(0.0);
         hitDist = pc.maxRayDistance;
     }

@@ -1,4 +1,4 @@
-// Default node-graph variant registry — the fallback the RT megakernels compile against when no project
+// Default node-graph variant registry: the fallback the RT megakernels compile against when no project
 // override exists. MUST NOT live in common/: Slang resolves an import relative to the importing module's
 // folder first, so a copy beside material_bindings_rt (which imports it) would always shadow the project's
 // generated override on the search path. Kept in its own dir, added LAST to the search path, so the

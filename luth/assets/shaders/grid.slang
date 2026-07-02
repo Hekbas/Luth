@@ -19,7 +19,7 @@ struct PC
 
 struct FIn { [[vk::location(0)]] float2 uv; };
 
-// Slang has no inverse() — cofactor/adjugate 4x4 (the un-jittered VP can't reuse ubo.invViewProjection).
+// Slang has no inverse(): cofactor/adjugate 4x4 (the un-jittered VP can't reuse ubo.invViewProjection).
 float4x4 Inverse4x4(float4x4 m)
 {
     float a00 = m[0][0], a01 = m[0][1], a02 = m[0][2], a03 = m[0][3];
@@ -75,7 +75,7 @@ float2 AxisMask(float2 p, float thickness)
 [shader("fragment")]
 float4 main(FIn i) : SV_Target
 {
-    // Un-jitter the projection (GLSL proj[2][0]/[2][1] col-major → Slang proj[0][2]/[1][2]).
+    // Un-jitter the projection (GLSL proj[2][0]/[2][1] col-major -> Slang proj[0][2]/[1][2]).
     float4x4 uProj = ubo.projection;
     uProj[0][2] -= pc.jitter.x * 2.0 / ubo.viewportSize.x;
     uProj[1][2] -= pc.jitter.y * 2.0 / ubo.viewportSize.y;

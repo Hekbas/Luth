@@ -1,4 +1,4 @@
-// Froxel-atlas depth mapping (Wronski log-Z slices) — twin of froxel.glsl. Keep in lockstep with the
+// Froxel-atlas depth mapping (Wronski log-Z slices); twin of froxel.glsl. Keep in lockstep with the
 // volumetric inject pass. see arch/rendering-pipeline.md
 
 // Inverse of glm::perspectiveRH_ZO (Vulkan depth range 0..1).

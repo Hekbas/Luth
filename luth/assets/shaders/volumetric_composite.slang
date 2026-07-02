@@ -1,12 +1,12 @@
 // Volumetric fog composite. Samples the integrated + resolved atlas at the fragment's view-Z and emits a
-// (fogColor, fogOpacity) pair for the engine's standard alpha-blend (src*src.a + dst*(1-src.a)) —
+// (fogColor, fogOpacity) pair for the engine's standard alpha-blend (src*src.a + dst*(1-src.a));
 // equivalent to Beer-Lambert final = sceneColor*volTransmit + scatter. see arch/rendering-pipeline.md
 import globals;
 import froxel;
 
 [[vk::binding(0, 1)]] Sampler2D sceneDepth;
 [[vk::binding(1, 1)]] Sampler3D volInScatter;
-[[vk::binding(2, 1)]] Sampler2D blueNoise;   // 64² R8 NEAREST+REPEAT
+[[vk::binding(2, 1)]] Sampler2D blueNoise;   // 64^2 R8 NEAREST+REPEAT
 
 struct PC { float4x4 invView; };   // reserved for future view-space sampling; unused today
 [[vk::push_constant]] PC pc;
@@ -18,7 +18,7 @@ float4 main([[vk::location(0)]] float2 v_TexCoord, float4 fragCoord : SV_Positio
     float viewZ    = FroxelDepthToViewZ(ndcDepth, ubo.nearZ, ubo.farZ);
     bool  isSky    = ndcDepth >= 0.9999;
 
-    // Blue-noise jitter on sliceW breaks Wronski's log-slice Z-banding by ±0.5 slices (TAA integrates it).
+    // Blue-noise jitter on sliceW breaks Wronski's log-slice Z-banding by +/-0.5 slices (TAA integrates it).
     float sliceW = FroxelViewZToSlice(viewZ, ubo.nearZ, ubo.farZ);
     if (ubo.volScatterParams.y != 0.0)
     {
@@ -34,7 +34,7 @@ float4 main([[vk::location(0)]] float2 v_TexCoord, float4 fragCoord : SV_Positio
     float dfMaxOpa = ubo.distanceFogParams.y;   // distance-fog max-opacity cap
 
     float fogOpacity = clamp(1.0 - volTransmit, 0.0, max(dfMaxOpa, 0.001));
-    // Sky-pixel fog strength cap — keeps the skybox visible in dense fog.
+    // Sky-pixel fog strength cap: keeps the skybox visible in dense fog.
     if (isSky)
         fogOpacity *= ubo.volTemporalParams.w;
 

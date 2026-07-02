@@ -1,4 +1,4 @@
-// Shared forward lighting for PBR raster consumers — CSM cascade sampling, the clustered point-light loop,
+// Shared forward lighting for PBR raster consumers: CSM cascade sampling, the clustered point-light loop,
 // and split-sum IBL ambient. Twin of pbr_lighting.glsl (deleted once pbr + transparent convert).
 // Set 3 here is bindings 0-3 only; the opaque-depth-coupled screen-space inputs stay with the consumer.
 // see arch/rendering-pipeline.md
@@ -75,13 +75,13 @@ public uint ComputeClusterID(float4 fragCoord, float2 viewportPx, float nearZ, f
     return slice * k_ClusterTilesX * k_ClusterTilesY + tile.y * k_ClusterTilesX + tile.x;
 }
 
-// Fresnel-Schlick with roughness (IBL — rough surfaces reduce reflections).
+// Fresnel-Schlick with roughness (IBL: rough surfaces reduce reflections).
 public float3 FresnelSchlickRoughness(float cosTheta, float3 F0, float roughness)
 {
     return F0 + (max(float3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
-// ── CSM PCF shadow ──
+// ---- CSM PCF shadow ----
 public struct CascadeProj { public float3 proj; public bool inside; }
 
 CascadeProj ProjectInCascade(float3 worldPos, int c, float2 texelSize, float depthBias)
@@ -89,7 +89,7 @@ CascadeProj ProjectInCascade(float3 worldPos, int c, float2 texelSize, float dep
     float4 lsPos = mul(ubo.lightSpaceMatrix[c], float4(worldPos, 1.0));
     float3 proj  = lsPos.xyz / lsPos.w;
     proj.xy      = proj.xy * 0.5 + 0.5;
-    float2 xyLo  = float2(2.0 * texelSize);   // inset matches the 3×3 PCF footprint
+    float2 xyLo  = float2(2.0 * texelSize);   // inset matches the 3x3 PCF footprint
     float2 xyHi  = float2(1.0) - xyLo;
     bool insideXY = all(proj.xy >= xyLo) && all(proj.xy <= xyHi);
     bool insideZ  = (proj.z >= max(depthBias, 0.0)) && (proj.z <= 1.0);
@@ -97,7 +97,7 @@ CascadeProj ProjectInCascade(float3 worldPos, int c, float2 texelSize, float dep
     return r;
 }
 
-// 3×3 PCF; slope-scaled depth bias. shadowMap is a comparison sampler → SampleCmp returns the PCF result.
+// 3x3 PCF; slope-scaled depth bias. shadowMap is a comparison sampler -> SampleCmp returns the PCF result.
 float SamplePCF(float3 proj, int cascade, float depthBias, float NdotL, float2 texelSize)
 {
     float slopeFactor = clamp(tan(acos(NdotL)), 1.0, 10.0);
@@ -162,9 +162,9 @@ public ShadowResult ComputeShadowCSM(float3 worldPos, float3 N)
     return res;
 }
 
-// Unshadowed Forward+ cluster loop — point + spot lights. Spot indices carry SPOT_INDEX_FLAG; the cone
+// Unshadowed Forward+ cluster loop: point + spot lights. Spot indices carry SPOT_INDEX_FLAG; the cone
 // term gates the shared point distance/range falloff. spotsOnly skips points when ReSTIR DI already
-// supplied them via the demodulated image — spots aren't in the DI reservoir yet, so they ride here.
+// supplied them via the demodulated image; spots aren't in the DI reservoir yet, so they ride here.
 public float3 EvalClusteredLights(float4 fragCoord, float3 worldPos, float3 V, float3 N,
                                   float3 albedo, float metallic, float roughness, bool spotsOnly)
 {

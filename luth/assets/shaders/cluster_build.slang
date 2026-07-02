@@ -10,7 +10,7 @@ struct ClusterAABB
     float4 maxView;
 };
 [[vk::binding(0, 0)]] RWStructuredBuffer<ClusterAABB> clusters;
-[[vk::binding(1, 0)]] RWStructuredBuffer<uint2> grid;   // (offset, count) — produced by LightAssign; zero-clear here
+[[vk::binding(1, 0)]] RWStructuredBuffer<uint2> grid;   // (offset, count); produced by LightAssign, zero-clear here
 
 struct PC
 {
@@ -40,7 +40,7 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     uint clusterID = z * pc.tilesX * pc.tilesY + y * pc.tilesX + x;
 
-    // NDC tile corners (min/max of all 8 corners → AABB, so Y orientation is irrelevant).
+    // NDC tile corners (min/max of all 8 corners -> AABB, so Y orientation is irrelevant).
     float2 ndcMin = float2(float(x)     / float(pc.tilesX) * 2.0 - 1.0, float(y)     / float(pc.tilesY) * 2.0 - 1.0);
     float2 ndcMax = float2(float(x + 1) / float(pc.tilesX) * 2.0 - 1.0, float(y + 1) / float(pc.tilesY) * 2.0 - 1.0);
 
@@ -49,7 +49,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     float3 vBL = ScreenToView(float3(ndcMin.x, ndcMax.y, 0.0));
     float3 vBR = ScreenToView(float3(ndcMax.x, ndcMax.y, 0.0));
 
-    // Olsson logarithmic depth slicing — view-space z is negative in a right-handed view frame.
+    // Olsson logarithmic depth slicing: view-space z is negative in a right-handed view frame.
     float zNear = -pc.nearZ * pow(pc.farZ / pc.nearZ, float(z)     / float(SLICES_Z));
     float zFar  = -pc.nearZ * pow(pc.farZ / pc.nearZ, float(z + 1) / float(SLICES_Z));
 

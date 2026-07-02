@@ -1,4 +1,4 @@
-// ReSTIR DI shared types + helpers (Bitterli 2020) — twin of restir_common.glsl (the GLSL DI pipeline
+// ReSTIR DI shared types + helpers (Bitterli 2020); twin of restir_common.glsl (the GLSL DI pipeline
 // still uses that). Reservoir layout mirrors the C++ GPUReservoir. see arch/rendering-pipeline.md
 
 public struct DirectionalLightData
@@ -74,7 +74,7 @@ public void ReservoirMerge(inout Reservoir c, uint lightIndex, float targetPdfAt
 
 public float Luminance(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 
-// PCG hash → uint; RandFromSeed advances the stream and returns [0,1).
+// PCG hash -> uint; RandFromSeed advances the stream and returns [0,1).
 public uint PcgHash(uint v)
 {
     uint state = v * 747796405u + 2891336453u;
@@ -83,7 +83,7 @@ public uint PcgHash(uint v)
 }
 public float RandFromSeed(inout uint seed) { seed = PcgHash(seed); return float(seed) * (1.0 / 4294967296.0); }
 
-// Octahedral decode — inverse of slim_gbuffer.frag OctEncode.
+// Octahedral decode: inverse of slim_gbuffer.frag OctEncode.
 public float3 OctDecode(float2 enc)
 {
     enc = enc * 2.0 - 1.0;
@@ -94,7 +94,7 @@ public float3 OctDecode(float2 enc)
     return normalize(n);
 }
 
-// Incoming radiance from a point light at worldPos — matches the raster attenuation + rolloff.
+// Incoming radiance from a point light at worldPos; matches the raster attenuation + rolloff.
 public float3 PointLightRadiance(PointLightData pl, float3 worldPos, out float3 L, out float dist)
 {
     float3 toLight = pl.position - worldPos;

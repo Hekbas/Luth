@@ -46,7 +46,7 @@ float3 agxLookPunchy(float3 val)
 }
 float3 AgXBase(float3 color, bool punchy)
 {
-    // GLSL mat3(c0,c1,c2) is column-major → build float3x3 with the same vecs as rows + use mul(vec, M).
+    // GLSL mat3(c0,c1,c2) is column-major -> build float3x3 with the same vecs as rows + use mul(vec, M).
     const float3x3 AgXInset = float3x3(
         float3(0.856627153315983,  0.0951212405381588, 0.0482516061458583),
         float3(0.137318972929847,  0.761241990602591,  0.101439036467562),
@@ -65,7 +65,7 @@ float3 AgXBase(float3 color, bool punchy)
     color = agxSigmoid(color);
     if (punchy) color = agxLookPunchy(color);
     color = mul(color, AgXOutset);
-    color = pow(max(color, float3(0.0)), float3(2.2));   // sRGB EOTF decode — see CONTRACT
+    color = pow(max(color, float3(0.0)), float3(2.2));   // sRGB EOTF decode; see CONTRACT
     return color;
 }
 

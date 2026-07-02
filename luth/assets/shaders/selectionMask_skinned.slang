@@ -1,4 +1,4 @@
-// Selection mask (skinned) — VS-side Linear Blend Skinning from the 84-B skinned VB + Set 4 bones (this
+// Selection mask (skinned): VS-side Linear Blend Skinning from the 84 B skinned VB + Set 4 bones (this
 // pass stays on isSkinned, not the deform seam). Un-jitters the projection like the non-skinned variant.
 import globals;
 

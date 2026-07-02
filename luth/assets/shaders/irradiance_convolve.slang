@@ -1,4 +1,4 @@
-// Diffuse irradiance convolution — cosine-weighted hemisphere integral of the env cubemap per face texel.
+// Diffuse irradiance convolution: cosine-weighted hemisphere integral of the env cubemap per face texel.
 // Standalone Set 0.
 [[vk::binding(0, 0)]] SamplerCube envMap;
 [[vk::binding(1, 0)]] [[vk::image_format("rgba16f")]] RWTexture2DArray<float4> irradianceOut;

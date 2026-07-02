@@ -1,5 +1,5 @@
-// Denoiser scaffolding — a no-op copy of the demodulated DI into the denoiser output image. Proves the
-// RestirShade → denoise → GeometryPass seam (handle re-route + lighting-set rebind). Standalone Set 0
+// Denoiser scaffolding: a no-op copy of the demodulated DI into the denoiser output image. Proves the
+// RestirShade -> denoise -> GeometryPass seam (handle re-route + lighting-set rebind). Standalone Set 0
 // layout (no global UBO). see arch/rendering-pipeline.md
 [[vk::binding(0, 0)]] Sampler2D u_DiIn;
 [[vk::binding(1, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> outDenoised;

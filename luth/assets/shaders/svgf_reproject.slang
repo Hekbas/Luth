@@ -2,9 +2,9 @@
 // moments through the motion vector (2x2 bilinear, each tap depth/normal validated), blends the current
 // noisy DI with an EMA, and estimates per-pixel luminance variance from the accumulated moments. Per-pixel
 // geometry (linear depth + oct normal) is carried in a history buffer for next frame's disocclusion (no
-// fwidth in compute → relative linear-depth tolerance + normal dot). see arch/rendering-pipeline.md
+// fwidth in compute -> relative linear-depth tolerance + normal dot). see arch/rendering-pipeline.md
 //
-// invariant: prev/curr history buffers selected by frame parity in C++ — set[p] binds prev = hist[p^1]
+// invariant: prev/curr history buffers selected by frame parity in C++; set[p] binds prev = hist[p^1]
 // (samplers b4-b6) and curr = hist[p] (storage b7-b9).
 import globals;
 import svgf_common;
@@ -24,7 +24,7 @@ struct PC
 {
     float alphaColor;       // steady-state EMA alpha (color)
     float alphaMoments;     // steady-state EMA alpha (moments)
-    float historyCap;       // max history length — per-pixel alpha floor = 1/historyCap
+    float historyCap;       // max history length; per-pixel alpha floor = 1/historyCap
     float depthThreshold;   // relative linear-depth disocclusion tolerance
     float normalThreshold;  // min dot(prevN, currN) to accept a tap
     int   gbufferScale;     // 1 = full-res; >1 = working res below the full G-buffer (half-res GI)
@@ -57,7 +57,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     // Carry this pixel's geometry forward for next frame's disocclusion test (all pixels).
     outGeom[pixel] = float4(curLinZ, octN.x, octN.y, 0.0);
 
-    // Sky / background — no DI to accumulate; reset history so a later disocclusion starts clean.
+    // Sky / background: no DI to accumulate; reset history so a later disocclusion starts clean.
     if (depth >= 1.0)
     {
         outColor[pixel]   = float4(0.0);
@@ -122,7 +122,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     }
     else
     {
-        // Disocclusion — discard history, full replace.
+        // Disocclusion: discard history, full replace.
         histLen = 1.0;
         color   = di;
         mom     = float2(curLum, curLum * curLum);

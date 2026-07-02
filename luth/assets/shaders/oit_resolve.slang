@@ -1,4 +1,4 @@
-// PPLL resolve — walk each pixel's node list, exact-sort the K nearest, order-independently merge the
+// PPLL resolve: walk each pixel's node list, exact-sort the K nearest, order-independently merge the
 // tail, under-composite front-to-back. Output (C, T) pairs with blend src=ONE dst=SRC_ALPHA.
 import oit_common;
 

@@ -28,7 +28,7 @@ project "Tracy"
    -- DebugASan: Tracy is compiled OUT (no TRACY_ENABLE define). Tracy's static-init
    -- spawns a SymbolWorker that initializes Windows dbghelp.dll, which trips an ASan
    -- strlen interceptor false positive intermittently (~20% flake on V1b stress).
-   -- We're sanitizing here, not profiling — Tracy.lib becomes effectively empty.
+   -- We're sanitizing here, not profiling; Tracy.lib becomes effectively empty.
    filter "configurations:DebugASan"
       runtime "Release"
       symbols "on"

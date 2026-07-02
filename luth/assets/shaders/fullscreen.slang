@@ -1,4 +1,4 @@
-// Fullscreen triangle from SV_VertexID (0,1,2) — no vertex buffer (vkCmdDraw(cmd, 3, 1, 0, 0)).
+// Fullscreen triangle from SV_VertexID (0,1,2); no vertex buffer (vkCmdDraw(cmd, 3, 1, 0, 0)).
 struct VOut
 {
     float4 clipPos : SV_Position;

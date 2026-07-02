@@ -1,4 +1,4 @@
-// Selection mask fragment — solid red marks pixels of selected entities.
+// Selection mask fragment: solid red marks pixels of selected entities.
 [shader("fragment")]
 float4 main() : SV_Target
 {

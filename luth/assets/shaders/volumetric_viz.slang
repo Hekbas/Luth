@@ -1,4 +1,4 @@
-// Volumetric fog debug viz. Mode 0 = density heat-map (R × scale); mode 1 = in-scatter HDR radiance
+// Volumetric fog debug viz. Mode 0 = density heat-map (R x scale); mode 1 = in-scatter HDR radiance
 // (log10-encoded). Both derive the per-fragment Wronski slice from SceneDepth and read the 3D atlas at
 // (screenUV, sliceW). Alpha-blended onto LDR. see arch/rendering-pipeline.md
 import globals;
@@ -27,7 +27,7 @@ float3 HeatColor(float t)
 float4 main([[vk::location(0)]] float2 v_TexCoord, float4 fragCoord : SV_Position) : SV_Target
 {
     float ndcDepth = u_SceneDepth.Sample(v_TexCoord).r;
-    if (ndcDepth >= 0.9999) return float4(0.0);   // sky → skip
+    if (ndcDepth >= 0.9999) return float4(0.0);   // sky -> skip
 
     // Inverse of glm::perspectiveRH_ZO (Vulkan depth range 0..1).
     float viewZ  = (ubo.nearZ * ubo.farZ) / (ndcDepth * (ubo.nearZ - ubo.farZ) + ubo.farZ);
@@ -41,7 +41,7 @@ float4 main([[vk::location(0)]] float2 v_TexCoord, float4 fragCoord : SV_Positio
     }
     else
     {
-        // In-scatter is HDR — log10-encode for diagnostic spread.
+        // In-scatter is HDR; log10-encode for diagnostic spread.
         float3 s = u_VolInScatter.Sample(uvw).rgb * pc.scale;
         float3 log_s = log(s + float3(1.0)) * 0.434;  // log10(s+1)
         return float4(clamp(log_s, float3(0.0), float3(1.0)), pc.overlayAlpha);

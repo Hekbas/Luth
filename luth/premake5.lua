@@ -62,10 +62,10 @@ project "Luth"
       libdirs { vulkanSDK .. "/Lib" }
    end
 
-   -- Optional NVIDIA Nsight Aftermath SDK — GPU crash dumps on device-lost (TDR). Enabled when the
+   -- Optional NVIDIA Nsight Aftermath SDK: GPU crash dumps on device-lost (TDR). Enabled when the
    -- AFTERMATH_SDK env var points at the SDK root; absent = compiled out (LUTH_ENABLE_AFTERMATH
    -- undefined). The DLL is loaded dynamically at runtime (no link-time import) by name from the exe
-   -- directory — the Runtime project's post-build step stages it there. A missing DLL soft-fails.
+   -- directory; the Runtime project's post-build step stages it there. A missing DLL soft-fails.
    local aftermathSDK = os.getenv("AFTERMATH_SDK")
    if aftermathSDK then
       includedirs { aftermathSDK .. "/include" }
@@ -107,7 +107,7 @@ project "Luth"
 
    -- DebugASan: debug-style defines + Release CRT + /fsanitize=address. MSVC's Debug
    -- CRT is incompatible with ASan; Release CRT is mandatory. Requires MSVC 16.9+.
-   -- TRACY_ENABLE intentionally omitted — Tracy's static-init dbghelp thread trips an
+   -- TRACY_ENABLE intentionally omitted; Tracy's static-init dbghelp thread trips an
    -- ASan strlen false positive (see premake5-tracy.lua).
    filter "configurations:DebugASan"
       defines { "LUTH_BUILD_DEBUG", "JPH_ENABLE_ASSERTS", "JPH_DEBUG_RENDERER" }

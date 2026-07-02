@@ -5,14 +5,14 @@
 import globals;
 import material;
 import material_bindings_raster;  // GetMaterial + RasterFetch + RtConfirmAlphaCandidates (Set 1/2)
-import mat_graph_registry;        // EvalGraphVariant — stock decode (variant 0) or the project's graph override
+import mat_graph_registry;        // EvalGraphVariant: stock decode (variant 0) or the project's graph override
 import pbr_lighting;              // ComputeShadowCSM / EvalClusteredLights / EvalIblAmbient / LoadDirLight + GI_PI
 import brdf;                      // EvalBRDFTimesNdotL
 import restir_common;            // DirectionalLightData
 import froxel;
 
-// Set 0 b6: TLAS (RtSubsystem keeps a persistent empty TLAS bound — this static read is never null).
-// Set 6 b0: resolved volumetric in-scatter atlas (b1/b2 are the OIT heads/nodes — pbr_oit_store only).
+// Set 0 b6: TLAS (RtSubsystem keeps a persistent empty TLAS bound; this static read is never null).
+// Set 6 b0: resolved volumetric in-scatter atlas (b1/b2 are the OIT heads/nodes; pbr_oit_store only).
 [[vk::binding(6, 0)]] RaytracingAccelerationStructure topLevelAS;
 [[vk::binding(0, 6)]] Sampler3D volInScatter;
 

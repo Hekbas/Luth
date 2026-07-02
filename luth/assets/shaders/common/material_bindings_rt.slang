@@ -1,11 +1,11 @@
 // RT-set material bindings (Set 3 material SSBO, Set 4 bindless textures) + the gradient-free fetch
 // policy + the FetchHitSurface / alpha-test wrappers that need those globals. Pairs with material.slang.
-// Hand-pinned sets — slang#8063 forbids auto-binding the variable-count bindless heap. see arch/rendering-pipeline.md
+// Hand-pinned sets; slang#8063 forbids auto-binding the variable-count bindless heap. see arch/rendering-pipeline.md
 import material;
-import mat_graph_registry;   // EvalGraphVariant — engine default (stock) or the project's generated override
+import mat_graph_registry;   // EvalGraphVariant: engine default (stock) or the project's generated override
 
 [[vk::binding(0, 3)]] StructuredBuffer<GPUMaterialData> gMaterials;
-[[vk::binding(1, 3)]] StructuredBuffer<float4>          gMatParams;   // shares MaterialSystem's set (binding 1) — same buffer raster sees at set 2
+[[vk::binding(1, 3)]] StructuredBuffer<float4>          gMatParams;   // shares MaterialSystem's set (binding 1); same buffer raster sees at set 2
 [[vk::binding(0, 4)]] Sampler2D                         gTextures[];
 
 public struct RayFetch : ITexFetch
@@ -44,7 +44,7 @@ public HitSurface FetchHitSurface(GtGeomEntry* geomTable, uint customIndex, uint
     return s;
 }
 
-// Cutout alpha test at a rayQuery candidate hit — mirrors the diffuse-alpha decode at LOD 0.
+// Cutout alpha test at a rayQuery candidate hit: mirrors the diffuse-alpha decode at LOD 0.
 public bool AlphaTestCandidateHit(GtGeomEntry* geomTable, uint customIndex, uint primIndex, float2 bary)
 {
     GtGeomEntry ge = geomTable[customIndex];
