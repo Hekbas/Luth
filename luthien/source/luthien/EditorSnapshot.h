@@ -1,17 +1,16 @@
 #pragma once
 
-// Per-frame editor snapshot — the frame boundary between gather (worker fibers) and
+// Per-frame editor snapshot: the frame boundary between gather (worker fibers) and
 // draw (main thread). Mirrors the engine's RenderSnapshot pattern at smaller scale:
 // gather workers fill per-panel fragments into each panel's own LinearAllocator,
 // then Editor::Render assembles the read-only EditorSnapshot view on main and hands
 // it to OnDraw. ImGui calls happen exclusively in OnDraw against the frozen view.
 //
-// Storage strategy is panel-local rather than a shared TaggedPageAllocator tag —
+// Storage strategy is panel-local rather than a shared TaggedPageAllocator tag:
 // the editor is single-frame (gather + draw run inside one App::Run iteration on
 // the same thread sequence), not pipelined like Game/Render. TaggedPageAllocator's
 // FreeTag would leak pages held in JobContext.CpuCache for fibers that don't run
-// gather every frame. See plan §C and history/v2.x/editor-foundation.md for the
-// full rationale.
+// gather every frame. See history/v2.x/editor-foundation.md for the full rationale.
 
 #include "luthien/Editor.h"   // Panel definition (m_GatherAlloc, m_SnapshotFragment, m_FragmentType)
 
@@ -40,11 +39,11 @@ namespace Luth
     };
 
     // Passed to OnGather on a worker fiber. Allocates the panel's snapshot fragment
-    // into its own m_GatherAlloc (panel-local — no cross-fiber sync) and records the
+    // into its own m_GatherAlloc (panel-local, no cross-fiber sync) and records the
     // typed pointer back on the panel for later snapshot assembly on main.
     //
     // V3 contract: must not touch ImGui or VkCommandBuffer from OnGather. Builder
-    // only writes to the panel's own allocator + fields — safe per V1 (no shared
+    // only writes to the panel's own allocator + fields; safe per V1 (no shared
     // mutable state, no locks needed).
     class EditorSnapshotBuilder
     {
@@ -52,7 +51,7 @@ namespace Luth
         explicit EditorSnapshotBuilder(Panel& owner) : m_Owner(owner) {}
 
         // Allocate T into the owner panel's gather scratch and register it as the
-        // panel's snapshot fragment. Subsequent Add<U> calls overwrite — one fragment
+        // panel's snapshot fragment. Subsequent Add<U> calls overwrite; one fragment
         // per panel by design.
         template<typename T, typename... Args>
         T* Add(Args&&... args)

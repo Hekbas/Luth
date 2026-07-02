@@ -1,7 +1,7 @@
 #include "lepch.h"
 #include "luthien/inspectors/component_drawers/RegisterComponentDrawers.h"
 
-// Canonical drawer registration order — matches the inspector layout today.
+// Canonical drawer registration order; matches the inspector layout today.
 // Do NOT alphabetize; per-component order is user-visible.
 
 namespace Luth::ComponentDrawers

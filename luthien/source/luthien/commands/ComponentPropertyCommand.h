@@ -20,8 +20,8 @@
 
 namespace Luth
 {
-    // Pointer-to-member is re-resolved on each apply so undo/redo stays safe
-    // across EnTT pool relocations.
+    // Pointer-to-member is re-resolved on each apply so undo/redo stays safe across EnTT pool
+    // relocations.
     template<typename C, typename T>
     class ComponentPropertyCommand : public ICommand
     {
@@ -37,7 +37,7 @@ namespace Luth
 
             // Multi-edit broadcast: when built during the Inspector's multi-select drawer loop, fan
             // this member edit out to the other selected entities. Each keeps its own pre-edit value
-            // (captured here — targets aren't mutated until Execute) so undo restores them per-entity.
+            // (captured here; targets aren't mutated until Execute) so undo restores them per-entity.
             if (extraTargets.empty()) extraTargets = MultiEdit::Targets();
             ForEachExtraTarget<C>(scene, extraTargets, [&](Entity t) {
                 m_TargetOld.emplace_back(t.GetComponent<Component::ID>().Value, t.GetComponent<C>().*member);
@@ -55,9 +55,9 @@ namespace Luth
             auto& comp = e.GetComponent<C>();
             comp.*m_Member = value;
             if constexpr (requires(C c) { c.IsDirty = true; }) comp.IsDirty = true;
-            // Only physics components have on_update listeners; a no-op elsewhere, the rebuild
-            // trigger for RigidBody/Collider — without it, broadcast targets would visually
-            // change but never rebuild their body.
+            // Rebuild trigger for RigidBody/Collider (no-op elsewhere; only physics components have
+            // on_update listeners). Without it, broadcast targets change visually but never rebuild
+            // their body.
             m_Scene->Registry().patch<C>((entt::entity)e);
         }
 

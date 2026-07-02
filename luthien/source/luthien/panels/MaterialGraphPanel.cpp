@@ -98,7 +98,7 @@ namespace Luth
         struct NodeEdit { bool value = false; bool structure = false; };
 
         // Draws the selected node's editable parameters; flags settled edits (release / combo change). Const
-        // values now flow to per-material data, so they no longer recompile — only structural edits re-emit.
+        // values now flow to per-material data, so they no longer recompile; only structural edits re-emit.
         NodeEdit DrawNodeParams(MatNode& n)
         {
             NodeEdit e;
@@ -170,7 +170,7 @@ namespace Luth
         }
     }
 
-    // ── GraphDelegate ──────────────────────────────────────────────────────────────────────────────
+    // ---- GraphDelegate ----
 
     void MaterialGraphPanel::GraphDelegate::Bind(MaterialGraph* g)
     {
@@ -309,14 +309,14 @@ namespace Luth
         return link;
     }
 
-    // ── Panel ──────────────────────────────────────────────────────────────────────────────────────
+    // ---- Panel ----
 
     MaterialGraphPanel::MaterialGraphPanel() { m_WindowID = "MaterialGraph"; }
 
     void MaterialGraphPanel::OnDraw(const EditorSnapshot& /*snapshot*/)
     {
         LH_PROFILE_FUNCTION();
-        // ImGui::Begin must always pair with End() — even on early-out or a throw. The guard keeps the
+        // ImGui::Begin must always pair with End(), even on early-out or a throw. The guard keeps the
         // window stack balanced so a mid-draw exception is logged by the panel error boundary instead of
         // tripping ImGui's "Missing End()" assert on the next frame.
         const bool open = BeginWindow(ICON_NODE_GRAPH "  Material Graph");
@@ -412,7 +412,7 @@ namespace Luth
             {
                 for (int t = 0; t < (int)kTypeCount; ++t)
                 {
-                    if ((MatNodeType)t == MatNodeType::Output) continue;   // single terminal — ships with the graph
+                    if ((MatNodeType)t == MatNodeType::Output) continue;   // single terminal, ships with the graph
                     if (ImGui::MenuItem(kTypes[t].name))
                     {
                         const float c = (graph.nodes.size() % 6) * 26.0f;

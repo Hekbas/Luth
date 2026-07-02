@@ -17,7 +17,7 @@ namespace Luth::ComponentDrawers
     {
         const char* kFogVolumeTypeStrings[] = { "Box", "Sphere" };
 
-        // Reseat the union with sensible defaults for `v.type`. Members are trivially copyable so
+        // Reseat the union with sensible defaults for `v.type`. Members are trivially copyable, so
         // overwriting in-place is safe. Mirrors ColliderDrawer's ResetUnionForType.
         void ResetUnionForType(FogVolume& v)
         {
@@ -99,7 +99,7 @@ namespace Luth::ComponentDrawers
                     Scene* scene = entity.GetScene();
                     entt::entity ent = (entt::entity)entity;
 
-                    // Type combo. Change reseats the union — whole-component snapshot so undo
+                    // Type combo. Change reseats the union; whole-component snapshot so undo
                     // restores both the type and the previous union content.
                     {
                         int current = (int)v.type;
@@ -145,7 +145,7 @@ namespace Luth::ComponentDrawers
                         }
                     }
 
-                    // Union members — whole-component snapshot (anonymous-union members have no
+                    // Union members: whole-component snapshot (anonymous-union members have no
                     // usable pointer-to-member).
                     switch (v.type)
                     {

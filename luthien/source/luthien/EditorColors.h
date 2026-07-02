@@ -5,7 +5,7 @@
 namespace Luth
 {
     // Centralized semantic editor colors. All panels reference these constants instead of
-    // hardcoding RGB literals — a single source of truth for axis tints, status colors, gizmo
+    // hardcoding RGB literals: a single source of truth for axis tints, status colors, gizmo
     // overlays, profiler-panel category colors, and so on.
     struct EditorColors
     {
@@ -31,8 +31,8 @@ namespace Luth
         static inline ImU32 GizmoAABBSelected = IM_COL32(255, 160,   0, 200); // Orange for selected
         static inline ImU32 GizmoBoneLine     = IM_COL32(  0, 255, 128, 200); // Green skeleton lines
         static inline ImU32 GizmoBoneJoint    = IM_COL32(255, 255,   0, 255); // Yellow joints
-        static inline ImU32 GizmoFog          = IM_COL32(184, 140, 242, 140); // Purple — matches EntityFX hierarchy tint
-        static inline ImU32 GizmoWind         = IM_COL32(184, 140, 242, 204); // Purple — matches EntityFX hierarchy tint
+        static inline ImU32 GizmoFog          = IM_COL32(184, 140, 242, 140); // Purple, matches EntityFX hierarchy tint
+        static inline ImU32 GizmoWind         = IM_COL32(184, 140, 242, 204); // Purple, matches EntityFX hierarchy tint
 
         // Status colors
         static inline ImVec4 ErrorRed      = { 0.9f, 0.2f, 0.2f, 1.0f };

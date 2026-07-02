@@ -17,15 +17,13 @@ namespace Luth
 
     void ResourcePanel::OnInit()
     {
-        // Bump dirty flag whenever the asset registry changes; main-thread fan-out
-        // happens via the same AssetDatabase callback ProjectPanel uses.
+        // dirty flag on any asset-registry change; same AssetDatabase callback ProjectPanel uses
         AssetDatabase::AddChangeCallback([this]() { m_NeedsRebuild = true; });
     }
 
     void ResourcePanel::OnGather(EditorSnapshotBuilder& builder)
     {
-        // PopulateData (asset DB enumeration + sort/filter) stays inline today;
-        // future polish can shift it here.
+        // PopulateData (asset DB enumeration + sort/filter) stays inline today.
         builder.Add<ResourceListSnapshot>();
     }
 
@@ -37,10 +35,8 @@ namespace Luth
 
         if (BeginWindow(resources.c_str()))
         {
-            // Filter controls
             DrawFilterControls();
 
-            // Main table
             constexpr ImGuiTableFlags flags =
                 ImGuiTableFlags_Resizable |
                 ImGuiTableFlags_BordersInnerV |
@@ -87,7 +83,7 @@ namespace Luth
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_DefaultSort, 200);
         ImGui::TableSetupColumn("Refs", ImGuiTableColumnFlags_WidthFixed, 50);
         ImGui::TableSetupColumn("UUID", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoSort);
-        ImGui::TableSetupScrollFreeze(0, 1); // Make header row visible
+        ImGui::TableSetupScrollFreeze(0, 1); // keep header row pinned while scrolling
         ImGui::TableHeadersRow();
     }
 
@@ -105,7 +101,6 @@ namespace Luth
 
         for (const auto& [uuid, metadata] : registry)
         {
-            // Filter by type
             if (metadata.Type == AssetType::Model           && !m_ShowModels)           continue;
             if (metadata.Type == AssetType::Material        && !m_ShowMaterials)        continue;
             if (metadata.Type == AssetType::PhysicsMaterial && !m_ShowPhysicsMaterials) continue;
@@ -218,7 +213,7 @@ namespace Luth
         RebuildIfDirty();
         RefreshDynamicData();
 
-        // Display entries — clipped so off-screen rows skip the per-row work.
+        // clipped so off-screen rows skip the per-row work
         ImGuiListClipper clipper;
         clipper.Begin((int)m_FilteredResources.size(), ImGui::GetTextLineHeightWithSpacing());
         while (clipper.Step())
@@ -228,7 +223,7 @@ namespace Luth
                 const auto& entry = m_FilteredResources[row];
                 ImGui::TableNextRow();
 
-                // Type column (also handle the span-all row selectable here)
+                // type column also owns the span-all row selectable
                 ImGui::TableSetColumnIndex(0);
                 bool selected = (m_SelectedUUID == entry.Uuid);
                 std::string selectableId = "##sel_" + entry.Uuid.ToString();
@@ -243,7 +238,6 @@ namespace Luth
                 ImGui::SameLine();
                 ImGui::TextColored(GetTypeColor(entry.Type), "%s", GetTypeIcon(entry.Type));
 
-                // Name column
                 ImGui::TableSetColumnIndex(1);
                 ImGui::Text("%s", entry.Name.c_str());
                 if (ImGui::IsItemHovered() && entry.Name.size() > 24)
@@ -253,11 +247,9 @@ namespace Luth
                     ImGui::EndTooltip();
                 }
 
-                // Refs column
                 ImGui::TableSetColumnIndex(2);
                 ImGui::Text("%d", entry.RefCount);
 
-                // UUID column
                 ImGui::TableSetColumnIndex(3);
                 ImGui::TextDisabled("%s", entry.Uuid.ToString().c_str());
                 if (ImGui::IsItemHovered()) {
@@ -273,7 +265,6 @@ namespace Luth
     {
         if (strlen(m_SearchBuffer) == 0) return true;
 
-        // Case-insensitive search
         std::string name = entry.Name;
         std::string uuid = entry.Uuid.ToString();
         std::string filter = m_SearchBuffer;

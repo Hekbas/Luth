@@ -12,7 +12,7 @@ namespace Luth
     {
         json ToJson(const Vec3& v) { return json::array({ v.x, v.y, v.z }); }
 
-        // Vec3 ← JSON array. Returns the fallback on a malformed entry so a corrupt file leaves
+        // Vec3 from JSON array. Returns the fallback on a malformed entry so a corrupt file leaves
         // pose defaults intact rather than throwing.
         Vec3 ToVec3(const json& j, const Vec3& fallback)
         {
@@ -75,7 +75,7 @@ namespace Luth
     {
         try
         {
-            // .luth/ may not exist yet on a fresh project — the bare ofstream below would
+            // .luth/ may not exist yet on a fresh project; the bare ofstream below would
             // silently no-op without this (same gap EditorSettings::Save has).
             if (path.has_parent_path())
                 std::filesystem::create_directories(path.parent_path());

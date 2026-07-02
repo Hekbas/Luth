@@ -15,10 +15,9 @@ namespace Luth
 {
     class Scene;
 
-    // Scene panel is dominantly ImGui-driven (gizmo input, viewport image, drag-drop),
-    // so the snapshot is intentionally tiny — most work belongs in OnDraw. Future polish
-    // can capture EditorCamera matrices here so the EditorViewportState handoff happens
-    // in gather instead.
+    // Scene panel is dominantly ImGui-driven (gizmo input, viewport image, drag-drop), so the snapshot
+    // is intentionally tiny; most work belongs in OnDraw. Capturing EditorCamera matrices here would move
+    // the EditorViewportState handoff into gather.
     struct SceneViewportSnapshot
     {
         u32 selectionVersion = 0;
@@ -48,8 +47,8 @@ namespace Luth
         // Searchable, categorized debug-view picker (Scene toolbar Debug split dropdown).
         void DrawDebugModePicker();
 
-        // Marquee (rubber-band) select: pick entities whose screen-projected origin lands in the
-        // box. Modifier-aware (Shift adds, Ctrl toggles, neither replaces).
+        // Marquee (rubber-band) select: pick entities whose screen-projected origin lands in the box.
+        // Modifier-aware (Shift adds, Ctrl toggles, neither replaces).
         void SelectEntitiesInRect(const ImVec2& a, const ImVec2& b);
 
         std::shared_ptr<Scene> m_Context;
@@ -63,9 +62,9 @@ namespace Luth
         bool m_ShowControlsOverlay = true;
         char m_DebugModeFilter[64] = {};   // persists the debug-picker search across popup reopens
 
-        // Marquee state. Pick resolves on LMB release: no-drag → point pick, drag → rubber-band.
+        // Marquee state. Pick resolves on LMB release: no-drag -> point pick, drag -> rubber-band.
         bool   m_MarqueePending = false;   // LMB pressed in empty viewport space, gesture open
-        bool   m_MarqueeActive  = false;   // drag passed the threshold → it's a box, not a click
+        bool   m_MarqueeActive  = false;   // drag passed the threshold: it's a box, not a click
         ImVec2 m_MarqueeStart{};
     };
 }

@@ -7,7 +7,7 @@
 namespace Luth
 {
     // Periodic side-channel scene backup. Autosaves go to
-    // <project>/.luth/autosaves/<stem>-<TS>.luth — never the canonical scene.
+    // <project>/.luth/autosaves/<stem>-<TS>.luth, never the canonical scene.
     // Dirty flag is read-only here; manual Save remains the only path that
     // clears it. Gated on PlayState::Editing via PlayStateChangedSignal.
     class EditorAutoSave
@@ -23,8 +23,8 @@ namespace Luth
         // other guards (Play mode, Untitled, foreign-path, !Dirty).
         static void ForceNow();
 
-        // Title-bar UX — UpdateWindowTitle queries these to append a fading
-        // " — Autosaved HH:MM" suffix.
+        // Title-bar UX: UpdateWindowTitle queries these to append a fading
+        // "Autosaved HH:MM" suffix.
         static const char* GetLastNotice();   // empty string when unexpired-or-absent
         static bool        IsNoticeActive();
 

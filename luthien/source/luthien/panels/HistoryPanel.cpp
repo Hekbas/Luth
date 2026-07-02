@@ -56,7 +56,7 @@ namespace Luth
         float y_top = table->RowPosY1;
         float y_bot = y_top + rowHeight;
         float y_mid = y_top + rowHeight * 0.5f;
-        float x_mid = table->Columns[0].MinX + 16.0f; // Center of the 32px column
+        float x_mid = table->Columns[0].MinX + 16.0f; // center of the 32px column
         
         ImU32 colPast   = ImGui::GetColorU32(EditorColors::SuccessGreen);
         ImU32 colFuture = IM_COL32(100, 100, 100, 255);
@@ -102,8 +102,7 @@ namespace Luth
 
     void HistoryPanel::OnGather(EditorSnapshotBuilder& builder)
     {
-        // Undo/redo stack is owned by CommandHistory; future polish can copy entry
-        // metadata (icon kind, label, type) into the snapshot for OnDraw to consume.
+        // Undo/redo stack is owned by CommandHistory; OnDraw reads it directly.
         builder.Add<HistorySnapshot>();
     }
 
@@ -115,12 +114,12 @@ namespace Luth
             auto& undoStack = CommandHistory::GetUndoStack();
             auto& redoStack = CommandHistory::GetRedoStack();
 
-            // ── Header bar ──────────────────────────────────────
+            // ---- Header bar ----
             {
                 ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12f, 0.12f, 0.12f, 1.0f));
                 if (ImGui::BeginChild("HistoryHeader", ImVec2(0, 40), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
                 {
-                    ImGui::SetCursorPos(ImVec2(8, 8)); // Padding
+                    ImGui::SetCursorPos(ImVec2(8, 8)); // padding
 
                     bool canUndo = CommandHistory::CanUndo();
                     bool canRedo = CommandHistory::CanRedo();
@@ -143,7 +142,7 @@ namespace Luth
                         ImGui::SetTooltip("Redo (Ctrl+Y)");
                     if (!canRedo) ImGui::EndDisabled();
 
-                    // Clear button right aligned
+                    // clear button, right aligned
                     bool empty = undoStack.empty() && redoStack.empty();
                     float clearWidth = 32.0f;
                     ImGui::SameLine(ImGui::GetWindowWidth() - clearWidth - 8.0f);
@@ -159,7 +158,6 @@ namespace Luth
                 ImGui::EndChild();
                 ImGui::PopStyleColor();
 
-                // Status text
                 ImGui::SetCursorPosX(8.0f);
                 ImGui::TextDisabled("%zu Undo | %zu Redo", undoStack.size(), redoStack.size());
                 
@@ -171,7 +169,7 @@ namespace Luth
             }
             ImGui::Separator();
 
-            // ── Stack list ──────────────────────────────────────
+            // ---- Stack list ----
             if (ImGui::BeginChild("HistoryList", ImVec2(0, 0), false))
             {
                 constexpr ImGuiTableFlags tableFlags =
@@ -189,7 +187,7 @@ namespace Luth
 
                     if (!hasNodes)
                     {
-                        // --- 1. Initial State ---
+                        // initial state row
                         ImGui::TableNextRow();
                         TimelineNodeInfo baseNode;
                         baseNode.IsFirst = true;
@@ -220,7 +218,7 @@ namespace Luth
                         ImGui::TextUnformatted("* But nobody came.");
                         ImGui::PopStyleColor();
                         
-                        // Timeline Column
+                        // timeline column
                         ImGui::TableSetColumnIndex(0);
                         ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x, baseCol1Cursor.y));
                         DrawTimelineNode(baseNode);
@@ -307,10 +305,10 @@ namespace Luth
                         }
                     };
 
-                    // 2. Past (Undo Stack: oldest to newest)
+                    // past: undo stack, oldest to newest
                     renderCommands(undoStack, true, false);
 
-                    // 3. Future (Redo Stack: nearest to furthest -> reverse order)
+                    // future: redo stack rendered nearest to furthest, so reverse order
                     renderCommands(redoStack, false, true);
 
                     ImGui::EndTable();

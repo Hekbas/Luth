@@ -62,11 +62,11 @@ namespace Luth
         const bool isSearching = (searchBuf[0] != '\0');
         const char* filter     = isSearching ? searchBuf : nullptr;
 
-        // ── Two-pane layout ──
+        // ---- Two-pane layout ----
         static int  s_SelectedSection = 0;
         const float leftPaneW = 200.0f;
 
-        // LEFT: section list (greyed when searching — list bypassed)
+        // LEFT: section list (greyed when searching; list bypassed)
         ImGui::BeginChild("##PrefsLeft", ImVec2(leftPaneW, 0),
                           ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX);
         if (isSearching) ImGui::BeginDisabled();

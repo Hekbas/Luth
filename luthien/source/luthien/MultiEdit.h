@@ -11,8 +11,8 @@ namespace Luth
     // Editor-only, main-thread broadcast context for Inspector multi-editing. While targets are
     // set, component-edit commands constructed during InspectorPanel's drawer loop (the per-member
     // ComponentPropertyCommand, plus Remove/Reset) also apply to these entities, so one edit on the
-    // primary fans out to the whole selection as a single undo. Set/cleared via MultiEditScope only
-    // — it must never stay set across frames, or unrelated edits would broadcast.
+    // primary fans out to the whole selection as a single undo. Set/cleared via MultiEditScope only;
+    // it must never stay set across frames, or unrelated edits would broadcast.
     class MultiEdit
     {
     public:
@@ -37,7 +37,7 @@ namespace Luth
 
     // Resolve each broadcast target and invoke fn(Entity) for the valid ones that actually have C.
     // Used by multi-edit-capable commands both to capture per-target pre-edit values at
-    // construction and to re-apply on execute/undo. Heterogeneous selections are safe — targets
+    // construction and to re-apply on execute/undo. Heterogeneous selections are safe; targets
     // lacking C are skipped.
     template<typename C, typename Fn>
     inline void ForEachExtraTarget(Scene* scene, const std::vector<UUID>& targets, Fn&& fn)

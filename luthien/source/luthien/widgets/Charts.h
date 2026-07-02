@@ -11,11 +11,11 @@ namespace Luth::UI
     // Faux-bold text (double-draw; the editor ships no bold font). printf-style.
     void BoldText(const char* fmt, ...);
 
-    // Bold section header with breathing room above. Leaves the line open — SameLine after it to add
-    // right-aligned content (a legend or numbers); otherwise the next widget flows below.
+    // Bold section header with breathing room above. Leaves the line open; SameLine after it to add
+    // right-aligned content (a legend or numbers), otherwise the next widget flows below.
     void SectionHeader(const char* label);
 
-    // Section header — label followed by a rule filling the row. The editor's SeparatorText.
+    // Section header: label followed by a rule filling the row. The editor's SeparatorText.
     void SeparatorText(const char* label);
 
     // Thin horizontal rule.
@@ -31,7 +31,7 @@ namespace Luth::UI
     // Labeled horizontal bar: optional left label (reserve labelWidth to align a column of them), a
     // track + fill (frac 0..1), an optional right-aligned value, and an optional budget tick (tickFrac<0 = none).
     // width<=0 fills the row (minus the value). valueWidth>0 fixes the value column so the bar doesn't
-    // jump when the value gains/loses a digit — pass it together with an explicit width for stable bars.
+    // jump when the value gains/loses a digit; pass it together with an explicit width for stable bars.
     void StatBar(const char* label, float frac, ImU32 color, const char* value,
                  float labelWidth = 0.0f, float tickFrac = -1.0f, float width = -1.0f, float valueWidth = -1.0f);
 

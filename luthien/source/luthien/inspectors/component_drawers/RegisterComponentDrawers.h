@@ -2,7 +2,7 @@
 
 namespace Luth::ComponentDrawers
 {
-    // Per-component register functions — each defined in its own .cpp.
+    // Per-component register functions, each defined in its own .cpp.
     // DEBUG-only drawers live in DebugDrawers.cpp (stubs in Release).
     void RegisterID();
     void RegisterParent();

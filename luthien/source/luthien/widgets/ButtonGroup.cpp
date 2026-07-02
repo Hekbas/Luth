@@ -10,9 +10,8 @@ namespace Luth::UI
 {
     namespace
     {
-        // Push the active highlight (Button + ButtonHovered) so the toggled idx
-        // stays visually pressed even when not under the cursor. Matches the
-        // ScenePanel ToolButton lambda this helper subsumes.
+        // Push the active highlight (Button + ButtonHovered) so the toggled idx stays visually pressed
+        // even when not under the cursor. Matches the ScenePanel ToolButton lambda this helper subsumes.
         void PushActiveStyle()
         {
             const ImVec4 c = ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive);
@@ -21,10 +20,9 @@ namespace Luth::UI
         }
         void PopActiveStyle() { ImGui::PopStyleColor(2); }
 
-        // Icon-button size. Height = GetFrameHeight (row alignment with normal
-        // widgets). Width adds 2*(FramePadding.x - FramePadding.y) so icons get
-        // the same horizontal padding the X-pad implies — strict-square sizing
-        // would only honor Y-pad and look pinched at default {6,4}.
+        // Icon-button size. Height = GetFrameHeight (row alignment with normal widgets). Width adds
+        // 2*(FramePadding.x - FramePadding.y) so icons get the same horizontal padding the X-pad implies;
+        // strict-square sizing would only honor Y-pad and look pinched at default {6,4}.
         ImVec2 IconBtnSize()
         {
             const ImGuiStyle& s = ImGui::GetStyle();
@@ -105,8 +103,8 @@ namespace Luth::UI
         const bool active = *state;
         if (active) PushActiveStyle();
 
-        // Embed the caller-supplied label as the ImGui ID so duplicate icons
-        // across the toolbar don't collide.
+        // Embed the caller-supplied label as the ImGui ID so duplicate icons across the toolbar
+        // don't collide.
         char buf[128];
         std::snprintf(buf, sizeof(buf), "%s##%s", icon ? icon : "", label ? label : "btn");
         const bool clicked = ImGui::Button(buf, btn);
@@ -129,9 +127,8 @@ namespace Luth::UI
         const bool   active = state && *state;
         bool         toggled = false;
 
-        // Icon half — owns the toggle state if caller passed one. When state is
-        // null, treat the whole split as one big dropdown opener (icon-click
-        // does the same thing as chevron-click).
+        // Icon half owns the toggle state if the caller passed one. When state is null, treat the whole
+        // split as one big dropdown opener (icon-click does the same thing as chevron-click).
         if (active) PushActiveStyle();
         if (filled) ImGui::PushFont(Editor::GetIconFill());
         const bool iconClicked = ImGui::Button(icon ? icon : "##icon", btn);
@@ -145,7 +142,7 @@ namespace Luth::UI
             ImGui::SetTooltip("%s", tooltip);
         const ImVec2 iconMin = ImGui::GetItemRectMin();
 
-        // Chevron half — sits flush against the icon (zero spacing).
+        // Chevron half sits flush against the icon (zero spacing).
         ImGui::SameLine(0.0f, 0.0f);
         ImGui::PushFont(Editor::GetIconFill());
         const bool chevClicked = ImGui::Button(ICON_CARET_DOWN_FILL "##chev", ImVec2(chevW, btnH));

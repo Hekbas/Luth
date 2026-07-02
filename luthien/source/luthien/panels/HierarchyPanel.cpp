@@ -81,14 +81,14 @@ namespace Luth
             // Main Hierarchy Area
             if (ImGui::BeginChild("EntityList"))
             {
-                // 1. Iterate Root Entities (Ordered). m_VisibleOrder is rebuilt here in display
+                // Iterate root entities in order. m_VisibleOrder is rebuilt here in display
                 // order so a deferred shift-range select can resolve the span after the full walk.
                 m_VisibleOrder.clear();
                 for (auto entity : m_Context->GetRootEntities()) {
                     DrawEntityNode(entity);
                 }
 
-                // 2. Handle Click on Empty Space (Deselect)
+                // Click on empty space deselects
                 if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
                 {
                     // Only deselect if we didn't click an item (ImGui handles this via IsItemClicked check inside DrawEntityNode)
@@ -100,14 +100,14 @@ namespace Luth
                     }
                 }
 
-                // 3. Context Menu on Empty Space
+                // Context menu on empty space
                 if (ImGui::BeginPopupContextWindow("HierarchyContextMenu", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
                 {
                     DrawContextMenu({}); // No parent when clicking on empty space
                     ImGui::EndPopup();
                 }
 
-                // 4. Drop Target for Unparenting (Making Root)
+                // Drop target for unparenting (making root)
                 HandleRootDragDropTarget();
             }
             ImGui::EndChild();
@@ -298,7 +298,7 @@ namespace Luth
         HandleDragDropSource(entity);
         HandleDragDropTarget(entity);
 
-        // Right-aligned visibility eye — overlaps the tree node via AllowItemOverlap.
+        // Right-aligned visibility eye; overlaps the tree node via AllowItemOverlap.
         const float eyeBtnW = ImGui::CalcTextSize(ICON_EYE).x + ImGui::GetStyle().FramePadding.x * 2.0f;
         ImGui::SameLine(ImGui::GetContentRegionMax().x - eyeBtnW);
         const char* eyeIcon = isActive ? ICON_EYE : ICON_EYE_SLASH;
@@ -315,7 +315,7 @@ namespace Luth
         }
 
         // Selection (Ctrl/Shift multi-select). Suppressed when the cursor is over
-        // the eye's hit-rect — the eye's release-fire wouldn't suppress selection
+        // the eye's hit-rect; the eye's release-fire wouldn't suppress selection
         // on the press frame otherwise.
         if (nodeHovered && !eyeHovered && !toggledOpen && ImGui::IsMouseClicked(0))
         {
@@ -696,7 +696,7 @@ namespace Luth
         // fall back to a plain single select and seed the anchor here.
         if (ai < 0) { SetSelectedEntity(target); m_RangeAnchor = target; return; }
 
-        // Replace selection with the inclusive span; add anchor→target so the target ends primary.
+        // Replace selection with the inclusive span; add anchor->target so the target ends primary.
         // Anchor stays put so a subsequent shift-click re-pivots from the same row.
         EditorSelection::ClearSelection();
         const int step = (ti >= ai) ? 1 : -1;

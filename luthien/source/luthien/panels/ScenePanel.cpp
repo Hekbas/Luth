@@ -92,9 +92,8 @@ namespace Luth
 
     void ScenePanel::OnGather(EditorSnapshotBuilder& builder)
     {
-        // Most viewport work is unavoidably ImGui-driven (ImGuizmo, ImGui::Image of the
-        // rendertarget, drag-drop). Camera matrices feed RenderingSystem via
-        // EditorViewportState in App::Run; capturing them here is future polish.
+        // Most viewport work is unavoidably ImGui-driven (ImGuizmo, ImGui::Image of the rendertarget,
+        // drag-drop). Camera matrices feed RenderingSystem via EditorViewportState in App::Run.
         auto* snap = builder.Add<SceneViewportSnapshot>();
         snap->selectionVersion = EditorSelection::GetVersion();
     }
@@ -104,9 +103,9 @@ namespace Luth
         LH_PROFILE_FUNCTION();
         m_Gizmo->ResetFrameState();
 
-        // Sync selection (primary = last-added for gizmos/camera)
+        // primary = last-added, drives gizmos/camera
         m_SelectedEntity = EditorSelection::GetSelectedEntity();
-        // Outline color now flows through EditorSettings → EditorViewportState → CameraParams
+        // Outline color flows through EditorSettings -> EditorViewportState -> CameraParams
         // (see luth/core/App.cpp). Visibility-only toggles still go through the direct setter.
         m_RenderingSystem->SetGridVisible(Editor::GetSettings().showGrid);
 
@@ -114,15 +113,14 @@ namespace Luth
         std::string scene = ICON_VIEWPORT + std::string("  Scene");
 
         if (BeginWindow(scene.c_str(), ImGuiWindowFlags_NoScrollbar)) {
-            // Toolbar - Left (gizmos + grid) | Transport | Right (render + dropdowns)
+            // Toolbar: Left (gizmos + grid) | Transport | Right (render + dropdowns)
             {
                 auto& settings = Editor::GetSettings();
                 const ImGuiStyle& style  = ImGui::GetStyle();
                 const float toolbarWidth = ImGui::GetContentRegionAvail().x;
                 const float btnSize      = ImGui::GetFrameHeight();
-                // invariant: matches widgets/ButtonGroup IconBtnSize() — icon-toggle
-                // buttons add 2*(FramePadding.x - FramePadding.y) to width so the
-                // glyph isn't pinched horizontally at default style {6,4}.
+                // invariant: matches widgets/ButtonGroup IconBtnSize(); icon-toggle buttons add
+                // 2*(FramePadding.x - FramePadding.y) to width so the glyph isn't pinched at default style {6,4}.
                 const float iconBtnW     = btnSize + 2.0f * std::max(0.0f, style.FramePadding.x - style.FramePadding.y);
                 const float chevW        = btnSize * 0.75f;     // matches SplitToggleButton chevron half
                 const float splitW       = iconBtnW + chevW;
@@ -132,8 +130,8 @@ namespace Luth
 
                 // Pre-compute block widths so transport/right blocks land deterministically.
                 // Transport + render-mode buttons are plain ImGui::Button({btnSize,btnSize}),
-                // not icon-toggles — keep btnSize. Splits + Overlay use iconBtnW.
-                // invariant: SameLine(absX) is window-relative, NOT content-relative —
+                // not icon-toggles, so keep btnSize. Splits + Overlay use iconBtnW.
+                // invariant: SameLine(absX) is window-relative, NOT content-relative;
                 // it ignores WindowPadding.x, so the absX values must include it.
                 const float windowPadX     = style.WindowPadding.x;
                 const float transportW     = (4 * btnSize) + (3 * gap);
@@ -246,7 +244,7 @@ namespace Luth
                     ImGui::SameLine(0, gap);
                 }
 
-                // Path Trace — a RenderMode (not a ShadeMode): swaps the realtime path for the reference tracer.
+                // Path Trace is a RenderMode (not a ShadeMode): swaps the realtime path for the reference tracer.
                 if (ptActive) {
                     ImGui::PushStyleColor(ImGuiCol_Button, activeCol);
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, activeCol);
@@ -258,7 +256,7 @@ namespace Luth
 
                 ImGui::SameLine(0, groupGap);
 
-                // Debug split — icon toggles current<->lastDebugMode; chevron opens the searchable picker.
+                // Debug split: icon toggles current<->lastDebugMode; chevron opens the searchable picker.
                 // Disabled under Path Trace (debug views are raster-only).
                 if (ptActive) ImGui::BeginDisabled();
                 {
@@ -317,7 +315,7 @@ namespace Luth
 
                 ImGui::SameLine(0, gap);
 
-                // Gizmo visibility split — icon toggles all gizmos on/off; chevron lists
+                // Gizmo visibility split: icon toggles all gizmos on/off; chevron lists
                 // per-gizmo flags + the tri-indicator overlay (Grid lives in its own split now).
                 {
                     // All gizmo + physics visibility flags in one list so the eye toggle hides/restores
@@ -406,7 +404,7 @@ namespace Luth
                             for (int i = 0; i < kGizmoToggleCount; ++i) *toggles[i] = s_savedGizmo[i];
                         }
                         else {
-                            // No prior snapshot — enable a sensible default set.
+                            // no prior snapshot: enable a sensible default set
                             *xformVisRef = true;
                             settings.lightsSelected        = true;
                             settings.camerasSelected       = true;
@@ -514,7 +512,7 @@ namespace Luth
                 dl->AddRect(mn, mx, IM_COL32(80, 140, 255, 200));
             }
 
-            // Consume pick result â hierarchy-aware + multi-select
+            // consume pick result: hierarchy-aware + multi-select
             auto* picker = SystemRegistry::GetSystem<PickingSystem>();
             if (!m_Gizmo->WasIconClicked() && picker && picker->HasResult())
             {
@@ -558,7 +556,7 @@ namespace Luth
                 }
             }
 
-            // Deferred icon selection â always wins over pick results
+            // deferred icon selection always wins over pick results
             if (m_Gizmo->WasIconClicked() && m_Gizmo->IconEntity() != entt::null && m_Context)
             {
                 // Discard any stale pick result
@@ -686,7 +684,7 @@ namespace Luth
 
     void ScenePanel::DrawDebugModePicker()
     {
-        // Descriptor table — adding a mode is one row here (+ its engine viz), not a hand-written
+        // Descriptor table: adding a mode is one row here (+ its engine viz), not a hand-written
         // radio + a manual active-range test. `gate` greys modes whose feature is off.
         enum class Gate : u8 { None, VolFog, RestirGi, RestirDi, Gtao, Reflections };
         struct Desc { const char* cat; const char* label; ShadeMode mode; Gate gate; };

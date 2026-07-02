@@ -77,7 +77,7 @@ namespace Luth
                 && targetStr.compare(0, rootStr.size(), rootStr) == 0;
         }
 
-        // invariant: SaveToString walks the EnTT registry and MUST run on main —
+        // invariant: SaveToString walks the EnTT registry and MUST run on main;
         // the registry is not race-safe vs main mutations. Only the file IO leg
         // hops to a worker thread via IOThread::WriteFile. See arch/fiber-system.md
         // V3 (cross-thread ECS). Prune is sequenced on the main pump callback so
@@ -168,7 +168,7 @@ namespace Luth
 
     void EditorAutoSave::Shutdown()
     {
-        // invariant: shutdown does not autosave — racing engine teardown would
+        // invariant: shutdown does not autosave; racing engine teardown would
         // be worse than losing a final autosave window. User keeps manual Save.
         EventBus::Unsubscribe(BusType::MainThread, s_PlaySub);
         s_PlaySub = {};
@@ -217,7 +217,7 @@ namespace Luth
 
     void EditorAutoSave::ForceNow()
     {
-        // Same guards as Tick except interval — explicit user trigger.
+        // Same guards as Tick except interval; explicit user trigger.
         if (s_PlayActive) {
             LH_LOG(Editor, warn, "Autosave Now skipped: in Play mode.");
             return;
@@ -289,7 +289,7 @@ namespace Luth
         s_RecoveryFile = bestFile;
         s_RecoveryCanonicalPath = scenePath;
 
-        // file_time_type → system_clock::time_point conversion is implementation-
+        // file_time_type -> system_clock::time_point conversion is implementation-
         // defined; clock_cast lands cleanly on MSVC C++20.
         s_RecoveryStamp = std::chrono::clock_cast<std::chrono::system_clock>(bestStamp);
     }

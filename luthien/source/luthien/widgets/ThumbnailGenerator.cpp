@@ -22,7 +22,7 @@ namespace Luth::UI
 {
     namespace fs = std::filesystem;
 
-    // ThumbnailCache exposes these to its sibling generator only — wire-internal.
+    // ThumbnailCache exposes these to its sibling generator only; wire-internal.
     namespace ThumbnailCacheInternal
     {
         void PushTextureCompletion(UUID asset, std::vector<u8> pixels, u32 width, u32 height);
@@ -48,7 +48,7 @@ namespace Luth::UI
 
         void BakeTexture(UUID asset, u32 targetSize)
         {
-            // Snapshot the source path under no lock — AssetDatabase::GetMetadata
+            // Snapshot the source path under no lock: AssetDatabase::GetMetadata
             // returns a const reference, but project switching could destroy the
             // entry under us. Copy the path immediately, validate after.
             fs::path srcPath;
@@ -177,9 +177,9 @@ namespace Luth::UI
                     return;
                 }
 
-                // Capture sampled-texture UUIDs for cascade invalidation —
+                // Capture sampled-texture UUIDs for cascade invalidation:
                 // editing a sampled texture invalidates this material thumbnail.
-                // Recorded even though v1 bakes only use the albedo color.
+                // Recorded even though bakes currently use only the albedo color.
                 std::vector<UUID> deps;
                 deps.reserve(material->GetTextures().size());
                 for (const auto& mapInfo : material->GetTextures()) {
@@ -222,7 +222,7 @@ namespace Luth::UI
         if (type == AssetType::Texture) {
             auto* ctx = LH_NEW(Memory::Category::Editor, TextureBakeContext);
             ctx->asset = asset;
-            ctx->targetSize = 128;                // settings-driven in commit G
+            ctx->targetSize = 128;
             JobSystem::Execute(BakeTextureJobThunk, ctx, nullptr,
                                "Thumbnail.Bake.Tex", JobSystem::Priority::Low);
         }
@@ -241,7 +241,7 @@ namespace Luth::UI
 
         const fs::path path = ThumbnailDiskPath(asset);
         // IOThread::ReadFile dispatches its callback onto a worker fiber after
-        // the read completes — same execution context as a bake job, so the
+        // the read completes, same execution context as a bake job, so the
         // decode + push-completion path mirrors BakeTexture exactly.
         IOThread::ReadFile(path.string(), [asset](std::vector<u8> bytes) {
             try {

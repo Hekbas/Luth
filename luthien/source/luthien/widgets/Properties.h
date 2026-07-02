@@ -10,7 +10,7 @@ namespace Luth::UI
 {
     // Per-widget edit lifecycle. `changed` mirrors the old bool return; `committed` is
     // true on the frame ImGui reports IsItemDeactivatedAfterEdit (= one undo per release).
-    // `itemId` is the leaf ImGui item ID — pass to ConsumeItemPreEdit<T>(state.itemId).
+    // `itemId` is the leaf ImGui item ID; pass to ConsumeItemPreEdit<T>(state.itemId).
     struct EditState {
         bool         changed   = false;
         bool         committed = false;
@@ -19,7 +19,7 @@ namespace Luth::UI
     };
 
     // Per-T cache of pre-edit values, keyed by ImGuiID. Main-thread only by ImGui contract,
-    // so no sync needed. Bounded by # of simultaneously-active items (≤ 1 in practice);
+    // so no sync needed. Bounded by # of simultaneously-active items (<= 1 in practice);
     // size guard handles aborted-edit leakage (window closed mid-drag).
     template<typename T>
     inline std::unordered_map<unsigned int, T>& PreEditStore() {

@@ -58,7 +58,7 @@ namespace Luth
         // Stored as u8 to avoid pulling RenderingSystem.h into this header.
         u8    lastDebugMode             = 3;
 
-        // Render panel UI state — selected category tab + denoiser sub-tab (restored across sessions).
+        // Render panel UI state: selected category tab + denoiser sub-tab (restored across sessions).
         int   renderPanelTab            = 0;
         int   renderDenoiserTab         = 0;
 
@@ -100,7 +100,7 @@ namespace Luth
         u32   autoSaveKeepN       = 10;
 
         // ProjectPanel thumbnails (cache + disk persist at <project>/.luth/thumbnails/).
-        // thumbnailMaxDiskEntries = 0 → unbounded (matches Unity / Unreal / Godot
+        // thumbnailMaxDiskEntries = 0 -> unbounded (matches Unity / Unreal / Godot
         // which rely on orphan cleanup only). 10000 is a safety floor against
         // runaway accumulation if orphan GC ever regresses.
         bool  thumbnailsEnabled       = true;
@@ -110,7 +110,7 @@ namespace Luth
         std::string lastSceneUUID;
 
         // Per-panel visibility (Window menu). Keyed by Panel::GetWindowID().
-        // Missing keys default to true (panel shown) — matches Panel::m_Open default.
+        // Missing keys default to true (panel shown); matches Panel::m_Open default.
         std::unordered_map<std::string, bool> panelOpen;
 
         static EditorSettings Load(const std::filesystem::path& path);

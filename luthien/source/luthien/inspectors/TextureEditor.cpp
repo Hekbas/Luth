@@ -51,9 +51,9 @@ namespace Luth
 
         ImGui::Dummy({ 0, 4 });
 
-        // Pinned-footer layout: snapshot pattern — Settings + Preview size with
-        // the same frame-start value; Splitter mutates the persisted height so
-        // the change takes effect next frame (no one-frame overshoot).
+        // Pinned-footer layout, snapshot pattern: Settings + Preview size with the same frame-start
+        // value; Splitter mutates the persisted height so the change takes effect next frame (no
+        // one-frame overshoot).
         const float kSplitterH    = 4.0f;
         const float kMinSettingsH = 80.0f;
         const float kMinFooterH   = 80.0f;
@@ -102,7 +102,7 @@ namespace Luth
 
                 ImGui::Dummy({ 0, 4 });
 
-                // Apply button — right-aligned
+                // Apply button, right-aligned
                 float buttonWidth = ImGui::CalcTextSize("Apply").x + ImGui::GetStyle().FramePadding.x * 2.0f;
                 ImGui::SetCursorPosX(ImGui::GetContentRegionAvail().x - buttonWidth);
                 if (ImGui::Button("Apply")) {

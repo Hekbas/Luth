@@ -117,7 +117,7 @@ namespace Luth
     {
         m_WindowID = "Console";
 
-        // All channels visible by default — the level filter (Trace/Debug off) is what hides the
+        // All channels visible by default; the level filter (Trace/Debug off) is what hides the
         // verbose bursts, so muting a whole channel is left to the user rather than imposed up front.
         for (bool& v : m_ShowCategory) v = true;
     }
@@ -169,13 +169,13 @@ namespace Luth
             return;
         }
 
-        // ── Toolbar row 1: Clear + Auto-scroll left, level toggles right ──
+        // ---- Toolbar row 1: Clear + Auto-scroll left, level toggles right ----
         if (ImGui::Button(ICON_TRASH " Clear"))
             m_Entries.clear();
         ImGui::SameLine();
         ImGui::Checkbox("Auto-scroll", &m_AutoScroll);
 
-        // ── Category filter dropdown ──
+        // ---- Category filter dropdown ----
         ImGui::SameLine();
         if (ImGui::Button(ICON_FILTER " Categories"))
             ImGui::OpenPopup("##categories");
@@ -205,14 +205,14 @@ namespace Luth
         LevelToggle("##error",    ICON_WARNING_CIRCLE,     "Error",    kColError,    m_ShowError);    ImGui::SameLine();
         LevelToggle("##critical", ICON_ERROR,           "Critical", kColCritical, m_ShowCritical);
 
-        // ── Toolbar row 2: search ──
+        // ---- Toolbar row 2: search ----
         ImGui::SetNextItemWidth(-1.0f);
         ImGui::InputTextWithHint("##search", ICON_SEARCH "  Filter...",
                                  m_SearchBuf, sizeof(m_SearchBuf));
 
         ImGui::Separator();
 
-        // ── List ──
+        // ---- List ----
         // No ImGuiListClipper: rows use TextWrapped (variable height) and per-frame
         // filter-skips, both of which break the clipper's first-row height probe.
         // ImGui still GPU-clips off-screen geometry; cost at cap=1024 is benign.
@@ -234,7 +234,7 @@ namespace Luth
                 }
                 if (!show) continue;
 
-                // Category filter — Error/Critical always surface regardless of channel toggle.
+                // Category filter: Error/Critical always surface regardless of channel toggle.
                 if (!m_ShowCategory[static_cast<size_t>(e.category)]
                     && e.level != LogLevel::Error && e.level != LogLevel::Critical)
                     continue;

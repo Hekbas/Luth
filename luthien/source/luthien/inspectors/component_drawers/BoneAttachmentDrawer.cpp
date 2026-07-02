@@ -25,8 +25,8 @@ namespace Luth::ComponentDrawers
             j["localRotation"] = { ba.LocalRotation.x, ba.LocalRotation.y, ba.LocalRotation.z };
             return j.dump();
         };
-        // TargetEntity + BoneIndex preserved from existing component — paste copies
-        // only the offset/rotation/name. Re-link target via the inspector if needed.
+        // TargetEntity + BoneIndex preserved from existing component; paste copies only the
+        // offset/rotation/name. Re-link target via the inspector if needed.
         opts.OnPaste = [](Entity e, const std::string& data) -> bool {
             try {
                 auto j = nlohmann::json::parse(data);

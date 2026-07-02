@@ -129,7 +129,7 @@ namespace Luth::ComponentDrawers
                             UI::Property("RT Normal Epsilon", dirLight.RtNormalEpsilon, 0.001f, 0.0f, 0.5f);
                         }
 
-                        // debug viz flag stays exposed in both modes — CSM mode tints cascades;
+                        // Debug viz flag stays exposed in both modes: CSM mode tints cascades;
                         // RT mode reuses the flag for the raw R8 mask overlay (future polish).
                         UI::Property("Show Cascades", dirLight.DebugVisualizeCascades);
                     }

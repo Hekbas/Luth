@@ -18,7 +18,7 @@ namespace Luth
 {
     namespace fs = std::filesystem;
 
-    // 25002500 Time Helpers 25002500
+    // ---- Time Helpers ----
 
     static int64_t NowUnix()
     {
@@ -41,7 +41,7 @@ namespace Luth
         return std::to_string(delta / 2592000) + " months ago";
     }
 
-    // 25002500 Lifecycle 25002500
+    // ---- Lifecycle ----
 
     void ProjectLauncher::Init()
     {
@@ -60,7 +60,7 @@ namespace Luth
         return std::move(s_PendingProject);
     }
 
-    // 25002500 Recent Projects Persistence 25002500
+    // ---- Recent Projects Persistence ----
 
     fs::path ProjectLauncher::GetConfigPath()
     {
@@ -167,7 +167,7 @@ namespace Luth
         s_HasPending = true;
     }
 
-    // 25002500 Rendering 25002500
+    // ---- Rendering ----
 
     void ProjectLauncher::Render()
     {
@@ -193,7 +193,7 @@ namespace Luth
 
         if (ImGui::Begin("##ProjectLauncher", nullptr, flags))
         {
-            // ── Header: Logo + Title + Buttons ──
+            // ---- Header: Logo + Title + Buttons ----
             float headerHeight = 40.0f;
 
             // Luth logo (blue square)
@@ -222,7 +222,7 @@ namespace Luth
             ImGui::SetWindowFontScale(1.0f);
             ImGui::PopFont();
 
-            // Buttons — right-aligned
+            // Buttons, right-aligned
             ImGui::SameLine();
             float buttonsWidth = 160.0f;
             ImGui::SetCursorPosX(windowSize.x - 20 - buttonsWidth);
@@ -274,7 +274,7 @@ namespace Luth
 
             ImGui::Dummy({ 0, 8 });
 
-            // ── Project List ──
+            // ---- Project List ----
             DrawProjectList();
         }
         ImGui::End();
@@ -351,14 +351,14 @@ namespace Luth
                 ImVec2 rowMax = ImGui::GetItemRectMax();
                 float padX = 12.0f;
 
-                // ── Row line 1: Name (left) ──
+                // ---- Row line 1: Name (left) ----
                 float line1Y = rowMin.y + 5;
                 
                 // Name
                 ImGui::SetCursorScreenPos({ rowMin.x + padX, line1Y });
                 ImGui::Text("%s", rp.Name.c_str());
 
-                // ── Vertically Centered Elements: Time (center-right) | Version (right) ──
+                // ---- Vertically centered elements: Time (center-right) | Version (right) ----
                 float centerY = rowMin.y + (rowHeight - ImGui::GetFontSize()) * 0.5f;
 
                 // Time ago
@@ -376,7 +376,7 @@ namespace Luth
                 ImGui::SetCursorScreenPos({ rowMax.x - padX - verW, centerY });
                 ImGui::TextDisabled("%s", verStr.c_str());
 
-                // ── Row line 2: Path (dimmed) ──
+                // ---- Row line 2: Path (dimmed) ----
                 float line2Y = line1Y + ImGui::GetFontSize() + 3;
                 fs::path projectDir = fs::path(rp.Path).parent_path();
                 std::string dirStr = projectDir.string();

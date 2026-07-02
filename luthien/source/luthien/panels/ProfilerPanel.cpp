@@ -34,7 +34,7 @@ namespace
         return buf;
     }
 
-    // Frame-time color follows the active budget (not a hardcoded 60 fps): <=budget good, <=2x watch, else bad.
+    // Frame-time color follows the active budget (not a hardcoded 60 fps): <=budget good, <=2x watch, else bad
     ImVec4 FrameColor(float ms, float budget)
     {
         if (ms <= budget)        return ImVec4(0.30f, 0.80f, 0.35f, 1.0f);
@@ -109,7 +109,7 @@ namespace Luth
 
         if (BeginWindow(title.c_str()))
         {
-            // ── Cached stats at 10 Hz ──
+            // ---- Cached stats at 10 Hz ----
             m_UpdateTimer += Time::UnscaledDeltaTime();
             if (m_UpdateTimer >= 0.1f)
             {
@@ -149,7 +149,7 @@ namespace Luth
                 }
                 m_HavePrevNanos = true;
 
-                // Queue depths read ~0 at 10 Hz (work drains between samples) — hold a decaying recent peak.
+                // Queue depths read ~0 at 10 Hz (work drains between samples), so hold a decaying recent peak.
                 u32 maxDeq = 0;
                 for (u32 i = 0; i < m_JobStats.ThreadCount && i < JobSystem::MAX_WORKER_THREADS; ++i)
                     maxDeq = std::max(maxDeq, m_JobStats.PerThreadQueued[i]);
@@ -201,7 +201,7 @@ namespace Luth
         ImGui::PopFont();
     }
 
-    // ── Pinned overview: CPU/GPU bars, frame graph, percentiles, bound badge, render stats ──
+    // ---- Pinned overview: CPU/GPU bars, frame graph, percentiles, bound badge, render stats ----
     void ProfilerPanel::DrawOverview()
     {
         ImGui::AlignTextToFramePadding();
@@ -216,7 +216,7 @@ namespace Luth
         }
         ImGui::PopItemWidth();
 
-        // CPU/GPU-bound badge — derived from the two frame times.
+        // CPU/GPU-bound badge derived from the two frame times.
         const char* bound; ImU32 bbg, bfg;
         if (m_GPUFrameTimeMs > m_FrameTime * 1.15f)      { bound = "GPU-bound"; bbg = IM_COL32(80, 60, 30, 255);  bfg = IM_COL32(240, 190, 110, 255); }
         else if (m_FrameTime > m_GPUFrameTimeMs * 1.15f) { bound = "CPU-bound"; bbg = IM_COL32(30, 55, 80, 255);  bfg = IM_COL32(120, 180, 240, 255); }
@@ -269,7 +269,7 @@ namespace Luth
         ImGui::TextDisabled("%s", tracy);
     }
 
-    // ── CPU tab: scheduler dashboard ──
+    // ---- CPU tab: scheduler dashboard ----
     void ProfilerPanel::DrawCpuTab()
     {
         const u32 nThreads = m_JobStats.ThreadCount;
@@ -292,7 +292,7 @@ namespace Luth
         UI::MetricCard("steal efficiency", c2, cardW);
         ImGui::Spacing();
 
-        // ── Worker occupancy (workers 1..N; the main thread is V2-isolated, not a stealing worker) ──
+        // ---- Worker occupancy (workers 1..N; the main thread is V2-isolated, not a stealing worker) ----
         UI::SectionHeader("Worker occupancy");
         {
             const char* leg[3]  = { "running", "stealing", "idle" };
@@ -331,7 +331,7 @@ namespace Luth
             ImGui::EndTable();
         }
 
-        // ── Fiber pool — gauge scaled to peak (the 512-slot pool sits mostly idle) + numbers ──
+        // ---- Fiber pool: gauge scaled to peak (the 512-slot pool sits mostly idle) + numbers ----
         UI::SectionHeader("Fiber pool");
         {
             const u32 total = m_JobStats.TotalFibers ? m_JobStats.TotalFibers : 1;
@@ -349,7 +349,7 @@ namespace Luth
             UI::StackedBar("fibers", fib, 2, 14.0f, (float)m_JobStats.PeakFibers / gMax);
         }
 
-        // ── Queues — depths drain fast, so show the decaying recent peak alongside the live value ──
+        // ---- Queues: depths drain fast, so show the decaying recent peak alongside the live value ----
         UI::SectionHeader("Queues");
         {
             char info[96]; snprintf(info, sizeof(info), "global %u (peak %.0f)    deque peak %.0f",
@@ -358,7 +358,7 @@ namespace Luth
             ImGui::TextDisabled("%s", info);
         }
 
-        // ── Stage split ──
+        // ---- Stage split ----
         UI::SectionHeader("Stage split");
         const float sScale = std::max({ m_JobStats.GameStageMs, m_JobStats.RenderStageMs, m_FrameBudgetMs });
         char gb[20], rb[20];
@@ -370,7 +370,7 @@ namespace Luth
         UI::StatBar("Render", m_JobStats.RenderStageMs / sScale, IM_COL32(0x53, 0x4A, 0xB7, 255), rb, sLblW, -1.0f, sBarW, sValW);
     }
 
-    // ── Memory tab: system (CPU) + GPU-by-type ──
+    // ---- Memory tab: system (CPU) + GPU-by-type ----
     void ProfilerPanel::DrawMemoryTab()
     {
         char b1[64], b2[64];
@@ -383,7 +383,7 @@ namespace Luth
             EditorColors::MemFrameTagged, EditorColors::MemGPU,
         };
 
-        // ── System memory (CPU) — excludes the GPU category (it has its own section below) ──
+        // ---- System memory (CPU): excludes the GPU category (it has its own section below) ----
         UI::SectionHeader("System memory (CPU)");
         {
             char info[96]; snprintf(info, sizeof(info), "%s    peak %s",
@@ -431,7 +431,7 @@ namespace Luth
         if (ImGui::Button("Force trim"))  { m_LastTrimCount = AssetManager::Trim(true);  m_TrimFeedbackTimer = 3.0f; }
         if (m_TrimFeedbackTimer > 0.0f) { ImGui::SameLine(); ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.35f, 1.0f), "evicted %u", m_LastTrimCount); }
 
-        // ── GPU memory (by resource type) ──
+        // ---- GPU memory (by resource type) ----
         UI::SectionHeader("GPU memory");
         {
             const float resvMB = (float)(m_GPUStats.UsedBytes + m_GPUStats.FreeBytes) / (1024.0f * 1024.0f);
@@ -468,7 +468,7 @@ namespace Luth
                             m_GPUStats.AllocationCount, m_GPUStats.BlockCount, inFlightMB);
     }
 
-    // ── GPU tab: metric cards + consolidated per-pass view + barriers + slang parity ──
+    // ---- GPU tab: metric cards + consolidated per-pass view + barriers + slang parity ----
     void ProfilerPanel::DrawGpuTab()
     {
         auto rs = SystemRegistry::GetSystem<RenderingSystem>();
@@ -493,7 +493,7 @@ namespace Luth
         if (statsSupported && ImGui::Checkbox("capture overdraw", &capture))
             GPUTimerPool::SetStatsEnabled(capture);
 
-        // Table over the EMA-smoothed, pre-sorted rows (m_PassRows) — fixed columns keep the value + overdraw
+        // Table over the EMA-smoothed, pre-sorted rows (m_PassRows). Fixed columns keep the value + overdraw
         // aligned, and smoothing keeps the order from jittering frame-to-frame.
         {
             const float maxMs = m_PassRows.empty() ? 1.0f : std::max(0.001f, m_PassRows.front().ms);

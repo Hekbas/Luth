@@ -25,7 +25,7 @@ namespace Luth
 
     void ProjectPanel::OnInit()
     {
-        // Register up front: OnInit runs once at startup (often pre-project) and never re-runs on load.
+        // OnInit runs once at startup (often pre-project) and never re-runs on load, so register up front.
         AssetDatabase::AddChangeCallback([this]() { m_NeedsRefresh = true; });
 
         if (!FileSystem::HasProject()) return;
@@ -48,10 +48,10 @@ namespace Luth
 
     void ProjectPanel::Refresh()
     {
-        // Re-read assets path (may have changed due to project switch)
+        // may have changed on a project switch
         m_AssetsPath = FileSystem::AssetsPath();
 
-        // Preserve current navigation position across tree rebuilds
+        // preserve navigation position across tree rebuilds
         fs::path currentPath = m_CurrentDirNode ? m_CurrentDirNode->Path : fs::path{};
 
         m_RootNode = BuildDirectoryTree(m_AssetsPath, nullptr);
@@ -66,10 +66,8 @@ namespace Luth
 
     void ProjectPanel::OnGather(EditorSnapshotBuilder& builder)
     {
-        // Real polish opportunity: BuildDirectoryTree (recursive filesystem walk on
-        // Refresh) + UpdateSearchResults (lowercase + substring on every keystroke)
-        // both run inside OnDraw today and dominate Tracy captures. The structural
-        // migration ships first; the actual work move is a future async-index pass.
+        // BuildDirectoryTree (recursive filesystem walk on Refresh) + UpdateSearchResults (lowercase +
+        // substring per keystroke) run inside OnDraw today and dominate Tracy captures.
         builder.Add<ProjectSnapshot>();
     }
 
@@ -108,7 +106,6 @@ namespace Luth
             float pathBarWidth = availWidth - sliderWidth - spacing;
             if (pathBarWidth < 10.0f) pathBarWidth = 10.0f;
 
-            // Top bar with path and slider
             DrawPathBar(pathBarWidth);
             ImGui::SameLine();
             
@@ -118,7 +115,7 @@ namespace Luth
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Icon Size");
             ImGui::EndChild();
 
-            // Left panel - directory tree
+            // left panel: directory tree
             ImGui::BeginChild("##ProjectTree", ImVec2(ImGui::GetWindowWidth() * 0.2f, 0), ImGuiChildFlags_Border | ImGuiChildFlags_ResizeX);
             
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
@@ -136,9 +133,8 @@ namespace Luth
 
             ImGui::SameLine();
 
-            // Right panel - directory contents. Internal WindowPadding gives
-            // the grid breathing room from the child border; ItemSpacing.y
-            // adds a small gap between rows.
+            // right panel: directory contents. Internal WindowPadding gives the grid breathing room
+            // from the child border; ItemSpacing.y adds a small gap between rows.
             const ImVec2 prevSpacing = ImGui::GetStyle().ItemSpacing;
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   ImVec2(prevSpacing.x, 4.0f));
@@ -196,7 +192,7 @@ namespace Luth
             }
         }
         catch (...) {
-            // Handle errors
+            // swallow filesystem iteration errors; return the partial tree
         }
 
         return node;
@@ -239,7 +235,6 @@ namespace Luth
 
     void ProjectPanel::DrawTreeNode(DirectoryNode* node)
     {
-        // Setup flags
         ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanFullWidth |
             ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
         
@@ -249,7 +244,6 @@ namespace Luth
 
         if (node->IsOpen) ImGui::SetNextItemOpen(true);
 
-        // Set Icon
         const char* icon = ICON_FOLDER;
         if (node->SubDirectories.empty() && node->Files.empty()) {
             ImGui::PushFont(Editor::GetIconRegular());
@@ -262,7 +256,6 @@ namespace Luth
 			icon = ICON_FOLDER_FILL; ImGui::PushFont(Editor::GetIconFill());
         }
             
-        // Draw the node
         node->IsOpen = ImGui::TreeNodeEx((void*)node, flags, "%s", icon);
         ImGui::PopFont();
 
@@ -273,15 +266,14 @@ namespace Luth
 
         ImGui::SameLine();
         ImGui::Text(node->Name.c_str());
-        
-        // Visual line settings
+
         const ImColor treeLineColor = EditorColors::TreeLineProject;
         const float smallOffsetX = -6.0f;
         ImVec2 verticalLineStart = ImGui::GetCursorScreenPos();
         ImDrawList* drawList = ImGui::GetWindowDrawList();
 
         if (node->IsOpen) {
-            verticalLineStart.x += smallOffsetX; // My ocd will kill me
+            verticalLineStart.x += smallOffsetX; // nudge the guide line left to align under the arrow
             ImVec2 verticalLineEnd = verticalLineStart;
 
             for (auto& child : node->SubDirectories) {
@@ -290,7 +282,6 @@ namespace Luth
                 verticalLineEnd.y = currentPos.y + ImGui::GetFontSize() * 0.5f;
             }
 
-            // Draw vertical line
             drawList->AddLine(verticalLineStart, verticalLineEnd, treeLineColor);
 
             ImGui::TreePop();
@@ -303,16 +294,14 @@ namespace Luth
 
         ImGui::BeginChild("##PathBar", ImVec2(width, ImGui::GetFontSize() + ImGui::GetStyle().FramePadding.y * 2), ImGuiChildFlags_Border);
 
-        // Store path segments in reverse order (from current to root)
+        // collect segments current-to-root, then reverse for root-to-current display
         std::vector<DirectoryNode*> pathSegments;
         for (DirectoryNode* node = m_CurrentDirNode; node != nullptr; node = node->Parent) {
             pathSegments.push_back(node);
         }
 
-        // Reverse to get root-to-current order
         std::reverse(pathSegments.begin(), pathSegments.end());
 
-        // Draw the path segments
         bool isFirst = true;
         for (auto* segment : pathSegments) {
             if (!isFirst) {
@@ -321,17 +310,14 @@ namespace Luth
                 ImGui::SameLine();
             }
 
-            // Special styling for root (Assets)
+            // root (Assets) gets a button; deeper segments are selectables
             if (segment->Name == "Assets") {
                 if (ImGui::Button("Assets", ImVec2(0, 0))) {
                     m_CurrentDirNode = segment;
                 }
             }
             else {
-                // Calculate text size for proper alignment
                 const ImVec2 textSize = ImGui::CalcTextSize(segment->Name.c_str());
-
-                // Use Selectable for clickable segments with proper sizing
                 if (ImGui::Selectable(segment->Name.c_str(), false, 0, textSize)) {
                     m_CurrentDirNode = segment;
                 }
@@ -431,9 +417,8 @@ namespace Luth
 
     namespace
     {
-        // Word-wraps `text` to `wrapWidth` and renders up to `maxLines` lines.
-        // Overflowing text on the last drawn line is replaced with "<chunk>..."
-        // sized to fit the wrap width — mirrors Unreal's project-browser cap.
+        // Word-wraps `text` to `wrapWidth` and renders up to `maxLines` lines. Overflow on the last drawn
+        // line is replaced with "<chunk>..." sized to fit the wrap width, mirroring Unreal's browser cap.
         void DrawTruncatedTextWrapped(const std::string& text, float wrapWidth, int maxLines)
         {
             if (text.empty() || maxLines <= 0 || wrapWidth <= 0.0f) return;
@@ -489,16 +474,15 @@ namespace Luth
         // List mode picks a small thumbnail close to a single line.
         const float listThumbH = std::max(20.0f, lineH + 4.0f);
 
-        const float cellW = isGrid ? m_ThumbnailSize : 0.0f;            // 0 → stretch column
+        const float cellW = isGrid ? m_ThumbnailSize : 0.0f;            // 0 -> stretch column
         const float cellH = isGrid ? (m_ThumbnailSize + lineH * (float)k_MaxNameLines + 2.0f)
                                     : listThumbH;
 
         const ImVec2 startPos    = ImGui::GetCursorPos();
         const ImVec2 startScreen = ImGui::GetCursorScreenPos();
 
-        // Selectable owns click + selection visual + drag-drop binding +
-        // context menu binding for the entire cell. AllowOverlap lets the
-        // image we draw on top stay hoverable for tooltips later if needed.
+        // Selectable owns click + selection visual + drag-drop + context-menu binding for the whole cell.
+        // AllowOverlap keeps the image drawn on top hoverable for tooltips.
         if (!isRenaming) {
             ImGuiSelectableFlags flags = ImGuiSelectableFlags_AllowDoubleClick
                                        | ImGuiSelectableFlags_AllowOverlap;
@@ -512,11 +496,11 @@ namespace Luth
             }
         }
 
-        // Render visual content on top of the Selectable.
+        // draw visual content on top of the Selectable
         ImGui::SetCursorPos(startPos);
 
         if (isGrid) {
-            // ── Thumbnail / icon area (top, square of m_ThumbnailSize) ─────
+            // ---- Thumbnail / icon area (top, square of m_ThumbnailSize) ----
             if (thumb != 0) {
                 ImVec2 dims = UI::ThumbnailCache::GetThumbnailSize(node->Handle);
                 float ar = (dims.y > 0.0f) ? (dims.x / dims.y) : 1.0f;
@@ -531,7 +515,7 @@ namespace Luth
                 // invariant: 64-px bakes in grid mode so glyphs stay crisp at
                 // large thumbnails; bilinear minify handles the downscale.
                 const bool emptyDir = isDirectory && node->SubDirectories.empty() && node->Files.empty();
-                const bool fillDir  = isDirectory && !emptyDir;   // non-empty folder → Fill weight
+                const bool fillDir  = isDirectory && !emptyDir;   // non-empty folder -> Fill weight
                 const char* glyph   = isDirectory ? (fillDir ? ICON_FOLDER_FILL : ICON_FOLDER) : icon;
                 ImFont* large = fillDir ? Editor::GetIconFillLarge() : Editor::GetIconRegularLarge();
                 if (large) {
@@ -550,7 +534,7 @@ namespace Luth
                 ImGui::PopFont();
             }
 
-            // ── Name area (3-line truncated) ─────────────────────────────
+            // ---- Name area (3-line truncated) ----
             ImGui::SetCursorScreenPos(ImVec2(startScreen.x, startScreen.y + m_ThumbnailSize + 2.0f));
             if (isRenaming) {
                 ImGui::SetNextItemWidth(m_ThumbnailSize);
@@ -559,8 +543,8 @@ namespace Luth
                 DrawTruncatedTextWrapped(node->Name, m_ThumbnailSize, k_MaxNameLines);
             }
         }
-        else {  // List view
-            // ── Thumbnail / colored icon (left, square of listThumbH) ────
+        else {  // list view
+            // ---- Thumbnail / colored icon (left, square of listThumbH) ----
             const float pad = 4.0f;
             ImVec2 imgPos = ImVec2(startScreen.x + pad, startScreen.y);
             if (thumb != 0) {
@@ -586,7 +570,7 @@ namespace Luth
                 ImGui::PopFont();
             }
 
-            // ── Name (right of thumbnail, vertically centered) ────────────
+            // ---- Name (right of thumbnail, vertically centered) ----
             ImGui::SetCursorScreenPos(ImVec2(startScreen.x + pad + listThumbH + 6.0f,
                                              startScreen.y + (listThumbH - lineH) * 0.5f));
             if (isRenaming) {
@@ -600,7 +584,7 @@ namespace Luth
             }
         }
 
-        // Pin cursor to cell bottom so the next column / row starts cleanly.
+        // pin cursor to cell bottom so the next column/row starts cleanly
         ImGui::SetCursorPos(ImVec2(startPos.x, startPos.y + cellH));
     }
 
@@ -623,7 +607,7 @@ namespace Luth
 
     void ProjectPanel::HandleDragDrop(DirectoryNode* node)
     {
-        if (node->Type == AssetType::None) return; // Don't drag folders for now
+        if (node->Type == AssetType::None) return; // folders aren't draggable
 
         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
             ImGui::SetDragDropPayload("ASSET_UUID", &node->Handle, sizeof(UUID));
@@ -702,21 +686,19 @@ namespace Luth
             path = m_CurrentDirNode->Path / ("New Material " + std::to_string(counter++) + ".mat");
         }
 
-        // Default Material JSON
         nlohmann::json materialData;
         materialData["shader"] = "";
         materialData["render_mode"] = 0;
         materialData["alpha_cutoff"] = 0.5f;
         materialData["blend_src"] = static_cast<int>(Material::BlendFactor::SrcAlpha);
         materialData["blend_dst"] = static_cast<int>(Material::BlendFactor::OneMinusSrcAlpha);
-        materialData["alpha_from_diffuse"] = 0;  // False
+        materialData["alpha_from_diffuse"] = 0;
         materialData["textures"] = nlohmann::json::array();
 
         std::ofstream file(path);
         file << materialData.dump(4);
         file.close();
 
-        // Register
         UUID uuid = MetaFile::Create(path, AssetType::Material);
         AssetDatabase::RegisterAsset(path, uuid, AssetType::Material);
 

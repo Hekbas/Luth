@@ -13,7 +13,7 @@ namespace Luth
 
     // ImGuizmo wrapper. Holds the active gizmo operation (translate / rotate / scale) and the
     // 2D icon-overlay state for camera and light entities drawn over the viewport. ScenePanel
-    // invokes it during its OnDraw — gizmo input is dominantly ImGui-driven so it stays inline.
+    // invokes it during its OnDraw; gizmo input is dominantly ImGui-driven so it stays inline.
     class GizmoController
     {
     public:
@@ -28,15 +28,15 @@ namespace Luth
         void ResetFrameState();
 
         // Runs ImGuizmo manipulator + drag-undo coalesce + Q/W/E/R shortcuts.
-        // Early-returns when selected is null/invalid (matches pre-refactor behavior).
-        // acceptsShortcuts gates the Q/W/E/R tool switches — fed by viewport hover.
+        // Early-returns when selected is null/invalid.
+        // acceptsShortcuts gates the Q/W/E/R tool switches; fed by viewport hover.
         void DrawManipulator(const Mat4& view, const Mat4& proj,
                              const ImVec2* bounds, const Vec2& size,
                              Entity& selected, Scene* scene,
                              bool acceptsShortcuts, bool cameraFlying);
 
         // Renders a world-placed icon + hit-tests click-to-select for that entity. Billboard size
-        // scales with the camera→icon world distance (clamped), times the Gizmos > Icon Size setting;
+        // scales with the camera-to-icon world distance (clamped), times the Gizmos > Icon Size setting;
         // pass that distance. hasValidSelection gates the ImGuizmo::IsOver() guard (stale otherwise).
         void DrawGizmoIcon(ImDrawList* drawList, ImVec2 screenPos, const char* icon,
                            ImU32 color, entt::entity entity,

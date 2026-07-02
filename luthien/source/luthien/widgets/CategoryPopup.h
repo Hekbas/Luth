@@ -15,11 +15,11 @@ namespace Luth::UI
         const char* disabledReason = nullptr;
     };
 
-    // Filterable, category-grouped radio list — intended as a popup/dropdown body (the caller
-    // owns the popup). Renders a FilterBox, then grouped radios; highlights the item whose
-    // value == *current. Click writes the value into *current and returns true. filterBuf is
-    // caller-owned and persists the query across frames. Replaces hand-rolled radio menus and
-    // their fragile contiguous-enum index assumptions.
+    // Filterable, category-grouped radio list, intended as a popup/dropdown body (the caller owns the
+    // popup). Renders a FilterBox, then grouped radios; highlights the item whose value == *current.
+    // Click writes the value into *current and returns true. filterBuf is caller-owned and persists the
+    // query across frames. Replaces hand-rolled radio menus and their fragile contiguous-enum index
+    // assumptions.
     bool CategoryList(const char* id, const CategoryItem* items, int count,
                       int* current, char* filterBuf, std::size_t filterBufSize);
 }

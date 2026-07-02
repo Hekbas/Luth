@@ -15,12 +15,12 @@ namespace Luth
 {
     namespace
     {
-        // Category tabs, ordered by pipeline stage (light → denoise → world → finish → reference path).
+        // Category tabs, ordered by pipeline stage (light -> denoise -> world -> finish -> reference path).
         // Section bodies gate on the active tab; search mode renders every title-matching section flat.
         enum RenderTab { Tab_Lighting, Tab_Denoise, Tab_Environment, Tab_Post, Tab_PathTrace, Tab_Count };
         const char* const kTabLabels[Tab_Count] = { "Lighting", "Denoise", "Environment", "Post FX", "Path Tracing" };
 
-        // ⚠ glyph flagging a control that reallocates GPU resources (not just a live-mutated value) on change.
+        // Warning glyph flagging a control that reallocates GPU resources (not just a live-mutated value) on change.
         void ReallocHint(const char* tip)
         {
             ImGui::SameLine();
@@ -100,7 +100,7 @@ namespace Luth
             auto& settings = Editor::GetSettings();
             auto& pp       = m_RS->GetPostProcessSettings();
 
-            // ── Top bar: search only (the Raster/Path-Trace toggle lives in the Scene toolbar) ──
+            // ---- Top bar: search only (the Raster/Path-Trace toggle lives in the Scene toolbar) ----
             UI::FilterBox("RenderSearch", m_Filter, sizeof(m_Filter), "Search settings...");
             ImGui::Separator();
 
@@ -114,7 +114,7 @@ namespace Luth
                 ImGui::Spacing();
             }
 
-            // Section gate — in tab mode a collapsing header (drawn only on its tab); in search mode a flat
+            // Section gate: tab mode uses a collapsing header (drawn only on its tab); search mode uses a flat
             // always-open block when the title matches. curHeader tells endSection whether to close a header.
             bool curHeader = false;
             auto beginSection = [&](RenderTab owner, const char* label) -> bool {
@@ -130,7 +130,7 @@ namespace Luth
             };
             auto endSection = [&]() { if (curHeader) UI::EndCollapsingHeader(); };
 
-            // ──────────────────────────── Lighting (AO + direct/indirect RT) ────────────────────────────
+            // ---- Lighting (AO + direct/indirect RT) ----
             if (beginSection(Tab_Lighting, "Ambient Occlusion (GTAO)")) {
                 auto& gtao = pp.gtao;
                 if (UI::BeginProperties("GTAOProps")) {
@@ -243,7 +243,7 @@ namespace Luth
                 endSection();
             }
 
-            // ──────────────────────────── Denoisers ────────────────────────────
+            // ---- Denoisers ----
             if (beginSection(Tab_Denoise, "Denoisers (SVGF)")) {
                 const char* kChannels[] = { "DI", "GI", "Specular", "DI-Spec" };
                 int dt = settings.renderDenoiserTab;
@@ -260,9 +260,9 @@ namespace Luth
                 endSection();
             }
 
-            // ──────────────────────────── Environment ────────────────────────────
+            // ---- Environment ----
             // IBL/Skybox intensity are editor-owned (EditorSettings, also in Preferences) but affect the
-            // rendered image — surfaced here, read live each frame via the viewport-state hook.
+            // rendered image, so surfaced here; read live each frame via the viewport-state hook.
             if (beginSection(Tab_Environment, "Image-Based Lighting")) {
                 if (UI::BeginProperties("IblProps")) {
                     UI::Property("IBL Intensity", settings.iblIntensity, 0.01f, 0.0f, 8.0f);
@@ -367,7 +367,7 @@ namespace Luth
                 endSection();
             }
 
-            // ──────────────────────────── Post FX ────────────────────────────
+            // ---- Post FX ----
             if (beginSection(Tab_Post, "Transparency (OIT)")) {
                 auto& ts = m_RS->GetTransparencySettings();
                 if (UI::BeginProperties("TransparencyProps")) {
@@ -452,7 +452,7 @@ namespace Luth
                 endSection();
             }
 
-            // ──────────────────────────── Path Tracing ────────────────────────────
+            // ---- Path Tracing ----
             if (beginSection(Tab_PathTrace, "Path Tracer")) {
                 auto& pt = m_RS->GetPathTraceSettings();
                 ImGui::TextDisabled("Activate via the Raster/Path Trace switch at the top.");

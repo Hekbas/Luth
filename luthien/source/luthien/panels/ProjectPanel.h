@@ -23,10 +23,9 @@ namespace Luth
         bool IsOpen = false;
     };
 
-    // Placeholder snapshot — real opportunity: move BuildDirectoryTree + UpdateSearchResults
-    // into OnGather (both heavy CPU work in Tracy captures). The lifecycle migration ships
-    // first; a follow-on polish commit can shift that work onto the gather fiber.
-    struct ProjectSnapshot { /* placeholder; populated by future polish */ };
+    // BuildDirectoryTree + UpdateSearchResults (both heavy CPU work in Tracy captures) still run in
+    // OnDraw; moving them onto the gather fiber is the open optimization here.
+    struct ProjectSnapshot {};
 
     class ProjectPanel : public Panel
     {

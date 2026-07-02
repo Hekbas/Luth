@@ -12,7 +12,7 @@ namespace Luth::EditorStyle
 {
     using json = nlohmann::json;
 
-    // ── JSON helpers ──
+    // ---- JSON helpers ----
 
     static json VecToJson(const ImVec2& v)  { return json::array({ v.x, v.y }); }
     static json VecToJson(const ImVec4& v)  { return json::array({ v.x, v.y, v.z, v.w }); }
@@ -28,8 +28,8 @@ namespace Luth::EditorStyle
         return { j[0].get<float>(), j[1].get<float>(), j[2].get<float>(), j[3].get<float>() };
     }
 
-    // Lookup: stable color-name → ImGuiCol index. ImGui::GetStyleColorName returns
-    // e.g. "Text"/"WindowBg" — robust against enum reordering between ImGui versions.
+    // Lookup: stable color-name -> ImGuiCol index. ImGui::GetStyleColorName returns
+    // e.g. "Text"/"WindowBg", robust against enum reordering between ImGui versions.
     static const std::unordered_map<std::string, int>& ColorNameToIndex()
     {
         static const auto map = []() {
@@ -82,7 +82,7 @@ namespace Luth::EditorStyle
         json colors = json::object();
         for (int i = 0; i < ImGuiCol_COUNT; ++i) {
             const ImVec4& c = p.Colors[i];
-            // Skip fully-zero entries — factory presets leave unset colors at {0,0,0,0}
+            // Skip fully-zero entries; factory presets leave unset colors at {0,0,0,0}
             if (c.x == 0 && c.y == 0 && c.z == 0 && c.w == 0) continue;
             colors[ImGui::GetStyleColorName(i)] = VecToJson(c);
         }
@@ -180,7 +180,7 @@ namespace Luth::EditorStyle
         }
     }
 
-    // ── Font Loading ──
+    // ---- Font Loading ----
 
     static ImFont* LoadIconFont(const char* filename, float size, bool mergeMode, const ImWchar* ranges)
     {
@@ -242,7 +242,7 @@ namespace Luth::EditorStyle
         Editor::IconFillLargeRef()    = LoadIconFont("Phosphor-Fill.ttf", 64.0f, false, kRangeFill);
     }
 
-    // ── Style Application ──
+    // ---- Style Application ----
 
     void Apply(const StylePreset& preset)
     {
@@ -279,7 +279,7 @@ namespace Luth::EditorStyle
         memcpy(style.Colors, preset.Colors, sizeof(preset.Colors));
     }
 
-    // ── Built-in loader ──
+    // ---- Built-in loader ----
 
     std::optional<StyleFile> LoadBuiltin(const std::string& name)
     {

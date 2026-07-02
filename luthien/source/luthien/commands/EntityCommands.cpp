@@ -11,9 +11,8 @@ namespace Luth
     using namespace Component;
     using json = nlohmann::json;
 
-    // Convenience: every Entity*Command::Execute / Undo publishes a typed
-    // HierarchyChangedSignal so panels can react via OnEvent instead of
-    // polling Scene::GetHierarchyVersion. UUID-based so handles stay valid
+    // Every Entity*Command::Execute / Undo publishes a typed HierarchyChangedSignal so panels react
+    // via OnEvent instead of polling Scene::GetHierarchyVersion. UUID-based so handles stay valid
     // across destroy-undo cycles.
     namespace
     {
@@ -26,9 +25,7 @@ namespace Luth
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    //  CommandUtil — serialization helpers
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ---- CommandUtil: serialization helpers ----
 
     namespace CommandUtil
     {
@@ -216,7 +213,6 @@ namespace Luth
 
                 entity.SetActive(ej.value("active", true));
 
-                // Transform
                 if (ej.contains("transform")) {
                     auto& t = entity.GetComponent<Transform>();
                     const auto& tj = ej["transform"];
@@ -226,7 +222,6 @@ namespace Luth
                     t.IsDirty = true;
                 }
 
-                // Camera
                 if (ej.contains("camera")) {
                     const auto& cj = ej["camera"];
                     auto& c = entity.AddComponent<Camera>();
@@ -240,7 +235,6 @@ namespace Luth
                     c.IsDirty = true;
                 }
 
-                // MeshRenderer
                 if (ej.contains("meshRenderer")) {
                     const auto& mj = ej["meshRenderer"];
                     auto& mr = entity.AddComponent<MeshRenderer>();
@@ -250,7 +244,6 @@ namespace Luth
                     mr.isSkinned    = mj.value("isSkinned", false);
                 }
 
-                // Animation
                 if (ej.contains("animation")) {
                     const auto& aj = ej["animation"];
                     auto& a = entity.AddComponent<Animation>();
@@ -264,7 +257,6 @@ namespace Luth
                     a.Playing = aj.value("playing", false);
                 }
 
-                // AnimationController
                 if (ej.contains("animationController")) {
                     const auto& cj = ej["animationController"];
                     auto& ctrl = entity.AddComponent<AnimationController>();
@@ -295,7 +287,6 @@ namespace Luth
                     }
                 }
 
-                // BoneAttachment
                 if (ej.contains("boneAttachment")) {
                     const auto& baj = ej["boneAttachment"];
                     auto& ba = entity.AddComponent<BoneAttachment>();
@@ -306,7 +297,6 @@ namespace Luth
                         attachmentLinks.push_back({ entity, baj["targetUUID"].get<std::string>() });
                 }
 
-                // DirectionalLight
                 if (ej.contains("directionalLight")) {
                     const auto& dj = ej["directionalLight"];
                     auto& dl = entity.AddComponent<DirectionalLight>();
@@ -336,7 +326,6 @@ namespace Luth
                     dl.DebugVisualizeCascades   = dj.value("debugVisualizeCascades", false);
                 }
 
-                // PointLight
                 if (ej.contains("pointLight")) {
                     const auto& pj = ej["pointLight"];
                     auto& pl = entity.AddComponent<PointLight>();
@@ -345,7 +334,6 @@ namespace Luth
                     pl.Range     = pj.value("range", 350.0f);
                 }
 
-                // SpotLight
                 if (ej.contains("spotLight")) {
                     const auto& sj = ej["spotLight"];
                     auto& sl = entity.AddComponent<SpotLight>();
@@ -358,7 +346,6 @@ namespace Luth
 
                 uuidToEntity[ej.value("uuid", "")] = entity;
 
-                // Collect parent link
                 std::string parentStr = ej.value("parent", "");
                 if (!parentStr.empty())
                     parentLinks.push_back({ entity, parentStr });
@@ -436,9 +423,7 @@ namespace Luth
 
     } // namespace CommandUtil
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    //  GizmoTransformCommand
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ---- GizmoTransformCommand ----
 
     GizmoTransformCommand::GizmoTransformCommand(Scene* scene, entt::entity entity,
         Vec3 oldPos, Vec3 oldRot, Vec3 oldScale,
@@ -466,9 +451,7 @@ namespace Luth
         tc.IsDirty = true;
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    //  EntityCreateCommand
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ---- EntityCreateCommand ----
 
     EntityCreateCommand::EntityCreateCommand(Scene* scene, const std::string& name, UUID parentUUID)
         : m_Scene(scene), m_EntityName(name), m_ParentUUID(parentUUID) {}
@@ -520,9 +503,7 @@ namespace Luth
         return m_Scene->FindEntityByUUID(m_CreatedUUID);
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    //  EntityDestroyCommand
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ---- EntityDestroyCommand ----
 
     EntityDestroyCommand::EntityDestroyCommand(Scene* scene, Entity entity)
         : m_Scene(scene)
@@ -569,9 +550,7 @@ namespace Luth
 
     void EntityDestroyCommand::Redo() { Execute(); }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    //  EntityDestroyMultipleCommand
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ---- EntityDestroyMultipleCommand ----
 
     EntityDestroyMultipleCommand::EntityDestroyMultipleCommand(Scene* scene, const std::vector<Entity>& entities)
         : m_Scene(scene)
@@ -646,9 +625,7 @@ namespace Luth
 
     void EntityDestroyMultipleCommand::Redo() { Execute(); }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    //  EntityRenameCommand
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ---- EntityRenameCommand ----
 
     EntityRenameCommand::EntityRenameCommand(Scene* scene, entt::entity entity,
                                              std::string oldName, std::string newName)
@@ -677,9 +654,7 @@ namespace Luth
 
     void EntityRenameCommand::Redo() { Execute(); }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    //  EntityActiveCommand
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ---- EntityActiveCommand ----
 
     EntityActiveCommand::EntityActiveCommand(Scene* scene, entt::entity entity,
                                              bool oldValue, bool newValue)
@@ -705,9 +680,7 @@ namespace Luth
 
     void EntityActiveCommand::Redo() { Execute(); }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    //  EntityReparentCommand
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ---- EntityReparentCommand ----
 
     EntityReparentCommand::EntityReparentCommand(Scene* scene, Entity entity, Entity newParent)
         : m_Scene(scene)
@@ -752,9 +725,7 @@ namespace Luth
 
     void EntityReparentCommand::Redo() { Execute(); }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    //  EntityReorderCommand
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ---- EntityReorderCommand ----
 
     EntityReorderCommand::EntityReorderCommand(Scene* scene, Entity entity, Entity target, bool after)
         : m_Scene(scene), m_After(after)
@@ -797,9 +768,7 @@ namespace Luth
 
     void EntityReorderCommand::Redo() { Execute(); }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    //  EntityDuplicateCommand
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ---- EntityDuplicateCommand ----
 
     EntityDuplicateCommand::EntityDuplicateCommand(Scene* scene, Entity original)
         : m_Scene(scene)

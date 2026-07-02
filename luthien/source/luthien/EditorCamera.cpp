@@ -36,7 +36,7 @@ namespace Luth
         m_IsFlying = rmb && !altHeld;
         bool updated = false;
 
-        // --- Flythrough mode (RMB without Alt) ---
+        // ---- Flythrough mode (RMB without Alt) ----
         if (m_IsFlying)
         {
             // Mouse look
@@ -73,7 +73,7 @@ namespace Luth
             m_FocalPoint = m_Position + GetForwardDirection() * m_Distance;
             updated = true;
         }
-        // --- Orbit mode (Alt + LMB) ---
+        // ---- Orbit mode (Alt + LMB) ----
         else if (altHeld && lmb)
         {
             m_Yaw   += delta.x * m_RotationSpeed * dt;
@@ -82,7 +82,7 @@ namespace Luth
             m_Position = CalculatePosition();
             updated = true;
         }
-        // --- Smooth zoom (Alt + RMB drag) ---
+        // ---- Smooth zoom (Alt + RMB drag) ----
         else if (altHeld && rmb)
         {
             float zoomAmount = (delta.x + delta.y) * m_ZoomSpeed * m_Distance * dt;
@@ -91,7 +91,7 @@ namespace Luth
             m_Position  = CalculatePosition();
             updated = true;
         }
-        // --- Pan (Middle mouse) ---
+        // ---- Pan (Middle mouse) ----
         else if (mmb)
         {
             Vec3 right = GetRightDirection();
@@ -104,7 +104,7 @@ namespace Luth
             updated = true;
         }
 
-        // --- Scroll zoom (when not in flythrough) ---
+        // ---- Scroll zoom (when not in flythrough) ----
         if (!m_IsFlying) {
             float zoomDelta = ImGui::GetIO().MouseWheel;
             if (zoomDelta != 0.0f) {
@@ -116,14 +116,14 @@ namespace Luth
             }
         }
 
-        // --- Entity tracking (Shift+F lock) ---
+        // ---- Entity tracking (Shift+F lock) ----
         if (m_IsTrackingEntity && m_LockedEntity && m_LockedEntity.IsValid()) {
             m_FocalPoint = m_LockedEntity.GetComponent<Component::Transform>().Position;
             m_Position = CalculatePosition();
             updated = true;
         }
 
-        // --- Cursor visibility ---
+        // ---- Cursor visibility ----
         if (m_IsFlying && !m_WasFlying)
             ImGui::SetMouseCursor(ImGuiMouseCursor_None);
         else if (!m_IsFlying && m_WasFlying)
@@ -185,7 +185,7 @@ namespace Luth
     void EditorCamera::UpdateProjection() {
         m_ProjectionMatrix = Math::Perspective(
             Math::Radians(m_FOV), m_AspectRatio, m_NearClip, m_FarClip);
-        // No Y-flip here — applied at GPU uniform upload only (RenderingSystem::UpdateGlobalUniforms)
+        // No Y-flip here; applied at GPU uniform upload only (RenderingSystem::UpdateGlobalUniforms)
     }
 
     void EditorCamera::UpdateView() {
@@ -228,7 +228,7 @@ namespace Luth
     }
 
     void EditorCamera::ApplyPose(const EditorCameraPose& pose) {
-        // The Shift+F lock targets an entity from the outgoing scene — drop it so OnUpdate
+        // The Shift+F lock targets an entity from the outgoing scene; drop it so OnUpdate
         // can't snap the focal point to a stale handle once the new scene is live.
         ClearLockedEntity();
         m_FocalPoint = pose.focalPoint;
