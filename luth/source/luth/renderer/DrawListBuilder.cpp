@@ -54,7 +54,10 @@ namespace Luth
                         dc.materialSlot = slotIt->second;
                     mode     = material->GetRenderMode();
                     cullMode = material->GetCullMode();
-                    dc.fragShaderUUID = material->GetGraphShaderUUID();
+                    // Variant 0 = stock decode in RT + transparent (unregistered or beyond the variant cap);
+                    // leave the raster override unset too so every tier agrees on stock. invariant: raster==RT.
+                    if (material->GetGraphVariant() != 0)
+                        dc.fragShaderUUID = material->GetGraphShaderUUID();
                 }
             }
             dc.cullMode = cullMode;

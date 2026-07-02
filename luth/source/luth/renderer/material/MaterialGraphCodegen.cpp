@@ -277,7 +277,7 @@ namespace Luth
             return ss.str();
         }
 
-        constexpr u32 kMaxGraphVariants = 16;   // RT megakernel switch-arm cap; counts distinct structures
+        constexpr u32 kMaxGraphVariants = 64;   // RT megakernel switch-arm cap; counts distinct structures (flags 8-15 allow 256)
 
         struct StructInfo { u32 variant; UUID shaderUUID; UUID previewUUID; std::string canonSrc; };
         std::unordered_map<u64, StructInfo> s_Structures;   // structure hash -> shared variant + compiled shader
@@ -297,11 +297,18 @@ namespace Luth
             return o.str();
         }
 
+        // Coalesces reloads: N new structures before the next main-thread drain (scene load) trigger ONE
+        // 8-shader batch, not N. Safe because the registry file is regenerated before every schedule call,
+        // so the drained reload compiles against the superset.
+        std::atomic<bool> s_ReloadPending{ false };
+
         // Reload every shared consumer of the variant registry (RT megakernels + the two raster
-        // transparent shaders) against the regenerated version. Main-thread only; not fiber-safe.
+        // transparent shaders) against the regenerated version.
         void ScheduleGraphConsumerReload()
         {
+            if (s_ReloadPending.exchange(true)) return;
             MainThreadPump::Post([]() {
+                s_ReloadPending.store(false);   // clear first: a compile landing mid-reload re-posts a fresh batch
                 const char* kGraphConsumers[] = {
                     "restir_gi_initial.slang", "restir_initial.slang", "rt_reflections.slang",
                     "rt_sun_shadows.slang", "path_trace.slang", "volumetric_inject_scatter.slang",
