@@ -90,7 +90,13 @@
 > falls to stock in **every** tier — the raster gate keeps parity with RT rather than silently diverging. A
 > `StaticSwitch` node selects its emitted branch at codegen time (the canonical DFS visits only the chosen input, so
 > the other side dead-strips from source + params); state flips are structure edits, hash-cached so revisited states
-> swap without recompiling.
+> swap without recompiling. Node vocabulary beyond channel math: `Noise` rides `common/graph_lib.slang`
+> (derivative-free FBM; the import is emitted only when used so pre-existing structure hashes stay stable);
+> WorldPos/ViewDir/Time/Fresnel read per-tier context through `ITexFetch` getters (filled at the decode sites that
+> host graphs; `__init` zeroes keep stock paths clean — the Slang-41016 pattern); the `Custom` node emits a user
+> float4 expression over block-scoped inputs a..d, gated by `ValidateCustomCode`'s banned-construct scan (rejects
+> the stage-divergent class — derivatives/discard compile in fragment but not compute — so rejected materials render
+> stock in every tier; hard compile errors already fail symmetrically).
 
 ## Current RenderGraph Pass Order
 

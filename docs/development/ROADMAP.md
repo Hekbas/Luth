@@ -139,6 +139,7 @@
 | v3.7.1 | `shade-modes` | Debug shade-mode overhaul: data views (normals/IDs/channels) bypass bloom/tonemap via a passthrough sentinel, radiance views keep tonemap, raw GI/DI/reflection flag magenta when off, ShadowCascades/AO decoupled from global toggles, flat unlit wireframe + a new Shaded Wireframe overlay, transparent debug parity; folds no-fallback-sun (#33), back-face outline (#35), new-scene light+camera (#38). | 2026-07-02 |
 | v3.7.3 | `exposed-parameters` | Named graph parameters (name/group/ui on value nodes, codegen-blind) editable in the Inspector through the gMatParams data path; graph undo re-derives GPU state; variant cap 16→64 with beyond-cap stock in all tiers; coalesced registry reloads | 2026-07-03 |
 | v3.7.3 | `static-switches` | Compile-time StaticSwitch node: the canonical DFS emits only the selected branch (the other dead-strips from source + params), state flips are structure edits hash-cached both ways; named switches surface as Inspector checkboxes | 2026-07-03 |
+| v3.7.3 | `node-breadth` | 16 new node types: math breadth, UV source + TextureSample UV pin, FBM Noise (graph_lib.slang, conditional import), fetch-context inputs (WorldPos/ViewDir/Time/Fresnel via ITexFetch getters filled per tier), sandboxed custom-Slang expression node; VertexColor deferred | 2026-07-03 |
 
 ---
 
@@ -247,7 +248,7 @@ Agreed forward order (2026-06-14) — dependency-clean, **params as the keystone
 |---|---|---|---|
 | M1 authoring | `transparent-graph` ✅ | M | Transparent/OIT raster decode routed through the variant registry (raster==RT), same path the RT hit uses — shipped v3.2.7. |
 | M1 authoring | `graph-normal-preview` ✅ | S–M | Graphed `mi.normal` honored raster==RT (tangent convention + `ApplyTangentNormal`) + lightweight graph-aware preview (Lambert-over-graph, self-contained UBO) — shipped v3.2.8. |
-| M1 authoring | `node-breadth` | M | Noise / UV transforms / math breadth / fresnel / new inputs (vertex color, world pos, time, view dir) + custom-Slang escape node. |
+| M1 authoring | `node-breadth` ✅ | M | 9 math nodes + UV source/pin + FBM Noise + WorldPos/ViewDir/Time/Fresnel context inputs + sandboxed custom-Slang node; VertexColor deferred (vertex-format effort), enum switch + UVTransform composable/deferred — shipped v3.7.3. |
 | M1 authoring | `node-ux` | S | Search / quick-add ✅ (v3.2.8); comments/frames + group-to-subgraph shelved (vendored GraphEditor widget lacks support — needs a widget effort); granular per-node undo deferred. |
 | M2 params ⭐ | `exposed-parameters` ✅ | M | Named/grouped params on value nodes (float/color/remap/tex-slot + bool hint), inspector-editable through the gMatParams data path; folds variant-cap parity + coalesced-reload hardening — shipped v3.7.3. |
 | M2 params ⭐ | `static-switches` ✅ | M | Compile-time StaticSwitch node (Off/On emission-time selection folded into the structure hash); named switches = Inspector checkboxes; enum/N-way deferred until a use case names its options — shipped v3.7.3. |
