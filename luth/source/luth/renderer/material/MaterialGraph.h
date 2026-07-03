@@ -11,6 +11,7 @@ namespace Luth
     // Slang SSA expression in MaterialGraphCodegen, so the emitted EvalGraph<F> stays two-tier-safe (no
     // ddx / screen-space ops, valid in both the raster and ray-hit tiers). Authoring data only; the
     // graph is persisted on Material and lowered to a generated fragment shader at codegen time.
+    // invariant: enum order is .mat serialization ABI (type persists as an int) - append, never reorder.
     enum class MatNodeType : u8
     {
         ConstFloat,     // value.x
@@ -21,7 +22,8 @@ namespace Luth
         Lerp,           // lerp(in0, in1, in2)
         Remap,          // value = (inMin, inMax, outMin, outMax)
         Split,          // float4 in -> 4 scalar outs (.x .y .z .w)
-        Output          // terminal: the 6 MaterialInputs channels
+        Output,         // terminal: the 6 MaterialInputs channels
+        StaticSwitch    // compile-time select: emits Off (slot 0) or On (slot 1) per value.x; flips recompile
     };
 
     struct MatNode
@@ -39,11 +41,12 @@ namespace Luth
         u8          ui = 0;                 // widget hint: 0 = per-type default, 1 = checkbox (ConstFloat 0/1)
     };
 
-    // Node types whose value (or tex slot) is meaningful as an exposed material parameter.
+    // Node types whose value (or tex slot / switch state) is meaningful as an exposed material parameter.
     inline bool IsExposableNode(MatNodeType t)
     {
         return t == MatNodeType::ConstFloat || t == MatNodeType::ConstColor
-            || t == MatNodeType::Remap      || t == MatNodeType::TextureSample;
+            || t == MatNodeType::Remap      || t == MatNodeType::TextureSample
+            || t == MatNodeType::StaticSwitch;
     }
 
     struct MatLink

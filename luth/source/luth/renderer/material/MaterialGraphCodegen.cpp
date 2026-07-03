@@ -48,7 +48,7 @@ namespace Luth
         u8 InputCount(MatNodeType t)
         {
             if (t == MatNodeType::Lerp) return 3;
-            if (t == MatNodeType::Multiply || t == MatNodeType::Add) return 2;
+            if (t == MatNodeType::Multiply || t == MatNodeType::Add || t == MatNodeType::StaticSwitch) return 2;
             return 1;   // Remap / Split (Const / TextureSample have none; slot 0 stays unlinked)
         }
 
@@ -76,9 +76,20 @@ namespace Luth
                 auto it = byId.find(id);
                 if (it == byId.end() || it->second->type == MatNodeType::Output) return;
                 active.insert(id);
-                const u8 inCount = InputCount(it->second->type);
-                for (u8 s = 0; s < inCount; ++s)
-                    if (const MatLink* l = Incoming(g, id, s)) visit(l->fromNode);
+                const MatNode* n = it->second;
+                if (n->type == MatNodeType::StaticSwitch)
+                {
+                    // Compile-time select: only the chosen branch is reachable, so the other side
+                    // dead-strips from BOTH the emitted source and BuildParams (they share this walk).
+                    // Flipping the state changes the reachable set -> new canonical source -> new structure.
+                    if (const MatLink* l = Incoming(g, id, n->value.x != 0.0f ? 1 : 0)) visit(l->fromNode);
+                }
+                else
+                {
+                    const u8 inCount = InputCount(n->type);
+                    for (u8 s = 0; s < inCount; ++s)
+                        if (const MatLink* l = Incoming(g, id, s)) visit(l->fromNode);
+                }
                 active.erase(id);
                 done.insert(id);
                 order.push_back(id);
@@ -170,6 +181,7 @@ namespace Luth
                     // Remap's (inMin,inMax,outMin,outMax) is data; the affine runs in-shader (RemapApply).
                     case MatNodeType::Remap:         return "RemapApply(" + Input(n, 0) + ", fetch.Param(" + std::to_string(paramSlot.at(n.id)) + "))";
                     case MatNodeType::Split:         return Input(n, 0);   // pass-through; channels read via SourceExpr
+                    case MatNodeType::StaticSwitch:  return Input(n, n.value.x != 0.0f ? 1 : 0);   // compile-time select
                     default:                         return "float4(0.0)";
                 }
             }
