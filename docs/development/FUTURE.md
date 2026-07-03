@@ -87,7 +87,6 @@ Items deferred from Phase A history files (v3.0.0–v3.0.7). None on critical pa
 | Item | Depends on | Notes |
 |---|---|---|
 | **Asset Streaming** | `compute-gpu-culling` ✅ | Async GPU upload via transfer queue. |
-| **Visual Shader Editor** | — | Editor luxury, low priority. |
 | **Frame Debugger per-view capture** | `game-panel` ✅ | Capture currently scene-view-only; extend tracked RTs + archive slots to tag by view. |
 | **Scene-panel post-process toggle** | — | Unity-style toggle to disable bloom/tonemap/vignette for lookdev. |
 | **Auto-wire `GPUTimerPool` into RenderGraph** | — | Currently per-pass insertion is manual. |
