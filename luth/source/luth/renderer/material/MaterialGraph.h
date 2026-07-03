@@ -38,7 +38,8 @@ namespace Luth
         WorldPos,       // fetch.WorldPos() as float4(p, 0)
         ViewDir,        // fetch.ViewDir() (toward camera; RT = -rayDir) as float4(v, 0)
         Time,           // fetch.Time() broadcast
-        Fresnel         // pow(1 - fetch.NdotV(), power); value.x = power as data; vertex-normal based
+        Fresnel,        // pow(1 - fetch.NdotV(), power); value.x = power as data; vertex-normal based
+        Custom          // user Slang float4 expression over inputs a..d (MatNode::code); sandbox-scanned
     };
 
     struct MatNode
@@ -54,6 +55,10 @@ namespace Luth
         std::string name;                   // inspector label; empty = unexposed
         std::string group;                  // inspector section; empty = ungrouped
         u8          ui = 0;                 // widget hint: 0 = per-type default, 1 = checkbox (ConstFloat 0/1)
+
+        // Custom node only: the emitted float4 expression over a..d. Enters the canonical source verbatim
+        // (edits are structure edits); sandbox-scanned by MaterialGraphCodegen::ValidateCustomCode.
+        std::string code;
     };
 
     // Node types whose value (or tex slot / switch state) is meaningful as an exposed material parameter.

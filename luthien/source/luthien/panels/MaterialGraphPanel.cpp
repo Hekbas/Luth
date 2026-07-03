@@ -23,6 +23,7 @@ namespace Luth
         const char* kIn_ABT[]   = { "A", "B", "T" };
         const char* kIn_OffOn[] = { "Off", "On" };
         const char* kIn_UV[]    = { "UV" };
+        const char* kIn_ABCD[]  = { "A", "B", "C", "D" };
         const char* kIn_In[]    = { "in" };
         const char* kIn_RGBA[]  = { "rgba" };
         const char* kIn_Out[]   = { "BaseColor", "Metallic", "Roughness", "Normal", "AO", "Emissive" };
@@ -64,6 +65,7 @@ namespace Luth
             { "View Dir", IM_COL32( 70, 90,120,255), nullptr,  0, kOut_1,     1 },  // ViewDir
             { "Time",     IM_COL32( 70, 90,120,255), nullptr,  0, kOut_1,     1 },  // Time
             { "Fresnel",  IM_COL32(110, 90, 60,255), nullptr,  0, kOut_1,     1 },  // Fresnel
+            { "Custom",   IM_COL32(110, 70,110,255), kIn_ABCD, 4, kOut_1,     1 },  // Custom
         };
         constexpr size_t kTypeCount = sizeof(kTypes) / sizeof(kTypes[0]);
 
@@ -214,6 +216,18 @@ namespace Luth
                     ImGui::DragFloat("Power", &n.value.x, 0.05f, 0.1f, 32.0f);
                     e.value |= ImGui::IsItemDeactivatedAfterEdit();
                     break;
+                case MatNodeType::Custom:
+                {
+                    ImGui::TextDisabled("float4 expression\nover a, b, c, d");
+                    char code[1024] = {};
+                    snprintf(code, sizeof(code), "%s", n.code.c_str());
+                    if (ImGui::InputTextMultiline("##code", code, sizeof(code), ImVec2(-FLT_MIN, 80.0f)))
+                        n.code = code;
+                    if (ImGui::IsItemDeactivatedAfterEdit()) e.structure = true;   // code is emission -> recompile
+                    if (const char* bad = MaterialGraphCodegen::ValidateCustomCode(n.code))
+                        ImGui::TextColored(ImVec4(0.9f, 0.4f, 0.3f, 1.0f), "banned: %s", bad);
+                    break;
+                }
                 default:
                     ImGui::TextDisabled("No parameters.");
                     break;

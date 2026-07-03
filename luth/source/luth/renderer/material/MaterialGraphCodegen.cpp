@@ -70,6 +70,8 @@ namespace Luth
         {
             switch (t)
             {
+                case MatNodeType::Custom:
+                    return 4;
                 case MatNodeType::Lerp:
                     return 3;
                 case MatNodeType::Multiply: case MatNodeType::Add: case MatNodeType::StaticSwitch:
@@ -269,7 +271,19 @@ namespace Luth
                 ss << "    MaterialInputs mi = EvalMaterialChannels<F>(m, uv0, uv1, fetch);\n";
 
                 for (u32 id : order)
-                    ss << "    float4 " << Name(id) << " = " << NodeRhs(*byId.at(id)) << ";\n";
+                {
+                    const MatNode& n = *byId.at(id);
+                    if (n.type == MatNodeType::Custom)
+                    {
+                        // Block-scoped so the user code is a plain float4 expression over locals a..d.
+                        ss << "    float4 " << Name(id) << ";\n";
+                        ss << "    { float4 a = " << Input(n, 0) << "; float4 b = " << Input(n, 1)
+                           << "; float4 c = " << Input(n, 2) << "; float4 d = " << Input(n, 3) << "; "
+                           << Name(id) << " = (" << (n.code.empty() ? "float4(0.0)" : n.code) << "); }\n";
+                    }
+                    else
+                        ss << "    float4 " << Name(id) << " = " << NodeRhs(n) << ";\n";
+                }
 
                 if (out)
                 {
@@ -418,6 +432,18 @@ namespace Luth
             return UUID::Invalid();
         }
 
+        // Custom-node sandbox: reject stage-divergent constructs before emitting anything, so the material
+        // falls to stock in EVERY tier (a fragment-only intrinsic would compile raster but break the RT
+        // megakernels -> raster!=RT). invariant: raster == RT even for user code.
+        for (const MatNode& n : material.GetGraph().nodes)
+            if (n.type == MatNodeType::Custom)
+                if (const char* bad = ValidateCustomCode(n.code))
+                {
+                    LH_LOG(Renderer, error, "MaterialGraphCodegen: '{}' Custom node uses banned construct '{}' - renders stock",
+                                  material.Handle.ToString(), bad);
+                    return UUID::Invalid();
+                }
+
         // Value-node count is hard-bounded by the per-material gMatParams stride; beyond it, fetch.Param(k)
         // would read into the next material's region. Fail loud (renders stock) rather than corrupt.
         Lowerer low(material.GetGraph());
@@ -527,5 +553,16 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
         material.SetGraphParams(material.HasGraph() ? BuildParams(material.GetGraph()) : std::vector<Vec4>{});
+    }
+
+    const char* MaterialGraphCodegen::ValidateCustomCode(const std::string& code)
+    {
+        static const char* kBanned[] = {
+            "ddx", "ddy", "fwidth", "discard", "gTextures", "gMaterials", "gMatParams",
+            "RWTexture", "import", "[shader"
+        };
+        for (const char* b : kBanned)
+            if (code.find(b) != std::string::npos) return b;
+        return nullptr;
     }
 }

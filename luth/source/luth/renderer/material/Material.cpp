@@ -82,6 +82,7 @@ namespace Luth
                 if (!n.name.empty())  nj["name"]  = n.name;
                 if (!n.group.empty()) nj["group"] = n.group;
                 if (n.ui != 0)        nj["ui"]    = n.ui;
+                if (!n.code.empty())  nj["code"]  = n.code;
                 g["nodes"].push_back(std::move(nj));
             }
             for (const auto& l : m_Graph.links)
@@ -175,6 +176,7 @@ namespace Luth
                     node.name  = n.value("name",  std::string{});
                     node.group = n.value("group", std::string{});
                     node.ui    = static_cast<u8>(n.value("ui", 0));
+                    node.code  = n.value("code",  std::string{});
                     m_Graph.nodes.push_back(node);
                 }
             if (g.contains("links"))
