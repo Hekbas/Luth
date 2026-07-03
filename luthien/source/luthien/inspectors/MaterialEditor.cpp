@@ -369,6 +369,13 @@ namespace Luth
                             if (UI::PropertyCombo(label, t, kMap, 9)) { n.tex = (u32)t; structureEdit = true; }
                             break;
                         }
+                        case MatNodeType::StaticSwitch:
+                        {
+                            bool on = n.value.x != 0.0f;
+                            // Compile-time switch: the state selects the emitted branch, so toggling recompiles.
+                            if (UI::Property(label, on)) { n.value.x = on ? 1.0f : 0.0f; structureEdit = true; }
+                            break;
+                        }
                         default: break;
                     }
                     ImGui::PopID();

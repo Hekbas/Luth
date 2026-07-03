@@ -21,6 +21,7 @@ namespace Luth
         // GraphEditor::Template's const char** pointers stay valid for the canvas's lifetime.
         const char* kIn_AB[]    = { "A", "B" };
         const char* kIn_ABT[]   = { "A", "B", "T" };
+        const char* kIn_OffOn[] = { "Off", "On" };
         const char* kIn_In[]    = { "in" };
         const char* kIn_RGBA[]  = { "rgba" };
         const char* kIn_Out[]   = { "BaseColor", "Metallic", "Roughness", "Normal", "AO", "Emissive" };
@@ -46,6 +47,7 @@ namespace Luth
             { "Remap",    IM_COL32( 90, 90, 90,255), kIn_In,   1, kOut_1,     1 },  // Remap
             { "Split",    IM_COL32( 90, 80,110,255), kIn_RGBA, 1, kOut_Split, 4 },  // Split
             { "Output",   IM_COL32(120, 70, 70,255), kIn_Out,  6, nullptr,    0 },  // Output
+            { "Switch",   IM_COL32( 70,110,110,255), kIn_OffOn,2, kOut_1,     1 },  // StaticSwitch
         };
         constexpr size_t kTypeCount = sizeof(kTypes) / sizeof(kTypes[0]);
 
@@ -170,6 +172,13 @@ namespace Luth
                     if (ImGui::Combo("Map", &t, kMap, 9)) { n.tex = (u32)t; e.structure = true; }
                     break;
                 }
+                case MatNodeType::StaticSwitch:
+                {
+                    bool on = n.value.x != 0.0f;
+                    // Compile-time state: flipping selects which branch is EMITTED, so it recompiles.
+                    if (ImGui::Checkbox("On", &on)) { n.value.x = on ? 1.0f : 0.0f; e.structure = true; }
+                    break;
+                }
                 default:
                     ImGui::TextDisabled("No parameters.");
                     break;
@@ -292,6 +301,7 @@ namespace Luth
                 snprintf(buf, sizeof(buf), "%s", kMap[n.tex < 9 ? n.tex : 0]);
                 break;
             }
+            case MatNodeType::StaticSwitch: snprintf(buf, sizeof(buf), "%s", n.value.x != 0.0f ? "On" : "Off"); break;
             default: return;
         }
         drawList->AddText(ImVec2(rect.Min.x + 4.0f, rect.Min.y + 2.0f), IM_COL32(210, 210, 210, 255), buf);
