@@ -87,7 +87,10 @@
 > `mat_graph_registry.slang` switch; a NEW structure regenerates the registry and reloads its 8 consumers (5 RT
 > megakernels, `volumetric_inject_scatter`, both transparent shaders), **coalesced to one batch per `MainThreadPump`
 > drain**. `kMaxGraphVariants = 64` bounds the switch arms (megakernel register pressure); beyond the cap a material
-> falls to stock in **every** tier — the raster gate keeps parity with RT rather than silently diverging.
+> falls to stock in **every** tier — the raster gate keeps parity with RT rather than silently diverging. A
+> `StaticSwitch` node selects its emitted branch at codegen time (the canonical DFS visits only the chosen input, so
+> the other side dead-strips from source + params); state flips are structure edits, hash-cached so revisited states
+> swap without recompiling.
 
 ## Current RenderGraph Pass Order
 

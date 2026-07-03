@@ -138,6 +138,7 @@
 | v3.7.0 | `slang-shader-migration` | Completes the GLSL→Slang move: the remaining 58 non-material shaders ported (compute/raster/bindless/BDA), the dead RT-pipeline smoke path deleted, and libshaderc + the glslc toolchain removed — one shader language, one compiler, one reflection path | 2026-06-30 |
 | v3.7.1 | `shade-modes` | Debug shade-mode overhaul: data views (normals/IDs/channels) bypass bloom/tonemap via a passthrough sentinel, radiance views keep tonemap, raw GI/DI/reflection flag magenta when off, ShadowCascades/AO decoupled from global toggles, flat unlit wireframe + a new Shaded Wireframe overlay, transparent debug parity; folds no-fallback-sun (#33), back-face outline (#35), new-scene light+camera (#38). | 2026-07-02 |
 | v3.7.3 | `exposed-parameters` | Named graph parameters (name/group/ui on value nodes, codegen-blind) editable in the Inspector through the gMatParams data path; graph undo re-derives GPU state; variant cap 16→64 with beyond-cap stock in all tiers; coalesced registry reloads | 2026-07-03 |
+| v3.7.3 | `static-switches` | Compile-time StaticSwitch node: the canonical DFS emits only the selected branch (the other dead-strips from source + params), state flips are structure edits hash-cached both ways; named switches surface as Inspector checkboxes | 2026-07-03 |
 
 ---
 
@@ -249,7 +250,7 @@ Agreed forward order (2026-06-14) — dependency-clean, **params as the keystone
 | M1 authoring | `node-breadth` | M | Noise / UV transforms / math breadth / fresnel / new inputs (vertex color, world pos, time, view dir) + custom-Slang escape node. |
 | M1 authoring | `node-ux` | S | Search / quick-add ✅ (v3.2.8); comments/frames + group-to-subgraph shelved (vendored GraphEditor widget lacks support — needs a widget effort); granular per-node undo deferred. |
 | M2 params ⭐ | `exposed-parameters` ✅ | M | Named/grouped params on value nodes (float/color/remap/tex-slot + bool hint), inspector-editable through the gMatParams data path; folds variant-cap parity + coalesced-reload hardening — shipped v3.7.3. |
-| M2 params ⭐ | `static-switches` | M | Compile-time bool/enum params → structural variants (the static-switch axis; folds into the structure hash). |
+| M2 params ⭐ | `static-switches` ✅ | M | Compile-time StaticSwitch node (Off/On emission-time selection folded into the structure hash); named switches = Inspector checkboxes; enum/N-way deferred until a use case names its options — shipped v3.7.3. |
 | M3 composition | `effect-layer` | L | Phase 4 — link-specialized stackable effect substrate; the node editor emits into it. |
 | M3 composition | `triplanar` / `detail-maps` / `parallax-occlusion` / `decals` | M–L | Surface-detail units emitted from the node editor. |
 | M4 shading | `clear-coat` + `anisotropy` | M | Lacquer / gold / brushed metal. Extend `MaterialInputs` + `brdf.slang`, raster==RT. |
