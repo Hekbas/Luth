@@ -22,6 +22,7 @@ namespace Luth
         const char* kIn_AB[]    = { "A", "B" };
         const char* kIn_ABT[]   = { "A", "B", "T" };
         const char* kIn_OffOn[] = { "Off", "On" };
+        const char* kIn_UV[]    = { "UV" };
         const char* kIn_In[]    = { "in" };
         const char* kIn_RGBA[]  = { "rgba" };
         const char* kIn_Out[]   = { "BaseColor", "Metallic", "Roughness", "Normal", "AO", "Emissive" };
@@ -40,7 +41,7 @@ namespace Luth
         const TypeInfo kTypes[] = {
             { "Float",    IM_COL32( 70, 90,120,255), nullptr,  0, kOut_1,     1 },  // ConstFloat
             { "Color",    IM_COL32(120, 90, 70,255), nullptr,  0, kOut_RGBA,  1 },  // ConstColor
-            { "Texture",  IM_COL32( 70,120, 90,255), nullptr,  0, kOut_RGBA,  1 },  // TextureSample
+            { "Texture",  IM_COL32( 70,120, 90,255), kIn_UV,   1, kOut_RGBA,  1 },  // TextureSample (UV pin optional)
             { "Multiply", IM_COL32( 90, 90, 90,255), kIn_AB,   2, kOut_1,     1 },  // Multiply
             { "Add",      IM_COL32( 90, 90, 90,255), kIn_AB,   2, kOut_1,     1 },  // Add
             { "Lerp",     IM_COL32( 90, 90, 90,255), kIn_ABT,  3, kOut_1,     1 },  // Lerp
@@ -48,6 +49,17 @@ namespace Luth
             { "Split",    IM_COL32( 90, 80,110,255), kIn_RGBA, 1, kOut_Split, 4 },  // Split
             { "Output",   IM_COL32(120, 70, 70,255), kIn_Out,  6, nullptr,    0 },  // Output
             { "Switch",   IM_COL32( 70,110,110,255), kIn_OffOn,2, kOut_1,     1 },  // StaticSwitch
+            { "Subtract", IM_COL32( 90, 90, 90,255), kIn_AB,   2, kOut_1,     1 },  // Subtract
+            { "Divide",   IM_COL32( 90, 90, 90,255), kIn_AB,   2, kOut_1,     1 },  // Divide
+            { "Power",    IM_COL32( 90, 90, 90,255), kIn_AB,   2, kOut_1,     1 },  // Power
+            { "Min",      IM_COL32( 90, 90, 90,255), kIn_AB,   2, kOut_1,     1 },  // Min
+            { "Max",      IM_COL32( 90, 90, 90,255), kIn_AB,   2, kOut_1,     1 },  // Max
+            { "Dot",      IM_COL32( 90, 90, 90,255), kIn_AB,   2, kOut_1,     1 },  // Dot
+            { "Abs",      IM_COL32( 90, 90, 90,255), kIn_In,   1, kOut_1,     1 },  // Abs
+            { "Saturate", IM_COL32( 90, 90, 90,255), kIn_In,   1, kOut_1,     1 },  // Saturate
+            { "One Minus",IM_COL32( 90, 90, 90,255), kIn_In,   1, kOut_1,     1 },  // OneMinus
+            { "UV",       IM_COL32( 70, 90,120,255), nullptr,  0, kOut_1,     1 },  // UV
+            { "Noise",    IM_COL32( 70,120, 90,255), kIn_UV,   1, kOut_1,     1 },  // Noise
         };
         constexpr size_t kTypeCount = sizeof(kTypes) / sizeof(kTypes[0]);
 
@@ -82,6 +94,7 @@ namespace Luth
                 case MatNodeType::ConstFloat: n.value = Vec4(0.5f); break;
                 case MatNodeType::ConstColor: n.value = Vec4(1.0f); break;
                 case MatNodeType::Remap:      n.value = Vec4(0.0f, 1.0f, 0.0f, 1.0f); break;
+                case MatNodeType::Noise:      n.value = Vec4(8.0f, 3.0f, 0.0f, 0.0f); break;   // (scale, octaves)
                 default:                      n.value = Vec4(0.0f); break;
             }
             return n;
@@ -179,6 +192,19 @@ namespace Luth
                     if (ImGui::Checkbox("On", &on)) { n.value.x = on ? 1.0f : 0.0f; e.structure = true; }
                     break;
                 }
+                case MatNodeType::UV:
+                {
+                    static const char* kSets[] = { "UV0", "UV1" };
+                    int s = n.tex != 0u ? 1 : 0;
+                    if (ImGui::Combo("Set", &s, kSets, 2)) { n.tex = (u32)s; e.structure = true; }
+                    break;
+                }
+                case MatNodeType::Noise:
+                    ImGui::DragFloat("Scale",   &n.value.x, 0.05f, 0.01f, 512.0f);
+                    e.value |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::DragFloat("Octaves", &n.value.y, 0.05f, 1.0f, 4.0f, "%.0f");
+                    e.value |= ImGui::IsItemDeactivatedAfterEdit();
+                    break;
                 default:
                     ImGui::TextDisabled("No parameters.");
                     break;
@@ -302,6 +328,8 @@ namespace Luth
                 break;
             }
             case MatNodeType::StaticSwitch: snprintf(buf, sizeof(buf), "%s", n.value.x != 0.0f ? "On" : "Off"); break;
+            case MatNodeType::UV:           snprintf(buf, sizeof(buf), "UV%u", n.tex != 0u ? 1u : 0u); break;
+            case MatNodeType::Noise:        snprintf(buf, sizeof(buf), "x%.3g o%d", n.value.x, (int)n.value.y); break;
             default: return;
         }
         drawList->AddText(ImVec2(rect.Min.x + 4.0f, rect.Min.y + 2.0f), IM_COL32(210, 210, 210, 255), buf);

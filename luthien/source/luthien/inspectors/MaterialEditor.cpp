@@ -376,6 +376,10 @@ namespace Luth
                             if (UI::Property(label, on)) { n.value.x = on ? 1.0f : 0.0f; structureEdit = true; }
                             break;
                         }
+                        case MatNodeType::Noise:
+                            if (UI::Property(label, n.value, 0.05f)) valueEdit = true;
+                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("(scale, octaves, -, -)");
+                            break;
                         default: break;
                     }
                     ImGui::PopID();

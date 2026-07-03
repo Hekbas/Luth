@@ -40,16 +40,45 @@ namespace Luth
             }
         }
 
+        // Same map->index routing, sampling at a graph-provided UV expression (a linked TextureSample UV pin).
+        std::string TexSampleExprAt(u32 tex, const std::string& uvExpr)
+        {
+            const char* idx = nullptr;
+            switch (static_cast<MapType>(tex))
+            {
+                case MapType::Diffuse:   idx = "m.diffuseIndex";    break;
+                case MapType::Normal:    return "float4(fetch.Sample(m.normalIndex, (" + uvExpr + ").xy).xyz * 2.0 - 1.0, 0.0)";
+                case MapType::Metalness:
+                case MapType::Roughness: idx = "m.metalRoughIndex"; break;
+                case MapType::Occlusion: idx = "m.occlusionIndex";  break;
+                case MapType::Emissive:  idx = "m.emissiveIndex";   break;
+                case MapType::Alpha:     idx = "m.alphaIndex";      break;
+                case MapType::Specular:  idx = "m.specularIndex";   break;
+                case MapType::Thickness: idx = "m.thicknessIndex";  break;
+                default:                 return "float4(0.0)";
+            }
+            return "fetch.Sample(" + std::string(idx) + ", (" + uvExpr + ").xy)";
+        }
+
         bool IsValueNode(MatNodeType t)
         {
-            return t == MatNodeType::ConstFloat || t == MatNodeType::ConstColor || t == MatNodeType::Remap;
+            return t == MatNodeType::ConstFloat || t == MatNodeType::ConstColor || t == MatNodeType::Remap
+                || t == MatNodeType::Noise;
         }
 
         u8 InputCount(MatNodeType t)
         {
-            if (t == MatNodeType::Lerp) return 3;
-            if (t == MatNodeType::Multiply || t == MatNodeType::Add || t == MatNodeType::StaticSwitch) return 2;
-            return 1;   // Remap / Split (Const / TextureSample have none; slot 0 stays unlinked)
+            switch (t)
+            {
+                case MatNodeType::Lerp:
+                    return 3;
+                case MatNodeType::Multiply: case MatNodeType::Add: case MatNodeType::StaticSwitch:
+                case MatNodeType::Subtract: case MatNodeType::Divide: case MatNodeType::Power:
+                case MatNodeType::Min: case MatNodeType::Max: case MatNodeType::Dot:
+                    return 2;
+                default:
+                    return 1;   // Remap / Split / Noise / TextureSample UV pin (value + context nodes leave slot 0 unlinked)
+            }
         }
 
         const MatLink* Incoming(const MaterialGraph& g, u32 nodeId, u8 slot)
@@ -162,6 +191,8 @@ namespace Luth
                 switch (n.type)
                 {
                     case MatNodeType::Multiply: return "float4(1.0)";
+                    case MatNodeType::Divide:
+                    case MatNodeType::Power:    return slot == 1 ? "float4(1.0)" : "float4(0.0)";   // identity operands
                     case MatNodeType::Lerp:     return slot == 2 ? "float4(0.5)" : "float4(0.0)";
                     default:                    return "float4(0.0)";
                 }
@@ -174,9 +205,34 @@ namespace Luth
                     // Const values are per-material data; ConstFloat broadcasts (BuildParams stores float4(x)).
                     case MatNodeType::ConstFloat:
                     case MatNodeType::ConstColor:    return "fetch.Param(" + std::to_string(paramSlot.at(n.id)) + ")";
-                    case MatNodeType::TextureSample: return TexSampleExpr(n.tex);
+                    case MatNodeType::TextureSample:
+                    {
+                        // A linked UV pin overrides the material's per-map UV-set selection.
+                        if (const MatLink* l = Incoming(g, n.id, 0))
+                            if (seq.count(l->fromNode))
+                                return TexSampleExprAt(n.tex, SourceExpr(*byId.at(l->fromNode), l->fromSlot));
+                        return TexSampleExpr(n.tex);
+                    }
                     case MatNodeType::Multiply:      return "(" + Input(n, 0) + " * " + Input(n, 1) + ")";
                     case MatNodeType::Add:           return "(" + Input(n, 0) + " + " + Input(n, 1) + ")";
+                    case MatNodeType::Subtract:      return "(" + Input(n, 0) + " - " + Input(n, 1) + ")";
+                    case MatNodeType::Divide:        return "(" + Input(n, 0) + " / " + Input(n, 1) + ")";
+                    case MatNodeType::Power:         return "pow(max(" + Input(n, 0) + ", float4(0.0)), " + Input(n, 1) + ")";
+                    case MatNodeType::Min:           return "min(" + Input(n, 0) + ", " + Input(n, 1) + ")";
+                    case MatNodeType::Max:           return "max(" + Input(n, 0) + ", " + Input(n, 1) + ")";
+                    case MatNodeType::Dot:           return "float4(dot(" + Input(n, 0) + ".xyz, " + Input(n, 1) + ".xyz))";
+                    case MatNodeType::Abs:           return "abs(" + Input(n, 0) + ")";
+                    case MatNodeType::Saturate:      return "saturate(" + Input(n, 0) + ")";
+                    case MatNodeType::OneMinus:      return "(float4(1.0) - " + Input(n, 0) + ")";
+                    case MatNodeType::UV:            return n.tex != 0u ? "float4(uv1, 0.0, 0.0)" : "float4(uv0, 0.0, 0.0)";
+                    case MatNodeType::Noise:
+                    {
+                        // Unlinked coord defaults to uv0 (the float4(0) default would sample a constant).
+                        std::string uv = "float4(uv0, 0.0, 0.0)";
+                        if (const MatLink* l = Incoming(g, n.id, 0))
+                            if (seq.count(l->fromNode)) uv = SourceExpr(*byId.at(l->fromNode), l->fromSlot);
+                        return "GraphNoise((" + uv + ").xy, fetch.Param(" + std::to_string(paramSlot.at(n.id)) + "))";
+                    }
                     case MatNodeType::Lerp:          return "lerp(" + Input(n, 0) + ", " + Input(n, 1) + ", " + Input(n, 2) + ")";
                     // Remap's (inMin,inMax,outMin,outMax) is data; the affine runs in-shader (RemapApply).
                     case MatNodeType::Remap:         return "RemapApply(" + Input(n, 0) + ", fetch.Param(" + std::to_string(paramSlot.at(n.id)) + "))";
@@ -200,7 +256,11 @@ namespace Luth
                 for (const auto& n : g.nodes) if (n.type == MatNodeType::Output) { out = &n; break; }
 
                 std::ostringstream ss;
-                ss << "import material;\n\n";
+                ss << "import material;\n";
+                // graph_lib only when used, so pre-existing structures' canonical source (and hash) stay stable.
+                for (u32 id : order)
+                    if (byId.at(id)->type == MatNodeType::Noise) { ss << "import graph_lib;\n"; break; }
+                ss << "\n";
                 ss << "public MaterialInputs " << fnName << "<F : ITexFetch>(GPUMaterialData m, float2 uv0, float2 uv1, F fetch)\n{\n";
                 ss << "    MaterialInputs mi = EvalMaterialChannels<F>(m, uv0, uv1, fetch);\n";
 

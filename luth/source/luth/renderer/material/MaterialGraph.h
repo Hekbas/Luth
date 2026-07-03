@@ -23,7 +23,18 @@ namespace Luth
         Remap,          // value = (inMin, inMax, outMin, outMax)
         Split,          // float4 in -> 4 scalar outs (.x .y .z .w)
         Output,         // terminal: the 6 MaterialInputs channels
-        StaticSwitch    // compile-time select: emits Off (slot 0) or On (slot 1) per value.x; flips recompile
+        StaticSwitch,   // compile-time select: emits Off (slot 0) or On (slot 1) per value.x; flips recompile
+        Subtract,       // in0 - in1
+        Divide,         // in0 / in1 (raw; inf/NaN visible, matches Unity)
+        Power,          // pow(max(in0, 0), in1)
+        Min,            // min(in0, in1)
+        Max,            // max(in0, in1)
+        Dot,            // float4(dot(in0.xyz, in1.xyz))
+        Abs,            // abs(in0)
+        Saturate,       // saturate(in0)
+        OneMinus,       // 1 - in0
+        UV,             // uv0 or uv1 (tex selects the set) as float4(uv, 0, 0)
+        Noise           // FBM value noise of a UV input (unlinked = uv0); value = (scale, octaves, -, -) as data
     };
 
     struct MatNode
@@ -46,7 +57,7 @@ namespace Luth
     {
         return t == MatNodeType::ConstFloat || t == MatNodeType::ConstColor
             || t == MatNodeType::Remap      || t == MatNodeType::TextureSample
-            || t == MatNodeType::StaticSwitch;
+            || t == MatNodeType::StaticSwitch || t == MatNodeType::Noise;
     }
 
     struct MatLink
