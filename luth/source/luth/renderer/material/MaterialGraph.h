@@ -34,7 +34,11 @@ namespace Luth
         Saturate,       // saturate(in0)
         OneMinus,       // 1 - in0
         UV,             // uv0 or uv1 (tex selects the set) as float4(uv, 0, 0)
-        Noise           // FBM value noise of a UV input (unlinked = uv0); value = (scale, octaves, -, -) as data
+        Noise,          // FBM value noise of a UV input (unlinked = uv0); value = (scale, octaves, -, -) as data
+        WorldPos,       // fetch.WorldPos() as float4(p, 0)
+        ViewDir,        // fetch.ViewDir() (toward camera; RT = -rayDir) as float4(v, 0)
+        Time,           // fetch.Time() broadcast
+        Fresnel         // pow(1 - fetch.NdotV(), power); value.x = power as data; vertex-normal based
     };
 
     struct MatNode
@@ -57,7 +61,8 @@ namespace Luth
     {
         return t == MatNodeType::ConstFloat || t == MatNodeType::ConstColor
             || t == MatNodeType::Remap      || t == MatNodeType::TextureSample
-            || t == MatNodeType::StaticSwitch || t == MatNodeType::Noise;
+            || t == MatNodeType::StaticSwitch || t == MatNodeType::Noise
+            || t == MatNodeType::Fresnel;
     }
 
     struct MatLink

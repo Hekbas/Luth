@@ -380,6 +380,9 @@ namespace Luth
                             if (UI::Property(label, n.value, 0.05f)) valueEdit = true;
                             if (ImGui::IsItemHovered()) ImGui::SetTooltip("(scale, octaves, -, -)");
                             break;
+                        case MatNodeType::Fresnel:
+                            if (UI::Property(label, n.value.x, 0.05f)) valueEdit = true;
+                            break;
                         default: break;
                     }
                     ImGui::PopID();

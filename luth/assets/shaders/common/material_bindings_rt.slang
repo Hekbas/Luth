@@ -3,6 +3,7 @@
 // Hand-pinned sets; slang#8063 forbids auto-binding the variable-count bindless heap. see arch/rendering-pipeline.md
 import material;
 import mat_graph_registry;   // EvalGraphVariant: engine default (stock) or the project's generated override
+import globals;              // ubo.time for graph context; every RT consumer binds Set 0 globals
 
 [[vk::binding(0, 3)]] StructuredBuffer<GPUMaterialData> gMaterials;
 [[vk::binding(1, 3)]] StructuredBuffer<float4>          gMatParams;   // shares MaterialSystem's set (binding 1); same buffer raster sees at set 2
@@ -10,20 +11,32 @@ import mat_graph_registry;   // EvalGraphVariant: engine default (stock) or the 
 
 public struct RayFetch : ITexFetch
 {
-    public uint paramBase;       // = materialSlot * MAT_GRAPH_STRIDE; set per hit before EvalGraphVariant
-    public __init() { paramBase = 0; }
+    public uint   paramBase;     // = materialSlot * MAT_GRAPH_STRIDE; set per hit before EvalGraphVariant
+    public float3 worldPos;      // graph context, filled by FetchHitSurface from the hit
+    public float3 viewDir;
+    public float  time;
+    public float  ndotv;
+    public __init() { paramBase = 0; worldPos = float3(0.0); viewDir = float3(0.0, 0.0, 1.0); time = 0.0; ndotv = 1.0; }
     public float4 Sample(uint index, float2 uv) { return gTextures[NonUniformResourceIndex(index)].SampleLevel(uv, 0.0); }
     public float4 Param(uint slot) { return gMatParams[paramBase + slot]; }
+    public float3 WorldPos() { return worldPos; }
+    public float3 ViewDir()  { return viewDir; }
+    public float  Time()     { return time; }
+    public float  NdotV()    { return ndotv; }
 }
 
 // RT analog of EvalPbrSurface: gather geometry, decode channels (LOD 0), perturb + face the normal.
 public HitSurface FetchHitSurface(GtGeomEntry* geomTable, uint customIndex, uint primIndex,
-                                  float2 bary, float3x4 o2w, float3 rayDir)
+                                  float2 bary, float3x4 o2w, float3 rayDir, float3 hitPos)
 {
     HitGeometry g = GatherHitGeometry(geomTable, customIndex, primIndex, bary, o2w, rayDir);
     GPUMaterialData m = gMaterials[g.materialSlot];
     RayFetch rf;
     rf.paramBase = g.materialSlot * MAT_GRAPH_STRIDE;
+    rf.worldPos  = hitPos;
+    rf.viewDir   = -rayDir;
+    rf.time      = ubo.time;
+    rf.ndotv     = saturate(dot(g.ns, -rayDir));
     MaterialInputs mi = EvalGraphVariant<RayFetch>(GraphVariant(m.flags), m, g.uv0, g.uv1, rf);
 
     float3 N = g.ns;

@@ -162,7 +162,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         float  tHit = rq.CommittedRayT();
         float3 xs   = ro + R * tHit;
         HitSurface hs = FetchHitSurface(pc.geomTable, rq.CommittedInstanceID(), rq.CommittedPrimitiveIndex(),
-                                        rq.CommittedTriangleBarycentrics(), rq.CommittedObjectToWorld3x4(), R);
+                                        rq.CommittedTriangleBarycentrics(), rq.CommittedObjectToWorld3x4(), R, xs);
         Li      = ShadeHit(xs, hs, seed);
         hitDist = tHit;
     }

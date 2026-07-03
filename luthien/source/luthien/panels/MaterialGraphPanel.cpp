@@ -60,6 +60,10 @@ namespace Luth
             { "One Minus",IM_COL32( 90, 90, 90,255), kIn_In,   1, kOut_1,     1 },  // OneMinus
             { "UV",       IM_COL32( 70, 90,120,255), nullptr,  0, kOut_1,     1 },  // UV
             { "Noise",    IM_COL32( 70,120, 90,255), kIn_UV,   1, kOut_1,     1 },  // Noise
+            { "World Pos",IM_COL32( 70, 90,120,255), nullptr,  0, kOut_1,     1 },  // WorldPos
+            { "View Dir", IM_COL32( 70, 90,120,255), nullptr,  0, kOut_1,     1 },  // ViewDir
+            { "Time",     IM_COL32( 70, 90,120,255), nullptr,  0, kOut_1,     1 },  // Time
+            { "Fresnel",  IM_COL32(110, 90, 60,255), nullptr,  0, kOut_1,     1 },  // Fresnel
         };
         constexpr size_t kTypeCount = sizeof(kTypes) / sizeof(kTypes[0]);
 
@@ -95,6 +99,7 @@ namespace Luth
                 case MatNodeType::ConstColor: n.value = Vec4(1.0f); break;
                 case MatNodeType::Remap:      n.value = Vec4(0.0f, 1.0f, 0.0f, 1.0f); break;
                 case MatNodeType::Noise:      n.value = Vec4(8.0f, 3.0f, 0.0f, 0.0f); break;   // (scale, octaves)
+                case MatNodeType::Fresnel:    n.value = Vec4(5.0f, 0.0f, 0.0f, 0.0f); break;   // Schlick power
                 default:                      n.value = Vec4(0.0f); break;
             }
             return n;
@@ -203,6 +208,10 @@ namespace Luth
                     ImGui::DragFloat("Scale",   &n.value.x, 0.05f, 0.01f, 512.0f);
                     e.value |= ImGui::IsItemDeactivatedAfterEdit();
                     ImGui::DragFloat("Octaves", &n.value.y, 0.05f, 1.0f, 4.0f, "%.0f");
+                    e.value |= ImGui::IsItemDeactivatedAfterEdit();
+                    break;
+                case MatNodeType::Fresnel:
+                    ImGui::DragFloat("Power", &n.value.x, 0.05f, 0.1f, 32.0f);
                     e.value |= ImGui::IsItemDeactivatedAfterEdit();
                     break;
                 default:
@@ -330,6 +339,7 @@ namespace Luth
             case MatNodeType::StaticSwitch: snprintf(buf, sizeof(buf), "%s", n.value.x != 0.0f ? "On" : "Off"); break;
             case MatNodeType::UV:           snprintf(buf, sizeof(buf), "UV%u", n.tex != 0u ? 1u : 0u); break;
             case MatNodeType::Noise:        snprintf(buf, sizeof(buf), "x%.3g o%d", n.value.x, (int)n.value.y); break;
+            case MatNodeType::Fresnel:      snprintf(buf, sizeof(buf), "p%.3g", n.value.x); break;
             default: return;
         }
         drawList->AddText(ImVec2(rect.Min.x + 4.0f, rect.Min.y + 2.0f), IM_COL32(210, 210, 210, 255), buf);

@@ -63,7 +63,7 @@ namespace Luth
         bool IsValueNode(MatNodeType t)
         {
             return t == MatNodeType::ConstFloat || t == MatNodeType::ConstColor || t == MatNodeType::Remap
-                || t == MatNodeType::Noise;
+                || t == MatNodeType::Noise      || t == MatNodeType::Fresnel;
         }
 
         u8 InputCount(MatNodeType t)
@@ -233,6 +233,10 @@ namespace Luth
                             if (seq.count(l->fromNode)) uv = SourceExpr(*byId.at(l->fromNode), l->fromSlot);
                         return "GraphNoise((" + uv + ").xy, fetch.Param(" + std::to_string(paramSlot.at(n.id)) + "))";
                     }
+                    case MatNodeType::WorldPos:      return "float4(fetch.WorldPos(), 0.0)";
+                    case MatNodeType::ViewDir:       return "float4(fetch.ViewDir(), 0.0)";
+                    case MatNodeType::Time:          return "float4(fetch.Time())";
+                    case MatNodeType::Fresnel:       return "float4(pow(1.0 - fetch.NdotV(), max(fetch.Param(" + std::to_string(paramSlot.at(n.id)) + ").x, 1e-3)))";
                     case MatNodeType::Lerp:          return "lerp(" + Input(n, 0) + ", " + Input(n, 1) + ", " + Input(n, 2) + ")";
                     // Remap's (inMin,inMax,outMin,outMax) is data; the affine runs in-shader (RemapApply).
                     case MatNodeType::Remap:         return "RemapApply(" + Input(n, 0) + ", fetch.Param(" + std::to_string(paramSlot.at(n.id)) + "))";
@@ -296,6 +300,10 @@ namespace Luth
             ss << "    GPUMaterialData m = GetMaterial(i.materialIndex);\n";
             ss << "    RasterFetch rf;\n";
             ss << "    rf.paramBase = i.materialIndex * MAT_GRAPH_STRIDE;\n";
+            ss << "    rf.worldPos  = i.worldPos;\n";
+            ss << "    rf.viewDir   = normalize(ubo.cameraPos - i.worldPos);\n";
+            ss << "    rf.time      = ubo.time;\n";
+            ss << "    rf.ndotv     = saturate(dot(normalize(i.normal), rf.viewDir));\n";
             ss << "    MaterialInputs mi = " << fnName << "<RasterFetch>(m, i.uv0, i.uv1, rf);\n";
             ss << "    return PbrShadeSurface(mi, m, i, frontFacing, fragCoord);\n";
             ss << "}\n";
@@ -315,6 +323,7 @@ namespace Luth
             ss << "FOut main(PreviewVaryings v)\n{\n";
             ss << "    GPUMaterialData m = gPreview.m;\n";
             ss << "    PreviewFetch pf;\n";
+            ss << "    pf.ndotv = saturate(dot(normalize(v.normal), pf.viewDir));\n";   // canned front view; time stays 0
             ss << "    MaterialInputs mi = " << fnName << "<PreviewFetch>(m, v.uv0, v.uv1, pf);\n";
             ss << "    float3 N = normalize(v.normal);\n";
             ss << "    if (any(mi.normal != float3(0.0, 0.0, 1.0)) && length(v.tangent) > 1e-6)\n";

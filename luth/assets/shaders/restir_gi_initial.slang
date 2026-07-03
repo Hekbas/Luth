@@ -124,7 +124,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     else
     {
         HitSurface hs = FetchHitSurface(pc.geomTable, rq.CommittedInstanceID(), rq.CommittedPrimitiveIndex(),
-                                        rq.CommittedTriangleBarycentrics(), rq.CommittedObjectToWorld3x4(), d);
+                                        rq.CommittedTriangleBarycentrics(), rq.CommittedObjectToWorld3x4(), d, xs);
         ns        = hs.ng;   // GI keeps the geometric secondary normal
         baseColor = hs.baseColor;
         emission  = hs.emission;
