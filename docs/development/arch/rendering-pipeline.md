@@ -97,6 +97,19 @@
 > float4 expression over block-scoped inputs a..d, gated by `ValidateCustomCode`'s banned-construct scan (rejects
 > the stage-divergent class — derivatives/discard compile in fragment but not compute — so rejected materials render
 > stock in every tier; hard compile errors already fail symmetrically).
+>
+> **Effect layers (`effect-layer`, v3.7.3).** The graph gains a second wire type, a `MaterialInputs`
+> "layer" bundle, alongside the float4 value wires. `MakeLayer` bundles the six channels (UE
+> MakeMaterialAttributes: stock base + connected-channel overrides), `LayerBlend` per-channel-lerps two
+> layers by a float4 mask (normalized-lerp normal, not RNM), and `Output` grows a slot-6 Surface pin a
+> layer drives before the channel overrides. Surface-detail effect nodes ride `common/effects.slang`
+> (conditional import, the graph_lib precedent): `Triplanar` (world-projected 3-plane sample, weights from
+> a new `ITexFetch::WorldNormal()` filled per tier) and `DetailNormal` (Reoriented-Normal-Mapping). All
+> emit into the same `EvalGraph<F>` body, so **raster==RT holds by construction and the RT megakernel needs
+> no new work**; effect scalars (tiling / strength) ride gMatParams as data. Layer and value wires stay
+> apart at authoring via the editor's `AddLink` type guard (the vendored `AllowedLink` lacks slot indices).
+> invariant: Output slot-6 + the effects import are emitted append-only, so a pre-slot-6 graph's canonical
+> source is byte-identical and its structure hash / RT variant never churn.
 
 ## Current RenderGraph Pass Order
 
