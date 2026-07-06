@@ -16,13 +16,15 @@ public struct RayFetch : ITexFetch
     public float3 viewDir;
     public float  time;
     public float  ndotv;
-    public __init() { paramBase = 0; worldPos = float3(0.0); viewDir = float3(0.0, 0.0, 1.0); time = 0.0; ndotv = 1.0; }
+    public float3 worldNormal;   // Triplanar blend weights; FetchHitSurface fills it with the smooth hit normal
+    public __init() { paramBase = 0; worldPos = float3(0.0); viewDir = float3(0.0, 0.0, 1.0); time = 0.0; ndotv = 1.0; worldNormal = float3(0.0, 0.0, 1.0); }
     public float4 Sample(uint index, float2 uv) { return gTextures[NonUniformResourceIndex(index)].SampleLevel(uv, 0.0); }
     public float4 Param(uint slot) { return gMatParams[paramBase + slot]; }
     public float3 WorldPos() { return worldPos; }
     public float3 ViewDir()  { return viewDir; }
     public float  Time()     { return time; }
     public float  NdotV()    { return ndotv; }
+    public float3 WorldNormal() { return worldNormal; }
 }
 
 // RT analog of EvalPbrSurface: gather geometry, decode channels (LOD 0), perturb + face the normal.
@@ -37,6 +39,7 @@ public HitSurface FetchHitSurface(GtGeomEntry* geomTable, uint customIndex, uint
     rf.viewDir   = -rayDir;
     rf.time      = ubo.time;
     rf.ndotv     = saturate(dot(g.ns, -rayDir));
+    rf.worldNormal = g.ns;
     MaterialInputs mi = EvalGraphVariant<RayFetch>(GraphVariant(m.flags), m, g.uv0, g.uv1, rf);
 
     float3 N = g.ns;

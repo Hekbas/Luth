@@ -63,6 +63,7 @@ public interface ITexFetch
     float3 ViewDir();   // toward the camera (RT: -rayDir)
     float  Time();
     float  NdotV();     // vertex/smooth normal (pre-normal-map) . ViewDir; graphed normals never feed back
+    float3 WorldNormal();   // world-space smooth normal, pre-perturb; Triplanar blend weights
 }
 
 // Channel decode: bit-identical between tiers modulo the Sample-vs-SampleLevel inside F. Leaves .normal

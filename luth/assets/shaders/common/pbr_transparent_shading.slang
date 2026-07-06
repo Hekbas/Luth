@@ -58,6 +58,7 @@ public float4 EvalTransparentSurfaceColor(uint materialIndex, uint shadeMode, fl
     rf.viewDir   = normalize(ubo.cameraPos - worldPos);
     rf.time      = ubo.time;
     rf.ndotv     = saturate(dot(normalize(N), rf.viewDir));
+    rf.worldNormal = normalize(N);
     MaterialInputs mi = EvalGraphVariant<RasterFetch>(GraphVariant(m.flags), m, uv0, uv1, rf);
     if (mi.baseColor.a < m.alphaCutoff) discard;
 
