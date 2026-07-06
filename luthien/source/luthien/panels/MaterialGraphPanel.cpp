@@ -30,6 +30,10 @@ namespace Luth
         const char* kOut_1[]    = { "out" };
         const char* kOut_RGBA[] = { "rgba" };
         const char* kOut_Split[]= { "R", "G", "B", "A" };
+        const char* kIn_BaseDet[] = { "Base", "Detail" };
+        const char* kIn_BTM[]     = { "Bottom", "Top", "Mask" };
+        const char* kIn_Out7[]    = { "BaseColor", "Metallic", "Roughness", "Normal", "AO", "Emissive", "Surface" };
+        const char* kOut_Layer[]  = { "Layer" };
 
         struct TypeInfo
         {
@@ -48,7 +52,7 @@ namespace Luth
             { "Lerp",     IM_COL32( 90, 90, 90,255), kIn_ABT,  3, kOut_1,     1 },  // Lerp
             { "Remap",    IM_COL32( 90, 90, 90,255), kIn_In,   1, kOut_1,     1 },  // Remap
             { "Split",    IM_COL32( 90, 80,110,255), kIn_RGBA, 1, kOut_Split, 4 },  // Split
-            { "Output",   IM_COL32(120, 70, 70,255), kIn_Out,  6, nullptr,    0 },  // Output
+            { "Output",   IM_COL32(120, 70, 70,255), kIn_Out7, 7, nullptr,    0 },  // Output (slot 6 = Surface layer)
             { "Switch",   IM_COL32( 70,110,110,255), kIn_OffOn,2, kOut_1,     1 },  // StaticSwitch
             { "Subtract", IM_COL32( 90, 90, 90,255), kIn_AB,   2, kOut_1,     1 },  // Subtract
             { "Divide",   IM_COL32( 90, 90, 90,255), kIn_AB,   2, kOut_1,     1 },  // Divide
@@ -66,8 +70,41 @@ namespace Luth
             { "Time",     IM_COL32( 70, 90,120,255), nullptr,  0, kOut_1,     1 },  // Time
             { "Fresnel",  IM_COL32(110, 90, 60,255), nullptr,  0, kOut_1,     1 },  // Fresnel
             { "Custom",   IM_COL32(110, 70,110,255), kIn_ABCD, 4, kOut_1,     1 },  // Custom
+            { "Triplanar",    IM_COL32( 70,120, 90,255), nullptr,     0, kOut_1,     1 },  // Triplanar
+            { "Detail Normal",IM_COL32( 80,110,110,255), kIn_BaseDet, 2, kOut_1,     1 },  // DetailNormal
+            { "Make Layer",   IM_COL32( 90,120, 90,255), kIn_Out,     6, kOut_Layer, 1 },  // MakeLayer
+            { "Layer Blend",  IM_COL32( 90,120, 90,255), kIn_BTM,     3, kOut_Layer, 1 },  // LayerBlend
         };
         constexpr size_t kTypeCount = sizeof(kTypes) / sizeof(kTypes[0]);
+
+        // A "layer" pin carries a MaterialInputs bundle (green); a value pin a float4 (default). Used to
+        // color pins and to reject cross-type links in AddLink, since the vendored AllowedLink lacks slots.
+        const ImU32 kLayerPinCol = IM_COL32(120, 200, 120, 255);
+        const ImU32 kValuePinCol = IM_COL32(170, 170, 170, 255);
+
+        bool PinIsLayer(MatNodeType t, u8 slot, bool isOutput)
+        {
+            if (isOutput) return IsLayerNode(t);                  // MakeLayer / LayerBlend emit a layer
+            if (t == MatNodeType::LayerBlend) return slot < 2;    // Bottom, Top are layers; Mask is a value
+            if (t == MatNodeType::Output)     return slot == 6;   // the Surface pin
+            return false;
+        }
+
+        ImU32* InPinColors(MatNodeType t)   // GraphEditor::Template holds non-const ImU32* (read-only in practice)
+        {
+            static ImU32 layerBlend[] = { kLayerPinCol, kLayerPinCol, kValuePinCol };
+            static ImU32 out7[] = { kValuePinCol, kValuePinCol, kValuePinCol,
+                                    kValuePinCol, kValuePinCol, kValuePinCol, kLayerPinCol };
+            if (t == MatNodeType::LayerBlend) return layerBlend;
+            if (t == MatNodeType::Output)     return out7;
+            return nullptr;   // GraphEditor falls back to a default pin color
+        }
+
+        ImU32* OutPinColors(MatNodeType t)
+        {
+            static ImU32 layerOut[] = { kLayerPinCol };
+            return IsLayerNode(t) ? layerOut : nullptr;
+        }
 
         // A useful starter: baseColor = diffuse-texture x warm tint. Visible even with no diffuse map
         // (texture slot 0 is the reserved white texel), so creating it always tints the material.
@@ -102,6 +139,8 @@ namespace Luth
                 case MatNodeType::Remap:      n.value = Vec4(0.0f, 1.0f, 0.0f, 1.0f); break;
                 case MatNodeType::Noise:      n.value = Vec4(8.0f, 3.0f, 0.0f, 0.0f); break;   // (scale, octaves)
                 case MatNodeType::Fresnel:    n.value = Vec4(5.0f, 0.0f, 0.0f, 0.0f); break;   // Schlick power
+                case MatNodeType::Triplanar:    n.value = Vec4(4.0f, 0.0f, 0.0f, 0.0f); break; // tiling
+                case MatNodeType::DetailNormal: n.value = Vec4(1.0f, 0.0f, 0.0f, 0.0f); break; // strength
                 default:                      n.value = Vec4(0.0f); break;
             }
             return n;
@@ -228,6 +267,19 @@ namespace Luth
                         ImGui::TextColored(ImVec4(0.9f, 0.4f, 0.3f, 1.0f), "banned: %s", bad);
                     break;
                 }
+                case MatNodeType::Triplanar:
+                {
+                    static const char* kMap[] = { "Diffuse","Alpha","Normal","Metallic","Roughness","Specular","Occlusion","Emissive","Thickness" };
+                    int t = (n.tex < 9) ? (int)n.tex : 0;
+                    if (ImGui::Combo("Map", &t, kMap, 9)) { n.tex = (u32)t; e.structure = true; }
+                    ImGui::DragFloat("Tiling", &n.value.x, 0.05f, 0.01f, 256.0f);
+                    e.value |= ImGui::IsItemDeactivatedAfterEdit();
+                    break;
+                }
+                case MatNodeType::DetailNormal:
+                    ImGui::DragFloat("Strength", &n.value.x, 0.02f, 0.0f, 4.0f);
+                    e.value |= ImGui::IsItemDeactivatedAfterEdit();
+                    break;
                 default:
                     ImGui::TextDisabled("No parameters.");
                     break;
@@ -316,6 +368,12 @@ namespace Luth
         const u32 fromId = indexToId[inNode];   // producer (output pin)
         const u32 toId   = indexToId[outNode];  // consumer (input pin)
 
+        // Type-check the wire: the vendored AllowedLink sees only node indices, so the float4-vs-layer
+        // guard lives here where the slot indices are known. Reject a cross-type connection.
+        if (PinIsLayer(graph->nodes[inNode].type, (u8)inSlot, true)
+            != PinIsLayer(graph->nodes[outNode].type, (u8)outSlot, false))
+            return;
+
         // Single-input semantics: a consumer input slot holds at most one link.
         graph->links.erase(std::remove_if(graph->links.begin(), graph->links.end(),
             [&](const MatLink& l) { return l.toNode == toId && l.toSlot == (u8)outSlot; }), graph->links.end());
@@ -354,6 +412,13 @@ namespace Luth
             case MatNodeType::UV:           snprintf(buf, sizeof(buf), "UV%u", n.tex != 0u ? 1u : 0u); break;
             case MatNodeType::Noise:        snprintf(buf, sizeof(buf), "x%.3g o%d", n.value.x, (int)n.value.y); break;
             case MatNodeType::Fresnel:      snprintf(buf, sizeof(buf), "p%.3g", n.value.x); break;
+            case MatNodeType::Triplanar:
+            {
+                static const char* kMap[] = { "Diffuse","Alpha","Normal","Metallic","Roughness","Specular","Occlusion","Emissive","Thickness" };
+                snprintf(buf, sizeof(buf), "%s x%.2g", kMap[n.tex < 9 ? n.tex : 0], n.value.x);
+                break;
+            }
+            case MatNodeType::DetailNormal: snprintf(buf, sizeof(buf), "s%.2g", n.value.x); break;
             default: return;
         }
         drawList->AddText(ImVec2(rect.Min.x + 4.0f, rect.Min.y + 2.0f), IM_COL32(210, 210, 210, 255), buf);
@@ -369,17 +434,19 @@ namespace Luth
 
     const GraphEditor::Template MaterialGraphPanel::GraphDelegate::GetTemplate(GraphEditor::TemplateIndex index)
     {
-        const TypeInfo& t = kTypes[index < kTypeCount ? index : 0];
+        const size_t ti = index < kTypeCount ? index : 0;
+        const TypeInfo& t = kTypes[ti];
+        const MatNodeType nt = (MatNodeType)ti;
         GraphEditor::Template tpl{};
         tpl.mHeaderColor         = t.header;
         tpl.mBackgroundColor     = IM_COL32(50, 50, 50, 255);
         tpl.mBackgroundColorOver = IM_COL32(64, 64, 64, 255);
         tpl.mInputCount  = t.inCount;
         tpl.mInputNames  = t.inNames;
-        tpl.mInputColors = nullptr;
+        tpl.mInputColors = InPinColors(nt);
         tpl.mOutputCount = t.outCount;
         tpl.mOutputNames = t.outNames;
-        tpl.mOutputColors= nullptr;
+        tpl.mOutputColors= OutPinColors(nt);
         return tpl;
     }
 

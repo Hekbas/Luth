@@ -383,6 +383,14 @@ namespace Luth
                         case MatNodeType::Fresnel:
                             if (UI::Property(label, n.value.x, 0.05f)) valueEdit = true;
                             break;
+                        case MatNodeType::Triplanar:
+                            if (UI::Property(label, n.value.x, 0.05f)) valueEdit = true;
+                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("triplanar tiling");
+                            break;
+                        case MatNodeType::DetailNormal:
+                            if (UI::Property(label, n.value.x, 0.02f)) valueEdit = true;
+                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("detail-normal strength");
+                            break;
                         default: break;
                     }
                     ImGui::PopID();
