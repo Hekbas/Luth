@@ -60,23 +60,46 @@ namespace Luth
             return "fetch.Sample(" + std::string(idx) + ", (" + uvExpr + ").xy)";
         }
 
+        // Raw bindless-index token for a map slot: Triplanar samples one map three times itself, so it needs
+        // the index expression, not a ready-made sample. (Normal maps get no tangent handling here.)
+        const char* TexSampleIndexToken(u32 tex)
+        {
+            switch (static_cast<MapType>(tex))
+            {
+                case MapType::Diffuse:   return "m.diffuseIndex";
+                case MapType::Normal:    return "m.normalIndex";
+                case MapType::Metalness:
+                case MapType::Roughness: return "m.metalRoughIndex";
+                case MapType::Occlusion: return "m.occlusionIndex";
+                case MapType::Emissive:  return "m.emissiveIndex";
+                case MapType::Alpha:     return "m.alphaIndex";
+                case MapType::Specular:  return "m.specularIndex";
+                case MapType::Thickness: return "m.thicknessIndex";
+                default:                 return "m.diffuseIndex";
+            }
+        }
+
         bool IsValueNode(MatNodeType t)
         {
             return t == MatNodeType::ConstFloat || t == MatNodeType::ConstColor || t == MatNodeType::Remap
-                || t == MatNodeType::Noise      || t == MatNodeType::Fresnel;
+                || t == MatNodeType::Noise      || t == MatNodeType::Fresnel
+                || t == MatNodeType::Triplanar  || t == MatNodeType::DetailNormal;
         }
 
         u8 InputCount(MatNodeType t)
         {
             switch (t)
             {
+                case MatNodeType::MakeLayer:
+                    return 6;
                 case MatNodeType::Custom:
                     return 4;
-                case MatNodeType::Lerp:
+                case MatNodeType::Lerp: case MatNodeType::LayerBlend:
                     return 3;
                 case MatNodeType::Multiply: case MatNodeType::Add: case MatNodeType::StaticSwitch:
                 case MatNodeType::Subtract: case MatNodeType::Divide: case MatNodeType::Power:
                 case MatNodeType::Min: case MatNodeType::Max: case MatNodeType::Dot:
+                case MatNodeType::DetailNormal:
                     return 2;
                 default:
                     return 1;   // Remap / Split / Noise / TextureSample UV pin (value + context nodes leave slot 0 unlinked)
@@ -126,8 +149,12 @@ namespace Luth
                 order.push_back(id);
             };
             if (out)
+            {
                 for (u8 s = 0; s < 6; ++s)
                     if (const MatLink* l = Incoming(g, out->id, s)) visit(l->fromNode);
+                // Surface (bundle) slot 6: appended after the channel slots so pre-slot-6 graphs stay order-stable.
+                if (const MatLink* l = Incoming(g, out->id, 6)) visit(l->fromNode);
+            }
             return order;
         }
 
@@ -196,8 +223,19 @@ namespace Luth
                     case MatNodeType::Divide:
                     case MatNodeType::Power:    return slot == 1 ? "float4(1.0)" : "float4(0.0)";   // identity operands
                     case MatNodeType::Lerp:     return slot == 2 ? "float4(0.5)" : "float4(0.0)";
+                    case MatNodeType::DetailNormal: return "float4(0.0, 0.0, 1.0, 0.0)";   // identity tangent normal
                     default:                    return "float4(0.0)";
                 }
+            }
+
+            // MaterialInputs feeding a LayerBlend bundle slot: the linked layer local, else a fresh stock base
+            // layer. The editor's AddLink guard keeps float4 producers out of these slots.
+            std::string InputLayer(const MatNode& n, u8 slot) const
+            {
+                if (const MatLink* l = Incoming(g, n.id, slot))
+                    if (seq.count(l->fromNode))
+                        return SourceExpr(*byId.at(l->fromNode), l->fromSlot);
+                return "EvalMaterialChannels<F>(m, uv0, uv1, fetch)";
             }
 
             std::string NodeRhs(const MatNode& n) const
@@ -244,6 +282,9 @@ namespace Luth
                     case MatNodeType::Remap:         return "RemapApply(" + Input(n, 0) + ", fetch.Param(" + std::to_string(paramSlot.at(n.id)) + "))";
                     case MatNodeType::Split:         return Input(n, 0);   // pass-through; channels read via SourceExpr
                     case MatNodeType::StaticSwitch:  return Input(n, n.value.x != 0.0f ? 1 : 0);   // compile-time select
+                    case MatNodeType::Triplanar:     return "GraphTriplanar<F>(fetch, " + std::string(TexSampleIndexToken(n.tex)) + ", fetch.WorldPos(), fetch.WorldNormal(), fetch.Param(" + std::to_string(paramSlot.at(n.id)) + ").x)";
+                    case MatNodeType::DetailNormal:  return "GraphDetailNormal(" + Input(n, 0) + ", " + Input(n, 1) + ", fetch.Param(" + std::to_string(paramSlot.at(n.id)) + ").x)";
+                    case MatNodeType::LayerBlend:    return "GraphLayerBlend(" + InputLayer(n, 0) + ", " + InputLayer(n, 1) + ", (" + Input(n, 2) + ").x)";
                     default:                         return "float4(0.0)";
                 }
             }
@@ -256,6 +297,19 @@ namespace Luth
                 return SourceExpr(*byId.at(l->fromNode), l->fromSlot);
             }
 
+            // Per-channel overrides into a MaterialInputs target from a node's 6 channel input slots. Shared by
+            // Output's terminal mi and MakeLayer's local; the Output/mi emission stays byte-identical to before.
+            void EmitChannelOverrides(std::ostringstream& ss, const std::string& tgt, const MatNode& n) const
+            {
+                std::string s;
+                if (s = OutSrc(n, 0); !s.empty()) ss << "    " << tgt << ".baseColor = " << s << ";\n";
+                if (s = OutSrc(n, 1); !s.empty()) ss << "    " << tgt << ".metallic  = " << s << ".x;\n";
+                if (s = OutSrc(n, 2); !s.empty()) ss << "    " << tgt << ".roughness = clamp(" << s << ".x, 0.04, 1.0);\n";
+                if (s = OutSrc(n, 3); !s.empty()) ss << "    " << tgt << ".normal    = " << s << ".xyz;\n";
+                if (s = OutSrc(n, 4); !s.empty()) ss << "    " << tgt << ".occlusion = " << s << ".x;\n";
+                if (s = OutSrc(n, 5); !s.empty()) ss << "    " << tgt << ".emissive  = " << s << ".rgb;\n";
+            }
+
             std::string Run(const std::string& fnName)
             {
                 const MatNode* out = nullptr;
@@ -263,9 +317,15 @@ namespace Luth
 
                 std::ostringstream ss;
                 ss << "import material;\n";
-                // graph_lib only when used, so pre-existing structures' canonical source (and hash) stay stable.
+                // graph_lib / effects imported only when used, so pre-existing structures' hash stays stable.
                 for (u32 id : order)
                     if (byId.at(id)->type == MatNodeType::Noise) { ss << "import graph_lib;\n"; break; }
+                for (u32 id : order)
+                {
+                    const MatNodeType t = byId.at(id)->type;
+                    if (t == MatNodeType::Triplanar || t == MatNodeType::DetailNormal || IsLayerNode(t))
+                    { ss << "import effects;\n"; break; }
+                }
                 ss << "\n";
                 ss << "public MaterialInputs " << fnName << "<F : ITexFetch>(GPUMaterialData m, float2 uv0, float2 uv1, F fetch)\n{\n";
                 ss << "    MaterialInputs mi = EvalMaterialChannels<F>(m, uv0, uv1, fetch);\n";
@@ -281,19 +341,24 @@ namespace Luth
                            << "; float4 c = " << Input(n, 2) << "; float4 d = " << Input(n, 3) << "; "
                            << Name(id) << " = (" << (n.code.empty() ? "float4(0.0)" : n.code) << "); }\n";
                     }
+                    else if (n.type == MatNodeType::MakeLayer)
+                    {
+                        // A "layer": stock base + only the connected channel overrides (Make Material Attributes).
+                        ss << "    MaterialInputs " << Name(id) << " = EvalMaterialChannels<F>(m, uv0, uv1, fetch);\n";
+                        EmitChannelOverrides(ss, Name(id), n);
+                    }
+                    else if (IsLayerNode(n.type))
+                        ss << "    MaterialInputs " << Name(id) << " = " << NodeRhs(n) << ";\n";
                     else
                         ss << "    float4 " << Name(id) << " = " << NodeRhs(n) << ";\n";
                 }
 
                 if (out)
                 {
-                    std::string s;
-                    if (s = OutSrc(*out, 0); !s.empty()) ss << "    mi.baseColor = " << s << ";\n";
-                    if (s = OutSrc(*out, 1); !s.empty()) ss << "    mi.metallic  = " << s << ".x;\n";
-                    if (s = OutSrc(*out, 2); !s.empty()) ss << "    mi.roughness = clamp(" << s << ".x, 0.04, 1.0);\n";
-                    if (s = OutSrc(*out, 3); !s.empty()) ss << "    mi.normal    = " << s << ".xyz;\n";
-                    if (s = OutSrc(*out, 4); !s.empty()) ss << "    mi.occlusion = " << s << ".x;\n";
-                    if (s = OutSrc(*out, 5); !s.empty()) ss << "    mi.emissive  = " << s << ".rgb;\n";
+                    // Surface (bundle) slot 6: a connected layer replaces the stock base before channel overrides.
+                    if (const MatLink* l = Incoming(g, out->id, 6); l && seq.count(l->fromNode))
+                        ss << "    mi = " << SourceExpr(*byId.at(l->fromNode), l->fromSlot) << ";\n";
+                    EmitChannelOverrides(ss, "mi", *out);
                 }
                 ss << "    return mi;\n}\n";
                 return ss.str();
@@ -318,6 +383,7 @@ namespace Luth
             ss << "    rf.viewDir   = normalize(ubo.cameraPos - i.worldPos);\n";
             ss << "    rf.time      = ubo.time;\n";
             ss << "    rf.ndotv     = saturate(dot(normalize(i.normal), rf.viewDir));\n";
+            ss << "    rf.worldNormal = normalize(i.normal);\n";
             ss << "    MaterialInputs mi = " << fnName << "<RasterFetch>(m, i.uv0, i.uv1, rf);\n";
             ss << "    return PbrShadeSurface(mi, m, i, frontFacing, fragCoord);\n";
             ss << "}\n";
