@@ -20,10 +20,20 @@ public struct PreviewMaterialUBO
 // material's slots, so the generated EvalGraph reads gPreview.params[k] directly.
 public struct PreviewFetch : ITexFetch
 {
-    public uint paramBase;
-    public __init() { paramBase = 0; }
+    public uint   paramBase;
+    public float3 worldPos;      // canned context: thumbnails are static bakes (Time frozen at 0)
+    public float3 viewDir;
+    public float  time;
+    public float  ndotv;
+    public float3 worldNormal;   // canned like worldPos; Triplanar previews flat (stable), same as WorldPos nodes
+    public __init() { paramBase = 0; worldPos = float3(0.0); viewDir = float3(0.0, 0.0, 1.0); time = 0.0; ndotv = 1.0; worldNormal = float3(0.0, 0.0, 1.0); }
     public float4 Sample(uint index, float2 uv) { return gTextures[NonUniformResourceIndex(index)].Sample(uv); }
     public float4 Param(uint slot) { return gPreview.params[slot]; }
+    public float3 WorldPos() { return worldPos; }
+    public float3 ViewDir()  { return viewDir; }
+    public float  Time()     { return time; }
+    public float  NdotV()    { return ndotv; }
+    public float3 WorldNormal() { return worldNormal; }
 }
 
 // Vertex->fragment varyings the generated thumbnail_graph consumer reads (matches thumbnail_graph.vert).

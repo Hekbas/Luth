@@ -57,6 +57,13 @@ public interface ITexFetch
     // Per-material graph constant, paramBase-relative slot. Stock decode never calls it; generated
     // EvalGraph bodies read their canonical const slots through it (gMatParams, bound per tier).
     float4 Param(uint slot);
+    // Per-tier surface context for graph input nodes (WorldPos/ViewDir/Time/Fresnel). Stock decode never
+    // calls these; decode sites that can host graphs fill them (__init zeroes cover every stock site).
+    float3 WorldPos();
+    float3 ViewDir();   // toward the camera (RT: -rayDir)
+    float  Time();
+    float  NdotV();     // vertex/smooth normal (pre-normal-map) . ViewDir; graphed normals never feed back
+    float3 WorldNormal();   // world-space smooth normal, pre-perturb; Triplanar blend weights
 }
 
 // Channel decode: bit-identical between tiers modulo the Sample-vs-SampleLevel inside F. Leaves .normal

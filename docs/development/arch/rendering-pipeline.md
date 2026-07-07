@@ -6,7 +6,7 @@
 |-----|---------|---------|
 | 0 | GlobalUniforms + shadow cascade array + IBL irradiance + IBL prefiltered env + BRDF LUT + GTAO settings UBO + TLAS handle (7 bindings) | Per frame — cycled across `MAX_FRAMES_IN_FLIGHT` slots |
 | 1 | b0: Bindless textures (16384 combined image-samplers) + b1: Canonical sampler array (32 slots, 4 reserved at the front: LinearRepeatAnisoMip / LinearClampAnisoMip / NearestRepeatNoMip / NearestClampNoMip) | b0 on upload-fence retire (UPDATE_AFTER_BIND, partially-bound; deferred via `UploadContext` pump per `texture-async-uploads` v2.8.14). b1 fixed-allocated for canonical samplers at startup; `BindSampler`/`UnbindSampler` LIFO over the remaining slots (UPDATE_AFTER_BIND, partially-bound). |
-| 2 | Material SSBO (16384 entries) | Per game stage — cycled across `MAX_FRAMES_IN_FLIGHT` slots |
+| 2 | b0: Material SSBO (16384 entries) + b1: `gMatParams` graph-constant SSBO (16384 × `MAT_GRAPH_STRIDE` = 16 float4) | Per game stage — cycled across `MAX_FRAMES_IN_FLIGHT` slots |
 | 3 | LightSSBO (header + flexible PointLightData[], std430) + ClusterGrid SSBO (uvec2 offset+count per cluster) + LightIndex SSBO (flat indices) + shadow map sampler (4 bindings) | Per frame — cycled across `MAX_FRAMES_IN_FLIGHT` slots; **per-view** (cluster grid + index differ between Scene + Game panel views — see `forward-plus` v3.0.2) |
 | 4 | `BoneMatrixBuffer` SSBO (per-entity skinning blocks) | Per game stage — cycled across `MAX_FRAMES_IN_FLIGHT` slots |
 | 5 | `GPUObjectData` SSBO — per-draw transforms/IDs for indirect dispatch | Per render stage — cycled across `MAX_FRAMES_IN_FLIGHT` slots |
@@ -60,6 +60,56 @@
 > | Outline + Grid | `EditorOverlaysSubsystem` (also owns SelectionMask pipelines + 3 `Add*Pass`) |
 >
 > Sets 1 (bindless), 2 (Material), 4 (BoneMatrixBuffer) live outside the subsystem split — owned by their respective scene-side systems. `RenderPipeline` is now a ~650-LOC orchestrator: holds the 6 subsystem instances, dispatches `Init`/`Shutdown`/`Update`/`Add*Pass` in dependency order, owns frame-scratch state (`m_CurrentView`, `m_CurrentViewResources`, `m_ViewResources` map), `AddImGuiPass`, named-texture registry, shader-reload dispatcher, and frame-debugger forwarders. Friend declarations between `RenderPipeline` ↔ `RenderingSystem` and `RenderPipeline` ↔ `FrameDebuggerContext` fully removed.
+
+> **Material node graph + bounded surface (`slang-material` #157, v3.2.5–v3.2.8 + v3.7.3).** The material system is a
+> **bounded surface** (Filament model): `common/material.slang` fixes the `MaterialInputs` contract (baseColor / normal /
+> metallic / roughness / occlusion / emissive) and one generic decode `EvalMaterialChannels<F : ITexFetch>`; the fetch
+> policy is the **two-tier eval** — `RasterFetch` (auto-mip `Sample`) vs `RayFetch` (`SampleLevel 0`) vs the editor-only
+> `PreviewFetch` (UBO). Authoring is a channel-routing node graph (`MaterialGraph` — `MatNode`/`MatLink` PODs on
+> `Material`, persisted in the `.mat` `"graph"` key) whose **derivative-free vocabulary** makes the same generated body
+> valid in both tiers. invariant: raster == RT by construction — any new node type must stay gradient-free (no ddx /
+> screen-space ops), or it must split the tiers explicitly.
+>
+> `MaterialGraphCodegen` lowers the graph (canonical DFS post-order, all-float4 SSA) to a **value-free** module +
+> consumers under `<project>/Library/Generated/shaders/`, keyed by an FNV-1a **structure hash** of the canonical source:
+> structurally identical materials share one compiled shader + RT variant (`s_Structures`, memcmp collision guard).
+> Constants are **data, not code** — `BuildParams` extracts node values in canonical order into `Material::m_GraphParams`,
+> uploaded per frame by `MaterialSystem` into `gMatParams` (Set 2 b1, 16-float4 stride, tagged-heap region); the generated
+> body reads `fetch.Param(k)`, so value edits never recompile (Unreal-Material-Instance / SRP-Batcher model). Exposed
+> parameters (`MatNode::name/group/ui`) are authoring metadata the codegen never reads — naming a node cannot change the
+> canonical source or split structure-shared shaders; the Inspector edits node values through
+> `MaterialGraphCodegen::RefreshParams` (data-only).
+>
+> **Dispatch is two-mechanism by design.** Opaque raster binds the per-structure generated fragment pipeline
+> (`DrawListBuilder` sets `dc.fragShaderUUID` only when the material's variant ≠ 0; `GeometrySubsystem` groups draws by
+> it). RT megakernels + the raster transparent pass share one kernel over all materials and dispatch
+> `EvalGraphVariant(GraphVariant(m.flags))` (variant in flags bits 8–15) through the generated
+> `mat_graph_registry.slang` switch; a NEW structure regenerates the registry and reloads its 8 consumers (5 RT
+> megakernels, `volumetric_inject_scatter`, both transparent shaders), **coalesced to one batch per `MainThreadPump`
+> drain**. `kMaxGraphVariants = 64` bounds the switch arms (megakernel register pressure); beyond the cap a material
+> falls to stock in **every** tier — the raster gate keeps parity with RT rather than silently diverging. A
+> `StaticSwitch` node selects its emitted branch at codegen time (the canonical DFS visits only the chosen input, so
+> the other side dead-strips from source + params); state flips are structure edits, hash-cached so revisited states
+> swap without recompiling. Node vocabulary beyond channel math: `Noise` rides `common/graph_lib.slang`
+> (derivative-free FBM; the import is emitted only when used so pre-existing structure hashes stay stable);
+> WorldPos/ViewDir/Time/Fresnel read per-tier context through `ITexFetch` getters (filled at the decode sites that
+> host graphs; `__init` zeroes keep stock paths clean — the Slang-41016 pattern); the `Custom` node emits a user
+> float4 expression over block-scoped inputs a..d, gated by `ValidateCustomCode`'s banned-construct scan (rejects
+> the stage-divergent class — derivatives/discard compile in fragment but not compute — so rejected materials render
+> stock in every tier; hard compile errors already fail symmetrically).
+>
+> **Effect layers (`effect-layer`, v3.7.3).** The graph gains a second wire type, a `MaterialInputs`
+> "layer" bundle, alongside the float4 value wires. `MakeLayer` bundles the six channels (UE
+> MakeMaterialAttributes: stock base + connected-channel overrides), `LayerBlend` per-channel-lerps two
+> layers by a float4 mask (normalized-lerp normal, not RNM), and `Output` grows a slot-6 Surface pin a
+> layer drives before the channel overrides. Surface-detail effect nodes ride `common/effects.slang`
+> (conditional import, the graph_lib precedent): `Triplanar` (world-projected 3-plane sample, weights from
+> a new `ITexFetch::WorldNormal()` filled per tier) and `DetailNormal` (Reoriented-Normal-Mapping). All
+> emit into the same `EvalGraph<F>` body, so **raster==RT holds by construction and the RT megakernel needs
+> no new work**; effect scalars (tiling / strength) ride gMatParams as data. Layer and value wires stay
+> apart at authoring via the editor's `AddLink` type guard (the vendored `AllowedLink` lacks slot indices).
+> invariant: Output slot-6 + the effects import are emitted append-only, so a pre-slot-6 graph's canonical
+> source is byte-identical and its structure hash / RT variant never churn.
 
 ## Current RenderGraph Pass Order
 

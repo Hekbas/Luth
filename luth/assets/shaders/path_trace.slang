@@ -165,7 +165,7 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
         float  t = rq.CommittedRayT();
         float3 x = ro + rd * t;
         HitSurface s = FetchHitSurface(pc.geomTable, rq.CommittedInstanceID(), rq.CommittedPrimitiveIndex(),
-                                       rq.CommittedTriangleBarycentrics(), rq.CommittedObjectToWorld3x4(), rd);
+                                       rq.CommittedTriangleBarycentrics(), rq.CommittedObjectToWorld3x4(), rd, x);
 
         float3 V = -rd;
         float3 contrib = throughput * (s.emission + DirectLighting(x, V, s, seed));

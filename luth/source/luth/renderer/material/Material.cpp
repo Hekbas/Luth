@@ -74,9 +74,17 @@ namespace Luth
         {
             nlohmann::json g;
             for (const auto& n : m_Graph.nodes)
-                g["nodes"].push_back({ {"id", n.id}, {"type", static_cast<int>(n.type)},
+            {
+                nlohmann::json nj = { {"id", n.id}, {"type", static_cast<int>(n.type)},
                     {"value", { n.value.x, n.value.y, n.value.z, n.value.w }},
-                    {"tex", n.tex}, {"pos", { n.pos.x, n.pos.y }} });
+                    {"tex", n.tex}, {"pos", { n.pos.x, n.pos.y }} };
+                // Exposed-parameter keys only when set: unexposed graphs serialize byte-identical.
+                if (!n.name.empty())  nj["name"]  = n.name;
+                if (!n.group.empty()) nj["group"] = n.group;
+                if (n.ui != 0)        nj["ui"]    = n.ui;
+                if (!n.code.empty())  nj["code"]  = n.code;
+                g["nodes"].push_back(std::move(nj));
+            }
             for (const auto& l : m_Graph.links)
                 g["links"].push_back({ {"from", l.fromNode}, {"fromSlot", l.fromSlot},
                     {"to", l.toNode}, {"toSlot", l.toSlot} });
@@ -165,6 +173,10 @@ namespace Luth
                     node.tex  = n.value("tex", 0u);
                     if (n.contains("pos") && n["pos"].is_array() && n["pos"].size() == 2)
                         node.pos = Vec2(n["pos"][0], n["pos"][1]);
+                    node.name  = n.value("name",  std::string{});
+                    node.group = n.value("group", std::string{});
+                    node.ui    = static_cast<u8>(n.value("ui", 0));
+                    node.code  = n.value("code",  std::string{});
                     m_Graph.nodes.push_back(node);
                 }
             if (g.contains("links"))

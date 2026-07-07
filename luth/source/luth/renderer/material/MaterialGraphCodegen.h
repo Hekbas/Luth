@@ -2,6 +2,8 @@
 
 #include "luth/core/UUID.h"
 
+#include <string>
+
 namespace Luth
 {
     class Material;
@@ -19,5 +21,10 @@ namespace Luth
         // Recompute the material's cached graph constants from node values; no compile, no variant change.
         // The value-edit path: a Const/Remap value change is data, lowered into gMatParams the next frame.
         void RefreshParams(Material& material);
+
+        // Sandbox scan for Custom-node code: returns the banned token found, or nullptr if clean. Targets
+        // the stage-divergent class (derivatives/discard compile in fragment but not compute -> raster!=RT)
+        // plus raw binding access; hard compile errors already fail symmetrically (material renders stock).
+        const char* ValidateCustomCode(const std::string& code);
     }
 }
