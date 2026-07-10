@@ -448,6 +448,41 @@ namespace Luth
         }
     }
 
+    // glTF references its textures by relative URI, often deeply nested (e.g. objects/props/x/foo.png). Copy each
+    // referenced image PRESERVING that relative path under destDir, so the imported glTF resolves it directly at any
+    // depth. Embedded (buffer-view / data:) images are skipped; so are formats the engine can't load (e.g. .dds),
+    // since materials reference the loadable siblings the glTF also lists.
+    static void CopyGltfImages(const fs::path& srcGltf, const fs::path& destDir)
+    {
+        std::ifstream in(srcGltf);
+        if (!in.is_open()) return;
+
+        nlohmann::json gltf;
+        try { in >> gltf; }
+        catch (...) { LH_LOG(Assets, warn, "CopyGltfImages: cannot parse {0}", srcGltf.filename().string()); return; }
+
+        if (!gltf.contains("images")) return;
+        int copied = 0, missing = 0;
+        for (const auto& img : gltf["images"]) {
+            if (!img.contains("uri") || !img["uri"].is_string()) continue;   // buffer-view image (embedded)
+            std::string uri = img["uri"].get<std::string>();
+            if (uri.empty() || uri.rfind("data:", 0) == 0) continue;         // embedded data URI
+
+            fs::path rel = fs::path(PercentDecode(uri));
+            if (!IsImageExtension(rel.extension())) continue;                 // skip .dds etc. the engine can't load
+            fs::path src = srcGltf.parent_path() / rel;
+            fs::path dst = destDir / rel;
+            std::error_code ec;
+            if (!fs::exists(src, ec)) { ++missing; continue; }
+            fs::create_directories(dst.parent_path(), ec);
+            fs::copy_file(src, dst, fs::copy_options::skip_existing, ec);
+            if (!ec) ++copied;
+            else LH_LOG(Assets, warn, "CopyGltfImages: copy failed {0}: {1}", src.string(), ec.message());
+        }
+        if (copied || missing)
+            LH_LOG(Assets, info, "CopyGltfImages: copied {0} texture(s) (paths preserved), {1} referenced file(s) missing", copied, missing);
+    }
+
     std::vector<fs::path> AssetDatabase::GetPathsOfType(AssetType type)
     {
         std::vector<fs::path> paths;
@@ -479,42 +514,49 @@ namespace Luth
             fs::copy_file(sourcePath, destPath, fs::copy_options::overwrite_existing);
             LH_LOG(Assets, info, "Imported {0} to {1}", sourcePath.filename().string(), destPath.string());
 
-            // For model assets, discover and copy adjacent textures
+            // For model assets, bring the textures across alongside the model.
             if (resType == AssetType::Model) {
-                // glTF references its .bin buffer by relative URI; copy it next to the model first.
                 std::string ext = sourcePath.extension().string();
                 for (auto& c : ext) c = (char)std::tolower((unsigned char)c);
-                if (ext == ".gltf")
+
+                if (ext == ".gltf") {
+                    // glTF references its .bin buffer + textures by relative URI; copy both preserving the relative
+                    // paths so the imported glTF resolves them directly however deeply they nest (objects/, textures/).
                     CopyGltfBuffers(sourcePath, destDir);
-
-                fs::path texDestDir = destDir / (sourcePath.stem().string() + "_Textures");
-                fs::path srcDir = sourcePath.parent_path();
-
-                std::vector<fs::path> scanDirs = { srcDir };
-                for (const char* sub : k_CommonTextureDirs) {
-                    fs::path candidate = srcDir / sub;
-                    if (fs::exists(candidate) && fs::is_directory(candidate))
-                        scanDirs.push_back(candidate);
+                    CopyGltfImages(sourcePath, destDir);
                 }
+                else {
+                    // FBX/OBJ reference textures by filename, so gather images from the model folder and its common
+                    // texture subdirs (RECURSIVELY, to catch nested layouts) into a flat <model>_Textures/.
+                    fs::path texDestDir = destDir / (sourcePath.stem().string() + "_Textures");
+                    fs::path srcDir = sourcePath.parent_path();
 
-                bool copiedAny = false;
-                for (const auto& dir : scanDirs) {
-                    for (const auto& entry : fs::directory_iterator(dir)) {
-                        if (!entry.is_regular_file()) continue;
-                        if (!IsImageExtension(entry.path().extension())) continue;
-
-                        if (!copiedAny) {
-                            fs::create_directories(texDestDir);
-                            copiedAny = true;
-                        }
-
-                        fs::path imgDest = texDestDir / entry.path().filename();
-                        if (!fs::exists(imgDest))
-                            fs::copy_file(entry.path(), imgDest, fs::copy_options::skip_existing);
+                    std::vector<fs::path> scanDirs;
+                    for (const char* sub : k_CommonTextureDirs) {
+                        fs::path candidate = srcDir / sub;
+                        if (fs::exists(candidate) && fs::is_directory(candidate))
+                            scanDirs.push_back(candidate);
                     }
+
+                    bool copiedAny = false;
+                    auto copyImg = [&](const fs::path& p) {
+                        if (!IsImageExtension(p.extension())) return;
+                        if (!copiedAny) { fs::create_directories(texDestDir); copiedAny = true; }
+                        fs::path imgDest = texDestDir / p.filename();
+                        std::error_code ec;
+                        if (!fs::exists(imgDest)) fs::copy_file(p, imgDest, fs::copy_options::skip_existing, ec);
+                    };
+                    // Model-folder root non-recursively (don't drag in a sibling model's images), then each common
+                    // texture dir recursively (its nested subfolders hold this model's textures).
+                    for (const auto& entry : fs::directory_iterator(srcDir))
+                        if (entry.is_regular_file()) copyImg(entry.path());
+                    for (const auto& dir : scanDirs)
+                        for (const auto& entry : fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied))
+                            if (entry.is_regular_file()) copyImg(entry.path());
+
+                    if (copiedAny)
+                        LH_LOG(Assets, info, "Copied adjacent textures to {0}", texDestDir.filename().string());
                 }
-                if (copiedAny)
-                    LH_LOG(Assets, info, "Copied adjacent textures to {0}", texDestDir.filename().string());
             }
 
             UUID newUuid = MetaFile::Create(destPath, resType);
