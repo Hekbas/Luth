@@ -57,6 +57,7 @@ namespace Luth
         s.PhysicsBake                  = static_cast<PhysicsBakeMode>(j.value("physics_bake", 0));
         s.AutoDetectTextureRoles       = j.value("auto_detect_texture_roles", true);
         s.ConventionAutoBind           = j.value("convention_auto_bind", true);
+        s.RefreshMaterialsOnReimport   = j.value("refresh_materials_on_reimport", false);
         return s;
     }
 
@@ -76,7 +77,8 @@ namespace Luth
             { "import_lights",                   ImportLights },
             { "physics_bake",                    static_cast<int>(PhysicsBake) },
             { "auto_detect_texture_roles",       AutoDetectTextureRoles },
-            { "convention_auto_bind",            ConventionAutoBind }
+            { "convention_auto_bind",            ConventionAutoBind },
+            { "refresh_materials_on_reimport",   RefreshMaterialsOnReimport }
         };
     }
 
@@ -769,6 +771,7 @@ namespace Luth
         std::vector<UUID> MaterialUUIDs;
         bool AutoDetectRoles = true;
         bool ConventionAutoBind = true;
+        bool RefreshMaterials = false;   // opt-in: regenerate existing .mat from source on reimport
         // Per-import, never shared across fibers: distinct source materials that sanitize to the same name must not collide on one .mat
         // path, and unresolved/degraded report entries accumulate here and then publish once (see s_ReportLock).
         std::unordered_set<std::string> UsedMaterialNames;
@@ -843,8 +846,10 @@ namespace Luth
 
         fs::path matPath = ctx.MaterialDir / (matName + ".mat");
 
-        UUID matUUID = AssetDatabase::GetUUID(matPath);
-        if (matUUID.IsValid()) return matUUID;
+        // Create-once by default: an existing .mat is reused verbatim so Material Editor edits survive a
+        // reimport. Opt-in RefreshMaterials regenerates it from source (same UUID/meta kept; content rewritten).
+        UUID existingUUID = AssetDatabase::GetUUID(matPath);
+        if (existingUUID.IsValid() && !ctx.RefreshMaterials) return existingUUID;
 
         // Create new Material
         nlohmann::json matJson;
@@ -1165,9 +1170,14 @@ namespace Luth
         file << matJson.dump(4);
         file.close();
 
-        matUUID = MetaFile::Create(matPath, AssetType::Material);
+        // Refresh kept the original UUID + .meta so every reference stays valid; only the content was rewritten.
+        // A genuinely new material mints its UUID + meta here.
+        if (existingUUID.IsValid()) {
+            AssetDatabase::RegisterAsset(matPath, existingUUID, AssetType::Material);
+            return existingUUID;
+        }
+        UUID matUUID = MetaFile::Create(matPath, AssetType::Material);
         AssetDatabase::RegisterAsset(matPath, matUUID, AssetType::Material);
-        
         return matUUID;
     }
 
@@ -1190,6 +1200,7 @@ namespace Luth
         ctx.MaterialDir = source.parent_path() / (source.stem().string() + "_Materials");
         ctx.AutoDetectRoles = settings.AutoDetectTextureRoles;
         ctx.ConventionAutoBind = settings.ConventionAutoBind;
+        ctx.RefreshMaterials = settings.RefreshMaterialsOnReimport;
         ctx.Report.ModelPath = source;
 
         Assimp::Importer importer;

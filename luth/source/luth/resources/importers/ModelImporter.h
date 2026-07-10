@@ -53,6 +53,11 @@ namespace Luth
         // (T_<Name>_<suffix>). Fires only when the material would otherwise be bare.
         bool ConventionAutoBind = true;
 
+        // Reimport policy for the per-model .mat files. Create-once by default: an existing material is left
+        // untouched so Material Editor edits survive reimport. When true, reimport regenerates each .mat from
+        // the source (its UUID/meta are kept), overwriting edits. Missing materials are always created either way.
+        bool RefreshMaterialsOnReimport = false;
+
         // Physics shape sourcing. None (default) -> ShapeCache returns null for asset-backed colliders referencing
         // this model and warns once per UUID. Auto -> ShapeCache builds JPH::ConvexHullShape / JPH::MeshShape on
         // demand from Model::m_MeshesData. Per-mesh override + actual on-disk shape cooking are deferred to a future effort.
