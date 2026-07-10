@@ -52,7 +52,7 @@ public HitSurface FetchHitSurface(GtGeomEntry* geomTable, uint customIndex, uint
 
     HitSurface s;
     s.ns = N;  s.ng = g.ng;
-    s.baseColor = mi.baseColor.rgb;
+    s.baseColor = mi.baseColor.rgb * g.color;   // per-vertex color modulation (raster==RT albedo parity)
     s.emission  = mi.emissive;
     s.metalness = mi.metallic;
     s.roughness = mi.roughness;

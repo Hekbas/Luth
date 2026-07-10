@@ -10,6 +10,7 @@ struct VSIn
     [[vk::location(2)]] float2 uv0;
     [[vk::location(3)]] float2 uv1;
     [[vk::location(4)]] float4 tangent;
+    [[vk::location(5)]] float4 color;
 };
 
 struct VOut
@@ -25,6 +26,7 @@ struct VOut
     [[vk::location(7)]] nointerpolation uint materialIndex;
     [[vk::location(8)]] nointerpolation uint shadeMode;
     [[vk::location(9)]] nointerpolation uint entityID;
+    [[vk::location(10)]] float4 color;
 };
 
 [shader("vertex")]
@@ -37,6 +39,7 @@ VOut main(VSIn vin, uint baseInstance : SV_StartInstanceLocation)
     o.worldPos = worldPos.xyz;
     o.uv0 = vin.uv0;
     o.uv1 = vin.uv1;
+    o.color = vin.color;
 
     float3 N = normalize(mul(NormalMatrix(obj.model), vin.normal));
     float3 T = normalize(mul((float3x3)obj.model, vin.tangent.xyz));

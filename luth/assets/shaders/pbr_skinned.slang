@@ -17,6 +17,7 @@ struct VOut
     [[vk::location(7)]] nointerpolation uint materialIndex;
     [[vk::location(8)]] nointerpolation uint shadeMode;
     [[vk::location(9)]] nointerpolation uint entityID;
+    [[vk::location(10)]] float4 color;
 };
 
 [shader("vertex")]
@@ -34,6 +35,7 @@ VOut main(uint vid : SV_VertexID, uint baseInstance : SV_StartInstanceLocation)
     float2 dUV0 = float2(obj.deformedBufCurr[b +  6u], obj.deformedBufCurr[b +  7u]);
     float2 dUV1 = float2(obj.deformedBufCurr[b +  8u], obj.deformedBufCurr[b +  9u]);
     float4 dTan = float4(obj.deformedBufCurr[b + 10u], obj.deformedBufCurr[b + 11u], obj.deformedBufCurr[b + 12u], obj.deformedBufCurr[b + 13u]);
+    float4 dCol = float4(obj.deformedBufCurr[b + 14u], obj.deformedBufCurr[b + 15u], obj.deformedBufCurr[b + 16u], obj.deformedBufCurr[b + 17u]);
 
     float4 worldPos = mul(obj.model, float4(dPos, 1.0));
     o.worldPos = worldPos.xyz;
@@ -48,6 +50,7 @@ VOut main(uint vid : SV_VertexID, uint baseInstance : SV_StartInstanceLocation)
 
     o.normal = N;
     o.T = T; o.B = Bt; o.N = N;
+    o.color = dCol;
 
     o.materialIndex = obj.materialIndex;
     o.shadeMode     = obj.shadeMode;

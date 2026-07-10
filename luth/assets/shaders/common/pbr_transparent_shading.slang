@@ -47,7 +47,7 @@ float TraceSunShadow(float3 worldPos, float3 N)
 // depth. Discards below alphaCutoff (inside the decode). Returns straight alpha.
 public float4 EvalTransparentSurfaceColor(uint materialIndex, uint shadeMode, float2 uv0, float2 uv1,
                                           float3 T, float3 B, float3 N, bool frontFacing,
-                                          float3 worldPos, float4 fragCoord)
+                                          float3 worldPos, float4 fragCoord, float4 vertexColor)
 {
     // Decode through the shared variant registry so a node-graph material renders its routing here
     // exactly as the RT hit does (material_bindings_rt twin); variant 0 = stock channel decode.
@@ -60,6 +60,7 @@ public float4 EvalTransparentSurfaceColor(uint materialIndex, uint shadeMode, fl
     rf.ndotv     = saturate(dot(normalize(N), rf.viewDir));
     rf.worldNormal = normalize(N);
     MaterialInputs mi = EvalGraphVariant<RasterFetch>(GraphVariant(m.flags), m, uv0, uv1, rf);
+    mi.baseColor *= vertexColor;   // per-vertex color modulates albedo (matches the opaque path); white = no-op
     if (mi.baseColor.a < m.alphaCutoff) discard;
 
     float3 nrm = ((m.flags & FLAG_HAS_NORMAL) != 0u)

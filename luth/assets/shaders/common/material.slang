@@ -149,6 +149,7 @@ public struct HitGeometry
     public float3 T;           // world tangent, Gram-Schmidt vs ns (valid iff hasTangent)
     public float  tSign;       // bitangent handedness sign (Vertex tangent.w); constant per triangle
     public float2 uv0, uv1;
+    public float3 color;       // per-vertex color (linear RGB), barycentric; multiplied into baseColor
     public uint   materialSlot;
     public bool   hasTangent;
 }
@@ -226,6 +227,13 @@ public HitGeometry GatherHitGeometry(GtGeomEntry* geomTable, uint customIndex, u
     g.uv1 = wgt.x * float2(ge.vbuf[i0*sF + 8u], ge.vbuf[i0*sF + 9u])
           + wgt.y * float2(ge.vbuf[i1*sF + 8u], ge.vbuf[i1*sF + 9u])
           + wgt.z * float2(ge.vbuf[i2*sF + 8u], ge.vbuf[i2*sF + 9u]);
+
+    // Per-vertex color (floats 14-16), barycentric; alpha (float 17) unused since RT baseColor is RGB.
+    // Color sits at float 14 in both the 18-float Vertex and 26-float SkinnedVertex layouts (shared prefix).
+    float3 vc0 = float3(ge.vbuf[i0*sF + 14u], ge.vbuf[i0*sF + 15u], ge.vbuf[i0*sF + 16u]);
+    float3 vc1 = float3(ge.vbuf[i1*sF + 14u], ge.vbuf[i1*sF + 15u], ge.vbuf[i1*sF + 16u]);
+    float3 vc2 = float3(ge.vbuf[i2*sF + 14u], ge.vbuf[i2*sF + 15u], ge.vbuf[i2*sF + 16u]);
+    g.color = wgt.x * vc0 + wgt.y * vc1 + wgt.z * vc2;
     return g;
 }
 

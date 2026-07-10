@@ -516,7 +516,12 @@ namespace Luth
             } else {
                 vertex.Tangent = Vec4(0.0f, 0.0f, 0.0f, 1.0f);
             }
-            vertex.Color = Vec4(1.0f);   // vertex-color consumption lands in a follow-on; neutral white here
+            if (mesh->HasVertexColors(0)) {
+                const aiColor4D& c = mesh->mColors[0][i];   // glTF COLOR_0 / FBX color set are linear; multiplied into albedo
+                vertex.Color = Vec4(c.r, c.g, c.b, c.a);
+            } else {
+                vertex.Color = Vec4(1.0f);   // no color channel: neutral white (identity tint)
+            }
 
             data.Vertices.push_back(vertex);
         }
@@ -579,7 +584,12 @@ namespace Luth
             } else {
                 vertex.Tangent = Vec4(0.0f, 0.0f, 0.0f, 1.0f);
             }
-            vertex.Color = Vec4(1.0f);   // vertex-color consumption lands in a follow-on; neutral white here
+            if (mesh->HasVertexColors(0)) {
+                const aiColor4D& c = mesh->mColors[0][i];   // glTF COLOR_0 / FBX color set are linear; multiplied into albedo
+                vertex.Color = Vec4(c.r, c.g, c.b, c.a);
+            } else {
+                vertex.Color = Vec4(1.0f);   // no color channel: neutral white (identity tint)
+            }
 
             // BoneIDs and BoneWeights initialized to defaults by SkinnedVertex constructor
             data.SkinnedVertices.push_back(vertex);
