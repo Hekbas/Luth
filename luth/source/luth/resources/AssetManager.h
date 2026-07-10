@@ -73,6 +73,11 @@ namespace Luth
             AssetType Type;
         };
 
+        // Fire-and-forget import payload; the job owns it and deletes it (mirrors LoadRequest).
+        struct ImportRequest {
+            UUID Handle;
+        };
+
         struct PendingUpload {
             UUID Handle;
             std::unique_ptr<AssetData> Data;
@@ -80,6 +85,19 @@ namespace Luth
         };
 
         static void LoadJob(JobSystem::JobArgs args);
+        static void ImportJob(JobSystem::JobArgs args);
+
+        // In-flight import serialization. s_ImportingAssets holds the UUIDs currently being cooked so
+        // exactly one importer writes a given artifact at a time; every import entry point (ImportDirty
+        // job, LoadJob, LoadImmediate, Import) routes through EnsureImported. Invariant: token held =>
+        // that import is actively running (never merely queued), so a waiter blocks on one asset, not
+        // the whole queue. TryBeginImport claims the token (false if already held); EndImport releases;
+        // WaitWhileImporting cooperatively waits (worker yields, main spins) without holding s_ImportMutex.
+        static bool TryBeginImport(UUID handle);
+        static void EndImport(UUID handle);
+        static bool IsImporting(UUID handle);
+        static void WaitWhileImporting(UUID handle);
+        static void EnsureImported(UUID handle, bool forceReimport, bool blockIfBusy);
 
         // Shared helpers: DeserializeArtifact is thread-safe; FinalizeAsset must run on the main thread
         // (creates GPU resources).
@@ -88,10 +106,14 @@ namespace Luth
 
         static std::unordered_map<UUID, std::shared_ptr<Asset>, UUIDHash> s_Assets;
         static std::unordered_set<UUID, UUIDHash> s_LoadingAssets;
+        static std::unordered_set<UUID, UUIDHash> s_ImportingAssets;
         static std::unordered_map<AssetType, std::unique_ptr<AssetImporter>> s_Importers;
-        
+
         static std::mutex s_AssetMutex;
         static std::mutex s_UploadMutex;
+        // Dedicated lock for s_ImportingAssets: WaitWhileImporting polls it per spin, kept off s_AssetMutex
+        // so it never contends with GetAsset/Update/Trim on the hot asset-cache path.
+        static std::mutex s_ImportMutex;
         static std::vector<PendingUpload> s_UploadQueue;
     };
 }

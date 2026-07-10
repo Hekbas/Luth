@@ -3,6 +3,7 @@
 #include "VulkanContext.h"
 #include "VulkanAccelerationStructure.h"
 #include "VulkanBuffer.h"
+#include "UploadContext.h"
 #include "luth/core/RenderSnapshot.h"
 #include "luth/core/diagnostics/Log.h"
 #include "luth/jobs/JobSystem.h"
@@ -103,23 +104,25 @@ namespace Luth
         }
     }
 
-    void TlasBuilder::RefitSkinnedBLASes(VkCommandBuffer cmd,
-                                         std::span<const MeshDrawSnapshot> instances,
-                                         u32 frameAbs)
+    u32 TlasBuilder::RefitSkinnedBLASes(VkCommandBuffer cmd,
+                                        std::span<const MeshDrawSnapshot> instances,
+                                        u32 frameAbs)
     {
         auto& ctx = VulkanContext::Get();
         const auto& rt = ctx.GetRtFn();
 
-        // Pre-resolve + compute aggregate scratch size. Per NVIDIA: each BLAS build in a batched
-        // call needs its own scratch sub-region; sum the per-mesh updateScratchSize aligned up.
+        // Pre-resolve + compute aggregate scratch size. Per NVIDIA: each BLAS build in a batched call needs
+        // its own scratch sub-region; sum per-mesh, aligned up. A deformable BLAS whose build has not been
+        // recorded yet takes its (larger) build scratch + MODE_BUILD; the rest take update scratch.
         const u64 scratchAlign = ctx.GetAsProperties().minAccelerationStructureScratchOffsetAlignment;
 
         struct RefitEntry
         {
-            const VKAccelerationStructure* blas;
-            const Mesh*                    mesh;
-            u64                            scratchOffset;
-            u64                            scratchSize;
+            VKAccelerationStructure* blas;   // non-const: a first build marks it recorded
+            const Mesh*              mesh;
+            u64                      scratchOffset;
+            u64                      scratchSize;
+            bool                     firstBuild;
         };
         std::vector<RefitEntry> entries;
         entries.reserve(instances.size());
@@ -129,11 +132,25 @@ namespace Luth
             if (!inst.isSkinned && !inst.isDeformable) continue;
             ResolvedMesh r = Resolve(inst);
             if (!r.blas || !r.blas->IsDeformable()) continue;
-            const u64 sz = AlignUp(r.blas->GetUpdateScratchSize(), scratchAlign);
-            entries.push_back({ r.blas, r.mesh, totalScratch, sz });
+
+            // The deform compute reads the source VB/IB; gate on their upload so neither the deform nor the
+            // first build reads a not-yet-resident buffer. Not ready -> skip this frame (stays unbuilt).
+            auto vbk = std::dynamic_pointer_cast<VKVertexBuffer>(r.mesh->GetVertexBuffer());
+            auto ibk = std::dynamic_pointer_cast<VKIndexBuffer>(r.mesh->GetIndexBuffer());
+            const u64 upFence = std::max<u64>(vbk ? vbk->GetUploadFence() : 0, ibk ? ibk->GetUploadFence() : 0);
+            if (!UploadContext::Get().IsComplete(upFence)) continue;
+
+            const bool firstBuild = !r.blas->IsBuildRecorded();
+            // A BLAS first-built this frame already reflects this frame's deform; skip a redundant same-frame
+            // MODE_UPDATE over the identical CURR region.
+            if (!firstBuild && r.blas->GetBuildFrameAbs() == frameAbs) continue;
+
+            const u64 sz = AlignUp(firstBuild ? r.blas->GetBuildScratchSize()
+                                              : r.blas->GetUpdateScratchSize(), scratchAlign);
+            entries.push_back({ const_cast<VKAccelerationStructure*>(r.blas), r.mesh, totalScratch, sz, firstBuild });
             totalScratch += sz;
         }
-        if (entries.empty()) return;
+        if (entries.empty()) return 0;
 
         // AS-build scratch must be DEVICE_LOCAL: the tagged heap is HOST_VISIBLE (the CPU->GPU data
         // path) and NVIDIA's RT accelerator TDRs on it; PushDeletion retires it N+2. see arch/memory.md
@@ -145,7 +162,7 @@ namespace Luth
         VkBuffer scratchBuf = VK_NULL_HANDLE;
         VmaAllocation scratchAlloc = VulkanAllocator::AllocateBuffer(
             scratchCi, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, scratchBuf);
-        if (!scratchBuf) return;
+        if (!scratchBuf) return 0;
         VkBufferDeviceAddressInfo addrInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
         addrInfo.buffer = scratchBuf;
         const VkDeviceAddress scratchBase = vkGetBufferDeviceAddress(ctx.GetDevice(), &addrInfo);
@@ -192,8 +209,9 @@ namespace Luth
             info.type                     = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
             info.flags                    = VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR
                                           | VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
-            info.mode                     = VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR;
-            info.srcAccelerationStructure = e.blas->GetHandle();
+            info.mode                     = e.firstBuild ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR
+                                                          : VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR;
+            info.srcAccelerationStructure = e.firstBuild ? VK_NULL_HANDLE : e.blas->GetHandle();
             info.dstAccelerationStructure = e.blas->GetHandle();
             info.geometryCount            = 1;
             info.pGeometries              = &refitCtx->geoms[i];
@@ -209,16 +227,26 @@ namespace Luth
                                                refitCtx->rangePtrs.data());
 
         VulkanContext::Get().PushDeletion([refitCtx]() { delete refitCtx; });
+
+        // Mark first-builds recorded so the TLAS gather includes them this frame (post-barrier) and next
+        // frame refits them as MODE_UPDATE. The count drives the TLAS ready-generation (H1).
+        u32 firstBuilt = 0;
+        for (const auto& e : entries)
+            if (e.firstBuild) { e.blas->MarkBuildRecorded(frameAbs); ++firstBuilt; }
+        return firstBuilt;
     }
 
     TlasBuildResult TlasBuilder::BuildTlas(VkCommandBuffer cmd,
                                            std::span<const MeshDrawSnapshot> instances,
                                            u32 frameAbs,
                                            const TlasBuildResult& prev,
-                                           const std::unordered_map<UUID, u32, UUIDHash>& materialSlotMap)
+                                           const std::unordered_map<UUID, u32, UUIDHash>& materialSlotMap,
+                                           u64 blasReadyGen)
     {
         const u64 hash = HashInstances(instances);
-        if (prev.tlas != VK_NULL_HANDLE && hash == prev.instanceHash)
+        // A newly first-built BLAS changes the ready-generation but not the instance hash; force one rebuild
+        // when the generation advances so the now-ready BLAS is gathered, then hash-reuse resumes.
+        if (prev.tlas != VK_NULL_HANDLE && hash == prev.instanceHash && blasReadyGen == prev.blasReadyGen)
         {
             TlasBuildResult r = prev;
             r.reused = true;
@@ -242,7 +270,10 @@ namespace Luth
         for (const auto& inst : instances)
         {
             ResolvedMesh r = Resolve(inst);
-            if (!r.blas || r.blas->GetDeviceAddress() == 0) continue;
+            // Skip a BLAS whose build hasn't been recorded yet (deferred static build still pending, or
+            // upload not retired): its storage is uninitialized and the TLAS builder would TDR on it. The
+            // device address is valid pre-build, so IsBuildRecorded (not address) is the readiness test.
+            if (!r.blas || !r.blas->IsBuildRecorded()) continue;
 
             // Resolve the material once: slot (geom table) + render mode -> visibility mask + opaque flag.
             // Transparent/Fade pack with the GLASS mask only: shadow-class rays cull to SOLID (glass
@@ -304,6 +335,7 @@ namespace Luth
         TlasBuildResult result{};
         result.instanceHash  = hash;
         result.instanceCount = static_cast<u32>(packed.size());
+        result.blasReadyGen  = blasReadyGen;
 
         if (packed.empty())
         {

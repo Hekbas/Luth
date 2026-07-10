@@ -26,6 +26,7 @@ namespace Luth
         u64                        instanceHash  = 0;
         u32                        instanceCount = 0;
         bool                       reused        = false; // true => prior result returned unchanged
+        u64                        blasReadyGen  = 0;     // bumped when a deferred BLAS first-builds (H1)
 
         // Per-frame bindless geometry table, built in lockstep with the packed instances so
         // instanceCustomIndex indexes it. Host-visible SSBO, deref'd via BDA in restir_gi_initial.comp.
@@ -50,11 +51,14 @@ namespace Luth
         //     (retires N+2 frames out).
         // `materialSlotMap` resolves each instance's materialUUID -> Material-SSBO slot for the
         // geometry table (built in the same packed-instance loop). Defaults to slot 0 (white) on miss.
+        // `blasReadyGen` is folded into the reuse guard so a BLAS that first-builds late (identical instance
+        // hash) still forces one rebuild that gathers it, instead of staying skipped until the mesh moves.
         static TlasBuildResult BuildTlas(VkCommandBuffer cmd,
                                          std::span<const MeshDrawSnapshot> instances,
                                          u32 frameAbs,
                                          const TlasBuildResult& prev,
-                                         const std::unordered_map<UUID, u32, UUIDHash>& materialSlotMap);
+                                         const std::unordered_map<UUID, u32, UUIDHash>& materialSlotMap,
+                                         u64 blasReadyGen);
 
         // Batched skinned-BLAS refit. Walks `instances` filtering for isSkinned + non-null skinned BLAS, packs one
         // VkAccelerationStructureBuildGeometryInfoKHR per mesh, all sharing a single tagged-heap scratch allocation
@@ -62,8 +66,11 @@ namespace Luth
         // rule), then issues ONE vkCmdBuildAccelerationStructuresKHR(N, infos, ranges) call. Caller must have
         // already populated each mesh's deformed-VB via the skinning compute pass + emitted the
         // compute-write -> AS-build-read memory barrier.
-        static void RefitSkinnedBLASes(VkCommandBuffer cmd,
-                                       std::span<const MeshDrawSnapshot> instances,
-                                       u32 frameAbs);
+        // Per-entry mode: a deformable BLAS whose build has not been recorded yet gets a MODE_BUILD
+        // (its first, over the deform's CURR region); the rest MODE_UPDATE. Gated on the source VB/IB
+        // upload. Returns the number of first-builds recorded (a null->ready transition the TLAS folds in).
+        static u32 RefitSkinnedBLASes(VkCommandBuffer cmd,
+                                      std::span<const MeshDrawSnapshot> instances,
+                                      u32 frameAbs);
     };
 }

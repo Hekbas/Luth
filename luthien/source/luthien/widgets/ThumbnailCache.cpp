@@ -137,6 +137,17 @@ namespace Luth::UI
             MarkFailed(asset);
         }
 
+        // Asset wasn't resident yet: drop the entry (a deferred entry never baked, so it holds no
+        // imguiSet to free) so the panel's next Get re-queues the bake once the async load lands. Ready
+        // entries are left intact. Self-limiting: only re-queues while the asset stays visible.
+        void NotifyBakeDeferred(UUID asset)
+        {
+            SpinLockGuard g(s_MapLock);
+            auto it = s_Entries.find(asset);
+            if (it != s_Entries.end() && it->second.state != BakeState::Ready)
+                s_Entries.erase(it);
+        }
+
         void SetEntryDeps(UUID asset, std::vector<UUID> deps)
         {
             SpinLockGuard g(s_MapLock);

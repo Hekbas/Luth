@@ -6,6 +6,7 @@
 #include "luth/renderer/FrameTargets.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/renderer/backend/vulkan/VulkanAccelerationStructure.h"
 #include "luth/renderer/backend/vulkan/VulkanComputePipeline.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
@@ -473,9 +474,18 @@ namespace Luth
                 // semaphore makes the deform writes visible to this async-compute refit; no inline
                 // compute-write barrier here. see arch/multi-queue.md
 
-                // Batched skinned-BLAS refits: one vkCmdBuildAccelerationStructuresKHR call
-                // with N infos sharing one tagged scratch (per-mesh sub-regions, no overlap).
-                TlasBuilder::RefitSkinnedBLASes(cmd, snapshot.meshes, static_cast<u32>(frameAbs));
+                // Deferred static BLAS builds: record the MODE_BUILD for every queued static mesh whose
+                // VB/IB upload has retired. Batched on this async-compute cmd before the refit + TLAS
+                // build; the AS-build -> AS-read barrier below covers both writer steps.
+                const u32 staticBuilt = VKAccelerationStructure::DrainPendingStaticBuilds(cmd, static_cast<u32>(frameAbs));
+
+                // Batched skinned refits + deformable first-builds: one vkCmdBuildAccelerationStructuresKHR
+                // call, N infos sharing one scratch (per-mesh sub-regions, no overlap).
+                const u32 refitBuilt = TlasBuilder::RefitSkinnedBLASes(cmd, snapshot.meshes, static_cast<u32>(frameAbs));
+
+                // A first-build this frame (static or deformable) advances the ready-generation so BuildTlas
+                // rebuilds once to fold the now-ready BLAS in (its instance hash is otherwise unchanged).
+                if (staticBuilt != 0u || refitBuilt != 0u) ++m_BlasReadyGeneration;
 
                 // Refit-write -> TLAS-build-read barrier. Same shape as above; the TLAS build
                 // reads the freshly-refitted BLAS device addresses through the instance buffer.
@@ -494,7 +504,7 @@ namespace Luth
                 // shares the TLAS lifetime exactly (same retire schedule).
                 TlasBuildResult fresh = TlasBuilder::BuildTlas(
                     cmd, snapshot.meshes, static_cast<u32>(frameAbs), m_LastResult,
-                    m_Pipeline->GetMaterialSlotMap());
+                    m_Pipeline->GetMaterialSlotMap(), m_BlasReadyGeneration);
                 if (!fresh.reused && m_LastResult.tlas != VK_NULL_HANDLE)
                 {
                     auto old       = m_LastResult.tlas;

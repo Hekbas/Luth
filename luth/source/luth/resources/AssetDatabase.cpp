@@ -5,6 +5,7 @@
 #include "luth/core/diagnostics/Log.h"
 #include "luth/resources/AssetManager.h"
 #include "luth/resources/importers/TextureResolver.h"
+#include "luth/jobs/JobSystem.h"
 #include <fstream>
 #include <nlohmann/json.hpp>
 
@@ -577,6 +578,20 @@ namespace Luth
         catch (const std::exception& ex) {
             LH_LOG(Assets, error, "IngestFile error: {0} - {1}", sourcePath.string(), ex.what());
         }
+    }
+
+    void AssetDatabase::IngestFileAsync(const fs::path& sourcePath, const fs::path& destDir)
+    {
+        // Whole ingest runs on a worker: the copy + import are the freeze, and everything IngestFile
+        // touches off the main thread is already safe -- RegisterAsset/MetaFile are s_Mutex-locked, and
+        // the change callbacks only stage flags / enqueue on the MainThread event bus / push under a SpinLock.
+        struct IngestReq { fs::path Src; fs::path Dest; };
+        IngestReq* req = new IngestReq{ sourcePath, destDir };
+        JobSystem::Execute([](JobSystem::JobArgs args) {
+            IngestReq* r = (IngestReq*)args.data;
+            AssetDatabase::IngestFile(r->Src, r->Dest);
+            delete r;
+        }, req, nullptr, "IngestFile", JobSystem::Priority::Low);
     }
 
     // ---- File System Watching ----

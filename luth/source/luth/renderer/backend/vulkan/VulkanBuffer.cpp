@@ -24,6 +24,10 @@ namespace Luth
                          | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
                          | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        // The deferred static BLAS build reads the VB via BDA on the AsyncCompute queue; EXCLUSIVE +
+        // cross-queue access without QFOT is spec-undefined and TDRs on NVIDIA (mirrors the IB below).
+        // Single-family GPUs silently fall back to EXCLUSIVE. see arch/multi-queue.md
+        VulkanContext::Get().ApplyConcurrentSharing(bufferInfo);
 
         m_Allocation = VulkanAllocator::AllocateBuffer(bufferInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, m_Buffer);
 
@@ -53,15 +57,10 @@ namespace Luth
 
     void VKVertexBuffer::SetData(const void* data, uint32_t size)
     {
-        // Async transfer through UploadContext's persistent staging ring + transfer-queue
-        // submit. Caller does not wait on the fence; submissions on the same queue serialize,
-        // so any draw that consumes m_Buffer (always submitted later in the frame) implicitly
-        // observes the upload. Today UploadContext runs on the graphics queue; the fence-based
-        // sync stays correct if a future async-compute split moves this to a dedicated transfer family.
-        //
-        // m_UploadFence stash: BLAS-build at import reads VB on the graphics queue, which is a
-        // different submission chain than the rendering frame's draw queue; the implicit
-        // serialize doesn't cover it. BLAS factory polls WaitForUpload(m_UploadFence) explicitly.
+        // Async transfer through UploadContext's staging ring + transfer-queue submit; the caller never blocks
+        // on the fence. m_UploadFence is the timeline value consumers gate on (UploadContext::IsComplete): the
+        // draw list + skinning dispatch + the deferred BLAS build each skip this mesh until it retires, so
+        // nothing reads the buffer cross-queue before the DMA completes. see arch/multi-queue.md
         m_UploadFence = UploadContext::Get().UploadBuffer(data, size, m_Buffer, 0);
     }
 

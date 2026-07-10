@@ -6,9 +6,11 @@
 #include "luth/renderer/resources/Mesh.h"
 #include "luth/renderer/resources/Model.h"
 #include "luth/core/diagnostics/Log.h"
+#include "luth/jobs/SpinLock.h"
 
 #include <vma/vk_mem_alloc.h>
 #include <algorithm>
+#include <vector>
 
 namespace Luth
 {
@@ -19,20 +21,16 @@ namespace Luth
             return (value + (alignment - 1)) & ~(alignment - 1);
         }
 
-        // Allocate a device-local VkBuffer with the requested usage. Returns the buffer + alloc
-        // (caller stores both for PushDeletion) and the cached device address.
-        VkDeviceAddress AllocateDeviceBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
-                                             VkBuffer& outBuffer, VmaAllocation& outAlloc)
+        // Static BLAS builds queued by CreateStaticBLAS (main thread) and drained on the async-compute AS
+        // pass (render worker). SpinLock, not std::mutex: the drain runs inside a RecordingScope where a
+        // fiber must not yield on OS sync (fiber-system.md V1/V3). weak_ptr so an evicted mesh cancels.
+        struct PendingStaticBuild
         {
-            VkBufferCreateInfo ci{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-            ci.size        = size;
-            ci.usage       = usage;
-            ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-            outAlloc = VulkanAllocator::AllocateBuffer(ci, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, outBuffer);
-            VkBufferDeviceAddressInfo addrInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
-            addrInfo.buffer = outBuffer;
-            return vkGetBufferDeviceAddress(VulkanContext::Get().GetDevice(), &addrInfo);
-        }
+            std::weak_ptr<VKAccelerationStructure> as;
+            u64                                    vbIbFence;
+        };
+        std::vector<PendingStaticBuild> g_PendingStatic;
+        SpinLock                        g_PendingStaticLock;
     }
 
     // The deformed vertex buffer is the interleaved Vertex layout, written field-by-field as 18
@@ -75,6 +73,121 @@ namespace Luth
         });
     }
 
+    void VKAccelerationStructure::RecordBuild(VkCommandBuffer cmd, VkDeviceAddress scratchBda, u32 frameAbs)
+    {
+        const auto& rt = VulkanContext::Get().GetRtFn();
+
+        // Deformable builds over its per-frame CURR deformed region (written by the deform compute earlier
+        // this frame); static builds over its fixed source VB. Index/stride/flags are the recipe captured
+        // at creation.
+        //
+        // invariant: vkCmdBuildAccelerationStructuresKHR retains pointers into the geometry/build-info
+        // structs until the GPU executes the build (mirrors TlasBuilder::RefitSkinnedBLASes), so heap-
+        // allocate them to outlive a deferred command buffer; free via PushDeletion (N+2).
+        struct BuildCtx
+        {
+            VkAccelerationStructureGeometryKHR              geom;
+            VkAccelerationStructureBuildGeometryInfoKHR     info;
+            VkAccelerationStructureBuildRangeInfoKHR        range;
+            const VkAccelerationStructureBuildRangeInfoKHR* rangePtr;
+        };
+        auto* bc = new BuildCtx{};
+
+        bc->geom = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
+        bc->geom.geometryType                            = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+        bc->geom.geometry.triangles.sType                = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
+        bc->geom.geometry.triangles.vertexFormat         = VK_FORMAT_R32G32B32_SFLOAT;
+        bc->geom.geometry.triangles.vertexData.deviceAddress = m_IsDeformable ? GetDeformedBdaCurr(frameAbs) : m_BuildVbBda;
+        bc->geom.geometry.triangles.vertexStride         = m_BuildVertexStride;
+        bc->geom.geometry.triangles.maxVertex            = m_BuildMaxVertex;
+        bc->geom.geometry.triangles.indexType            = VK_INDEX_TYPE_UINT32;
+        bc->geom.geometry.triangles.indexData.deviceAddress = m_BuildIbBda;
+        bc->geom.flags                                   = m_GeomFlags;
+
+        bc->info = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
+        bc->info.type                     = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+        bc->info.flags                    = m_BuildFlags;
+        bc->info.mode                     = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+        bc->info.dstAccelerationStructure = m_Handle;
+        bc->info.geometryCount            = 1;
+        bc->info.pGeometries              = &bc->geom;
+        bc->info.scratchData.deviceAddress = scratchBda;
+
+        bc->range    = { m_PrimitiveCount, 0u, 0u, 0u };
+        bc->rangePtr = &bc->range;
+
+        rt.vkCmdBuildAccelerationStructuresKHR(cmd, 1, &bc->info, &bc->rangePtr);
+        VulkanContext::Get().PushDeletion([bc]() { delete bc; });
+
+        m_BuildRecorded = true;
+        m_BuildFrameAbs = frameAbs;
+    }
+
+    u32 VKAccelerationStructure::DrainPendingStaticBuilds(VkCommandBuffer cmd, u32 frameAbs)
+    {
+        std::vector<PendingStaticBuild> pending;
+        {
+            SpinLockGuard lock(g_PendingStaticLock);
+            if (g_PendingStatic.empty()) return 0;
+            pending.swap(g_PendingStatic);   // drain a snapshot; concurrent enqueues stay for next frame
+        }
+
+        auto& ctx = VulkanContext::Get();
+
+        // Partition: upload retired -> build this frame; still uploading -> requeue; mesh evicted -> drop.
+        struct Ready { std::shared_ptr<VKAccelerationStructure> as; u64 scratchOffset; };
+        std::vector<Ready> ready;
+        std::vector<PendingStaticBuild> requeue;
+        u64 totalScratch = 0;
+        for (auto& rec : pending)
+        {
+            auto as = rec.as.lock();
+            if (!as) continue;   // mesh evicted before its build: cancel (the AS is already destroyed)
+            if (!UploadContext::Get().IsComplete(rec.vbIbFence)) { requeue.push_back(rec); continue; }
+            ready.push_back({ as, totalScratch });
+            totalScratch += as->GetBuildScratchSize();
+        }
+
+        u32 built = 0;
+        if (!ready.empty())
+        {
+            // One batched device-local scratch, per-build sub-region (offsets are pre-aligned scratch sizes).
+            // DEVICE_LOCAL, not the HOST_VISIBLE tagged heap (NVIDIA's RT accelerator TDRs on it); the base
+            // is retired N+2 via PushDeletion. Mirrors TlasBuilder::RefitSkinnedBLASes. see arch/memory.md
+            VkBufferCreateInfo scratchCi{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+            scratchCi.size        = totalScratch;
+            scratchCi.usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+            scratchCi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            VkBuffer scratchBuf = VK_NULL_HANDLE;
+            VmaAllocation scratchAlloc = VulkanAllocator::AllocateBuffer(
+                scratchCi, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, scratchBuf);
+            if (scratchBuf)
+            {
+                VkBufferDeviceAddressInfo addrInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
+                addrInfo.buffer = scratchBuf;
+                const VkDeviceAddress scratchBase = vkGetBufferDeviceAddress(ctx.GetDevice(), &addrInfo);
+                for (auto& r : ready)
+                    r.as->RecordBuild(cmd, scratchBase + r.scratchOffset, frameAbs);
+                built = static_cast<u32>(ready.size());
+                VulkanContext::Get().PushDeletion([scratchBuf, scratchAlloc]() {
+                    VulkanAllocator::FreeBuffer(scratchBuf, scratchAlloc);
+                });
+            }
+            else
+            {
+                // Scratch OOM this frame: requeue (fence 0 == already uploaded, so IsComplete stays true).
+                for (auto& r : ready) requeue.push_back({ r.as, 0u });
+            }
+        }
+
+        if (!requeue.empty())
+        {
+            SpinLockGuard lock(g_PendingStaticLock);
+            g_PendingStatic.insert(g_PendingStatic.end(), requeue.begin(), requeue.end());
+        }
+        return built;
+    }
+
     std::shared_ptr<VKAccelerationStructure> VKAccelerationStructure::CreateStaticBLAS(const Mesh& mesh)
     {
         auto& ctx = VulkanContext::Get();
@@ -91,12 +204,6 @@ namespace Luth
         const u32 vertCount  = mesh.GetVertexCount();
         const u32 indexCount = ib->GetCount();
         if (vertCount == 0 || indexCount == 0) return nullptr;
-
-        // VB/IB upload runs on the transfer-queue submission chain via UploadContext; the build
-        // recorded below reads them on the graphics queue, which is a separate submission
-        // and thus not serialized against the upload. Wait explicitly on the upload fence.
-        const u64 fence = std::max(vb->GetUploadFence(), ib->GetUploadFence());
-        if (fence > 0) UploadContext::Get().WaitForUpload(fence);
 
         // Position is at offset 0 in both Vertex and SkinnedVertex. Stride keeps the rest of the
         // vertex fields skipped naturally; AS-build only reads positions per the geometry desc.
@@ -137,11 +244,9 @@ namespace Luth
         auto result = std::make_shared<VKAccelerationStructure>();
         result->m_PrimitiveCount = primitiveCount;
 
-        // Persistent AS storage buffer. CONCURRENT: BLAS is built on graphics (ImmediateSubmit)
-        // but read on compute (RtSunShadowsPass raygen) via TLAS device-address dereference.
-        // Per arch/multi-queue.md, cross-queue buffer access requires CONCURRENT or QFOT; AS
-        // storage was missed in the original policy because the early per-frame TLAS was culled
-        // silently and never exercised cross-queue.
+        // Persistent AS storage buffer. CONCURRENT: built + read on the async-compute AS pass, and read by the
+        // RT trace via the TLAS device-address dereference; cross-queue access needs CONCURRENT or QFOT
+        // (arch/multi-queue.md).
         VkBufferCreateInfo storageCi{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
         storageCi.size        = sizes.accelerationStructureSize;
         storageCi.usage       = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR
@@ -150,16 +255,9 @@ namespace Luth
         result->m_StorageAlloc = VulkanAllocator::AllocateBuffer(
             storageCi, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, result->m_StorageBuffer);
 
-        // One-shot scratch. ImmediateSubmit waits on the build fence before returning, so
-        // PushDeletion runs only for ring hygiene; N+2 retirement is overkill but harmless.
+        // Scratch is allocated at drain time (batched across the frame's ready builds); record its size.
         const u64 scratchAlign = ctx.GetAsProperties().minAccelerationStructureScratchOffsetAlignment;
         const u64 scratchSize  = AlignUp(sizes.buildScratchSize, scratchAlign);
-        VkBuffer scratchBuffer = VK_NULL_HANDLE;
-        VmaAllocation scratchAlloc = nullptr;
-        const VkDeviceAddress scratchBda = AllocateDeviceBuffer(
-            scratchSize,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-            scratchBuffer, scratchAlloc);
 
         // Create the AS handle bound to the persistent storage buffer.
         VkAccelerationStructureCreateInfoKHR asCi{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
@@ -170,30 +268,29 @@ namespace Luth
         rt.vkCreateAccelerationStructureKHR(device, &asCi, nullptr, &result->m_Handle);
         VulkanContext::SetDebugName(result->m_Handle, "BLAS");
 
-        buildInfo.dstAccelerationStructure  = result->m_Handle;
-        buildInfo.scratchData.deviceAddress = scratchBda;
-
-        VkAccelerationStructureBuildRangeInfoKHR range{};
-        range.primitiveCount  = primitiveCount;
-        range.primitiveOffset = 0;
-        range.firstVertex     = 0;
-        range.transformOffset = 0;
-        const VkAccelerationStructureBuildRangeInfoKHR* pRange = &range;
-
-        ctx.ImmediateSubmit([&](VkCommandBuffer cmd) {
-            rt.vkCmdBuildAccelerationStructuresKHR(cmd, 1, &buildInfo, &pRange);
-        });
-
-        VulkanContext::Get().PushDeletion([scratchBuffer, scratchAlloc]() {
-            VulkanAllocator::FreeBuffer(scratchBuffer, scratchAlloc);
-        });
+        // Capture the build recipe so RecordBuild can replay it from a deferred command buffer.
+        result->m_BuildVbBda        = tri.vertexData.deviceAddress;
+        result->m_BuildIbBda        = tri.indexData.deviceAddress;
+        result->m_BuildVertexStride = static_cast<u32>(tri.vertexStride);
+        result->m_BuildMaxVertex    = tri.maxVertex;
+        result->m_BuildScratchSize  = scratchSize;
+        result->m_GeomFlags         = geom.flags;
+        result->m_BuildFlags        = buildInfo.flags;
 
         VkAccelerationStructureDeviceAddressInfoKHR addrInfo{
             VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR };
         addrInfo.accelerationStructure = result->m_Handle;
         result->m_DeviceAddress = rt.vkGetAccelerationStructureDeviceAddressKHR(device, &addrInfo);
 
-        LH_LOG(Renderer, trace, "BLAS built ({} verts, {} tris, AS size={} B)",
+        // Enqueue the build instead of blocking. The async-compute TLAS pass drains it once the VB/IB
+        // upload fence retires (DrainPendingStaticBuilds); until then the BLAS is unbuilt and the TLAS
+        // gather skips it. weak_ptr so a mesh evicted before its build cancels cleanly.
+        {
+            SpinLockGuard lock(g_PendingStaticLock);
+            g_PendingStatic.push_back({ result, std::max(vb->GetUploadFence(), ib->GetUploadFence()) });
+        }
+
+        LH_LOG(Renderer, trace, "BLAS created, build deferred ({} verts, {} tris, AS size={} B)",
                       vertCount, primitiveCount, sizes.accelerationStructureSize);
         return result;
     }
@@ -224,8 +321,8 @@ namespace Luth
         // geometry table reads post-skin normals/tangents byte-identical to a static VB; the AS build
         // reads positions at offset 0. Double-buffered (curr/prev regions) so raster motion vectors can
         // read the previous frame's positions; region alternates by frame parity, region 0 == CURR on
-        // frame 0. Zero-filled before the initial build (VMA leaves memory uninitialized; recycled
-        // NaN/Inf would TDR the BVH builder). see arch/multi-queue.md
+        // frame 0. The first refit does the MODE_BUILD over CURR after the deform has written it (gated on
+        // the source-VB upload), so no pre-build zero-fill is needed. see arch/multi-queue.md
         const VkDeviceSize deformedRegionBytes = static_cast<VkDeviceSize>(vertCount) * sizeof(Vertex);
         const VkDeviceSize deformedSize        = 2 * deformedRegionBytes;
         result->m_DeformedRegionBytes = deformedRegionBytes;
@@ -234,8 +331,7 @@ namespace Luth
             ci.size        = deformedSize;
             ci.usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
                            | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-                           | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
-                           | VK_BUFFER_USAGE_TRANSFER_DST_BIT;  // vkCmdFillBuffer zero-init pre-build
+                           | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
             ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
             ctx.ApplyConcurrentSharing(ci);
             result->m_DeformedAlloc = VulkanAllocator::AllocateBuffer(
@@ -244,11 +340,6 @@ namespace Luth
             addrInfo.buffer = result->m_DeformedBuffer;
             result->m_DeformedBda = vkGetBufferDeviceAddress(device, &addrInfo);
         }
-
-        // Wait for VB + IB uploads before the initial build; the per-frame skinning compute reads
-        // the VB directly, so it must be resident before this mesh goes live.
-        const u64 fence = std::max<u64>(ib->GetUploadFence(), vb->GetUploadFence());
-        if (fence > 0) UploadContext::Get().WaitForUpload(fence);
 
         // Geometry desc reads positions (offset 0) from the deformed vertex buffer (NOT the source
         // SkinnedVertex VB). The initial build sees zero positions; the first per-frame Refit
@@ -298,15 +389,9 @@ namespace Luth
         result->m_StorageAlloc = VulkanAllocator::AllocateBuffer(
             storageCi, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, result->m_StorageBuffer);
 
-        // One-shot build scratch.
+        // Build scratch is allocated at refit time (the first refit does the MODE_BUILD); record its size.
         const u64 scratchAlign = ctx.GetAsProperties().minAccelerationStructureScratchOffsetAlignment;
         const u64 buildScratchSize = AlignUp(sizes.buildScratchSize, scratchAlign);
-        VkBuffer scratchBuffer = VK_NULL_HANDLE;
-        VmaAllocation scratchAlloc = nullptr;
-        const VkDeviceAddress scratchBda = AllocateDeviceBuffer(
-            buildScratchSize,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-            scratchBuffer, scratchAlloc);
 
         VkAccelerationStructureCreateInfoKHR asCi{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
         asCi.buffer = result->m_StorageBuffer;
@@ -316,42 +401,23 @@ namespace Luth
         rt.vkCreateAccelerationStructureKHR(device, &asCi, nullptr, &result->m_Handle);
         VulkanContext::SetDebugName(result->m_Handle, "BLAS");
 
-        buildInfo.dstAccelerationStructure  = result->m_Handle;
-        buildInfo.scratchData.deviceAddress = scratchBda;
-
-        VkAccelerationStructureBuildRangeInfoKHR range{};
-        range.primitiveCount  = result->m_PrimitiveCount;
-        range.primitiveOffset = 0;
-        range.firstVertex     = 0;
-        range.transformOffset = 0;
-        const VkAccelerationStructureBuildRangeInfoKHR* pRange = &range;
-
-        ctx.ImmediateSubmit([&](VkCommandBuffer cmd) {
-            // VMA leaves this uninitialized; zero it so the build reads degenerate tris, not NaN/Inf (TDR).
-            vkCmdFillBuffer(cmd, result->m_DeformedBuffer, 0, VK_WHOLE_SIZE, 0u);
-            VkMemoryBarrier2 fillBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
-            fillBarrier.srcStageMask  = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
-            fillBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            fillBarrier.dstStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-            fillBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;  // build reads vertex input as SHADER_READ, not AS_READ
-            VkDependencyInfo fillDep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-            fillDep.memoryBarrierCount = 1;
-            fillDep.pMemoryBarriers    = &fillBarrier;
-            vkCmdPipelineBarrier2(cmd, &fillDep);
-
-            rt.vkCmdBuildAccelerationStructuresKHR(cmd, 1, &buildInfo, &pRange);
-        });
-
-        VulkanContext::Get().PushDeletion([scratchBuffer, scratchAlloc]() {
-            VulkanAllocator::FreeBuffer(scratchBuffer, scratchAlloc);
-        });
+        // Capture the build recipe. Deformable RecordBuild reads the CURR deformed region (not a source
+        // VB), so m_BuildVbBda stays 0; index/stride/flags feed both the first build and later refits.
+        result->m_BuildIbBda        = tri.indexData.deviceAddress;
+        result->m_BuildVertexStride = static_cast<u32>(tri.vertexStride);
+        result->m_BuildMaxVertex    = tri.maxVertex;
+        result->m_BuildScratchSize  = buildScratchSize;
+        result->m_GeomFlags         = geom.flags;
+        result->m_BuildFlags        = buildInfo.flags;
 
         VkAccelerationStructureDeviceAddressInfoKHR addrInfo{
             VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR };
         addrInfo.accelerationStructure = result->m_Handle;
         result->m_DeviceAddress = rt.vkGetAccelerationStructureDeviceAddressKHR(device, &addrInfo);
 
-        LH_LOG(Renderer, trace, "Deformable BLAS built ({} verts, {} tris, AS size={} B, update scratch={} B)",
+        // No enqueue + no synchronous build: the first per-frame RefitSkinnedBLASes does the MODE_BUILD over
+        // the deform's CURR region once the source VB/IB upload retires, then MODE_UPDATEs thereafter.
+        LH_LOG(Renderer, trace, "Deformable BLAS created, build deferred ({} verts, {} tris, AS size={} B, update scratch={} B)",
                       vertCount, result->m_PrimitiveCount, sizes.accelerationStructureSize,
                       sizes.updateScratchSize);
         return result;
