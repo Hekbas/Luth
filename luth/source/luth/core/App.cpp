@@ -629,7 +629,9 @@ namespace Luth
 
         for (const auto& srcPath : e.GetPaths()) {
             if (srcPath.extension() == ".luthproj") continue;
-            AssetDatabase::IngestFile(srcPath, destDir);
+            // Off the app loop: a dropped model copies hundreds of MB of textures and runs a full
+            // Assimp+bake import, which must not freeze the frame.
+            AssetDatabase::IngestFileAsync(srcPath, destDir);
         }
     }
 }

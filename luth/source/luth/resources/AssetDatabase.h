@@ -64,6 +64,10 @@ namespace Luth
         // also discovers and copies adjacent textures so the import lands self-contained.
         static void IngestFile(const std::filesystem::path& sourcePath, const std::filesystem::path& destDir);
 
+        // Fire-and-forget IngestFile on a worker: the copy (hundreds of MB for a model + textures) and
+        // the import (Assimp + texture bakes) must not block the app loop. Used by the drag-drop handler.
+        static void IngestFileAsync(const std::filesystem::path& sourcePath, const std::filesystem::path& destDir);
+
         // Hot reload: file system watching
         using ChangeCallback = std::function<void()>;
         static void StartWatching();
