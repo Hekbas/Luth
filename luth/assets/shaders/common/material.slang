@@ -147,6 +147,7 @@ public struct HitGeometry
     public float3 ng;          // geometric (face) normal, faced against the ray
     public float3 ns;          // smooth shading normal (inverse-transpose), pre-perturb
     public float3 T;           // world tangent, Gram-Schmidt vs ns (valid iff hasTangent)
+    public float  tSign;       // bitangent handedness sign (Vertex tangent.w); constant per triangle
     public float2 uv0, uv1;
     public uint   materialSlot;
     public bool   hasTangent;
@@ -181,7 +182,7 @@ public HitGeometry GatherHitGeometry(GtGeomEntry* geomTable, uint customIndex, u
     HitGeometry g;
     GtGeomEntry ge = geomTable[customIndex];
     g.materialSlot = ge.materialSlot;
-    uint sF = ge.vertexStride >> 2u;     // stride in floats (52->13, 84->21)
+    uint sF = ge.vertexStride >> 2u;     // stride in floats (72->18, 104->26)
     uint i0 = ge.ibuf[primIndex * 3u + 0u];
     uint i1 = ge.ibuf[primIndex * 3u + 1u];
     uint i2 = ge.ibuf[primIndex * 3u + 2u];
@@ -214,6 +215,7 @@ public HitGeometry GatherHitGeometry(GtGeomEntry* geomTable, uint customIndex, u
     float3 vt2 = float3(ge.vbuf[i2*sF + 10u], ge.vbuf[i2*sF + 11u], ge.vbuf[i2*sF + 12u]);
     float3 tanObj = wgt.x * vt0 + wgt.y * vt1 + wgt.z * vt2;
     g.hasTangent = dot(tanObj, tanObj) > 1.0e-12;
+    g.tSign = ge.vbuf[i0*sF + 13u];   // handedness sign, constant per triangle -> single-vertex read
     float3 Tw = normalize(mul((float3x3)o2w, tanObj));
     g.T = normalize(Tw - dot(Tw, g.ns) * g.ns);
 

@@ -33,7 +33,8 @@ namespace Luth
                 { ShaderDataType::Float3, "a_Normal"    },
                 { ShaderDataType::Float2, "a_TexCoord0" },
                 { ShaderDataType::Float2, "a_TexCoord1" },
-                { ShaderDataType::Float3, "a_Tangent"   }
+                { ShaderDataType::Float4, "a_Tangent"   },
+                { ShaderDataType::Float4, "a_Color"     }
             };
         }
         // Position-only attribute with full PBR vertex stride; depth-prepass and shadow
@@ -43,8 +44,8 @@ namespace Luth
             BufferLayout layout = { { ShaderDataType::Float3, "a_Position" } };
             auto bindings = layout.GetBindingDescriptions();
             auto attribs  = layout.GetAttributeDescriptions();
-            // Stride mirrors MakePBRVertexLayout: Position3 + Normal3 + TexCoord0_2 + TexCoord1_2 + Tangent3.
-            if (!bindings.empty()) bindings[0].stride = sizeof(float) * (3 + 3 + 2 + 2 + 3);
+            // Stride mirrors MakePBRVertexLayout: Position3 + Normal3 + TexCoord0_2 + TexCoord1_2 + Tangent4 + Color4.
+            if (!bindings.empty()) bindings[0].stride = sizeof(float) * (3 + 3 + 2 + 2 + 4 + 4);
             return { std::move(bindings), std::move(attribs) };
         }
     }

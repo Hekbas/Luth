@@ -505,10 +505,18 @@ namespace Luth
             else
                 vertex.TexCoord1 = Vec2(0.0f);
 
-            if (mesh->HasTangentsAndBitangents())
-                vertex.Tangent = Math::Normalize(normalMatrix * AiVec3ToGLM(mesh->mTangents[i]));
-            else
-                vertex.Tangent = Vec3(0.0f);
+            if (mesh->HasTangentsAndBitangents()) {
+                Vec3 T = AiVec3ToGLM(mesh->mTangents[i]);
+                Vec3 B = AiVec3ToGLM(mesh->mBitangents[i]);
+                Vec3 Nn = mesh->HasNormals() ? AiVec3ToGLM(mesh->mNormals[i]) : Vec3(0.0f, 0.0f, 1.0f);
+                // glTF-convention handedness: the shader rebuilds bitangent = cross(N, T) * w. Compute w from
+                // the raw mesh basis so mirrored-UV islands (cross gives the wrong side) shade correctly.
+                float sign = (Math::Dot(Math::Cross(Nn, T), B) < 0.0f) ? -1.0f : 1.0f;
+                vertex.Tangent = Vec4(Math::Normalize(normalMatrix * T), sign);
+            } else {
+                vertex.Tangent = Vec4(0.0f, 0.0f, 0.0f, 1.0f);
+            }
+            vertex.Color = Vec4(1.0f);   // vertex-color consumption lands in a follow-on; neutral white here
 
             data.Vertices.push_back(vertex);
         }
@@ -560,10 +568,18 @@ namespace Luth
             else
                 vertex.TexCoord1 = Vec2(0.0f);
 
-            if (mesh->HasTangentsAndBitangents())
-                vertex.Tangent = Math::Normalize(normalMatrix * AiVec3ToGLM(mesh->mTangents[i]));
-            else
-                vertex.Tangent = Vec3(0.0f);
+            if (mesh->HasTangentsAndBitangents()) {
+                Vec3 T = AiVec3ToGLM(mesh->mTangents[i]);
+                Vec3 B = AiVec3ToGLM(mesh->mBitangents[i]);
+                Vec3 Nn = mesh->HasNormals() ? AiVec3ToGLM(mesh->mNormals[i]) : Vec3(0.0f, 0.0f, 1.0f);
+                // glTF-convention handedness: the shader rebuilds bitangent = cross(N, T) * w. Compute w from
+                // the raw mesh basis so mirrored-UV islands (cross gives the wrong side) shade correctly.
+                float sign = (Math::Dot(Math::Cross(Nn, T), B) < 0.0f) ? -1.0f : 1.0f;
+                vertex.Tangent = Vec4(Math::Normalize(normalMatrix * T), sign);
+            } else {
+                vertex.Tangent = Vec4(0.0f, 0.0f, 0.0f, 1.0f);
+            }
+            vertex.Color = Vec4(1.0f);   // vertex-color consumption lands in a follow-on; neutral white here
 
             // BoneIDs and BoneWeights initialized to defaults by SkinnedVertex constructor
             data.SkinnedVertices.push_back(vertex);
@@ -1173,7 +1189,7 @@ namespace Luth
         u32 flags = aiProcess_Triangulate | aiProcess_FlipUVs
             | aiProcess_JoinIdenticalVertices | aiProcess_LimitBoneWeights;
         if (settings.ImportNormals)  flags |= aiProcess_GenSmoothNormals;
-        if (settings.ImportTangents) flags |= aiProcess_CalcTangentSpace;
+        flags |= aiProcess_CalcTangentSpace;   // always: the vertex format now carries tangent.w (handedness sign)
         if (settings.OptimizeMesh)   flags |= aiProcess_OptimizeMeshes;
 
         const aiScene* scene;

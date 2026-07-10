@@ -23,15 +23,19 @@ namespace Luth
         Vec3 Normal;
         Vec2 TexCoord0;
         Vec2 TexCoord1;
-        Vec3 Tangent;
+        Vec4 Tangent = Vec4(0.0f, 0.0f, 0.0f, 1.0f);   // xyz tangent, w = bitangent handedness sign (+/-1)
+        Vec4 Color   = Vec4(1.0f);                     // linear RGBA vertex color, white = neutral
     };
 
     struct SkinnedVertex {
+        // Geometry prefix stays byte-identical to Vertex so the deform/skin seam and the RT geometry table
+        // read one interleaved layout; the bone attributes follow it.
         Vec3  Position;
         Vec3  Normal;
         Vec2  TexCoord0;
         Vec2  TexCoord1;
-        Vec3  Tangent;
+        Vec4  Tangent = Vec4(0.0f, 0.0f, 0.0f, 1.0f);
+        Vec4  Color   = Vec4(1.0f);
         IVec4 BoneIDs    = IVec4(-1);
         Vec4  BoneWeights = Vec4(0.0f);
     };
