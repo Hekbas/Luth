@@ -73,6 +73,11 @@ namespace Luth
             AssetType Type;
         };
 
+        // Fire-and-forget import payload; the job owns it and deletes it (mirrors LoadRequest).
+        struct ImportRequest {
+            UUID Handle;
+        };
+
         struct PendingUpload {
             UUID Handle;
             std::unique_ptr<AssetData> Data;
@@ -80,6 +85,7 @@ namespace Luth
         };
 
         static void LoadJob(JobSystem::JobArgs args);
+        static void ImportJob(JobSystem::JobArgs args);
 
         // In-flight import serialization. s_ImportingAssets holds the UUIDs currently being cooked so
         // exactly one importer writes a given artifact at a time; every import entry point (ImportDirty

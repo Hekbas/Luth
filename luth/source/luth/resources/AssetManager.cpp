@@ -250,16 +250,32 @@ namespace Luth
         const auto& dirtyAssets = AssetDatabase::GetDirtyAssets();
         if (dirtyAssets.empty()) return;
 
-        std::vector<UUID> assetsToImport = dirtyAssets;
-        LH_LOG(Assets, info, "Importing {} assets...", assetsToImport.size());
+        // Fire-and-forget: one job per dirty asset, no WaitForCounter -- the main thread never blocks on
+        // the import storm (cold Bistro = hundreds of texture bakes). The token is claimed inside the job
+        // when it starts (not here), so a main-thread reader for a still-queued asset wins TryBeginImport
+        // and imports that one inline instead of stalling on the whole queue. IsImporting skips assets
+        // already actively importing (LoadProject dispatches, then the next frame sees the same
+        // still-uncleared dirty set before ClearDirtyAssets runs).
+        u32 dispatched = 0;
+        for (UUID handle : dirtyAssets)
+        {
+            if (IsImporting(handle)) continue;
+            ImportRequest* req = new ImportRequest{ handle };
+            JobSystem::Execute(ImportJob, req, nullptr, "AssetImport", JobSystem::Priority::Low);
+            ++dispatched;
+        }
+        if (dispatched > 0)
+            LH_LOG(Assets, info, "Importing {} assets (async)...", dispatched);
+    }
 
-        JobSystem::Counter importCounter(0);
-        JobSystem::Dispatch((u32)assetsToImport.size(), 1, [](JobSystem::JobArgs args) {
-            LH_PROFILE_SCOPE("AssetImport");
-            std::vector<UUID>* assets = (std::vector<UUID>*)args.data;
-            AssetManager::Import((*assets)[args.jobIndex]);
-        }, &assetsToImport, &importCounter, "AssetImport");
-        JobSystem::WaitForCounter(&importCounter);
+    void AssetManager::ImportJob(JobSystem::JobArgs args)
+    {
+        LH_PROFILE_FUNCTION();
+        ImportRequest* req = (ImportRequest*)args.data;
+        // Dirty => artifact absent, so no force; non-blocking, so if another entry point already owns
+        // this import we bail rather than wait (it is being produced).
+        EnsureImported(req->Handle, /*forceReimport*/ false, /*blockIfBusy*/ false);
+        delete req;
     }
 
     // ---- Shared helpers ----
