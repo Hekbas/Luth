@@ -39,6 +39,7 @@ public struct VIn
     [[vk::location(7)]] public nointerpolation uint materialIndex;
     [[vk::location(8)]] public nointerpolation uint shadeMode;
     [[vk::location(9)]] public nointerpolation uint entityID;
+    [[vk::location(10)]] public float4 color;   // per-vertex color (linear RGBA), multiplied into albedo
 };
 public struct FOut
 {
@@ -68,6 +69,10 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
     FOut o;
     o.entityID = i.entityID;   // always written for picking
     RasterFetch rf;
+
+    // Vertex color modulates the decoded base color (RGBA), so cutout + shade-modes + alpha all see it.
+    // Meshes without a color channel import as neutral white, making this a no-op there.
+    mi.baseColor *= i.color;
 
     // Cutout discard (Cutout: alphaCutoff > 0; Opaque: 0).
     if (mi.baseColor.a < m.alphaCutoff) discard;

@@ -108,6 +108,13 @@ namespace Luth
                 UI::Property("Import Cameras", m_Settings.ImportCameras);
                 UI::Property("Import Lights", m_Settings.ImportLights);
 
+                ImGui::Separator();
+                ImGui::TextDisabled("Materials");
+
+                UI::Property("Refresh on Reimport", m_Settings.RefreshMaterialsOnReimport);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Regenerate this model's .mat files from source on reimport,\noverwriting Material Editor edits. Off = create-once (edits kept).");
+
                 UI::EndProperties();
             }
 

@@ -147,7 +147,9 @@ public struct HitGeometry
     public float3 ng;          // geometric (face) normal, faced against the ray
     public float3 ns;          // smooth shading normal (inverse-transpose), pre-perturb
     public float3 T;           // world tangent, Gram-Schmidt vs ns (valid iff hasTangent)
+    public float  tSign;       // bitangent handedness sign (Vertex tangent.w); constant per triangle
     public float2 uv0, uv1;
+    public float3 color;       // per-vertex color (linear RGB), barycentric; multiplied into baseColor
     public uint   materialSlot;
     public bool   hasTangent;
 }
@@ -181,7 +183,7 @@ public HitGeometry GatherHitGeometry(GtGeomEntry* geomTable, uint customIndex, u
     HitGeometry g;
     GtGeomEntry ge = geomTable[customIndex];
     g.materialSlot = ge.materialSlot;
-    uint sF = ge.vertexStride >> 2u;     // stride in floats (52->13, 84->21)
+    uint sF = ge.vertexStride >> 2u;     // stride in floats (72->18, 104->26)
     uint i0 = ge.ibuf[primIndex * 3u + 0u];
     uint i1 = ge.ibuf[primIndex * 3u + 1u];
     uint i2 = ge.ibuf[primIndex * 3u + 2u];
@@ -214,6 +216,7 @@ public HitGeometry GatherHitGeometry(GtGeomEntry* geomTable, uint customIndex, u
     float3 vt2 = float3(ge.vbuf[i2*sF + 10u], ge.vbuf[i2*sF + 11u], ge.vbuf[i2*sF + 12u]);
     float3 tanObj = wgt.x * vt0 + wgt.y * vt1 + wgt.z * vt2;
     g.hasTangent = dot(tanObj, tanObj) > 1.0e-12;
+    g.tSign = ge.vbuf[i0*sF + 13u];   // handedness sign, constant per triangle -> single-vertex read
     float3 Tw = normalize(mul((float3x3)o2w, tanObj));
     g.T = normalize(Tw - dot(Tw, g.ns) * g.ns);
 
@@ -224,6 +227,13 @@ public HitGeometry GatherHitGeometry(GtGeomEntry* geomTable, uint customIndex, u
     g.uv1 = wgt.x * float2(ge.vbuf[i0*sF + 8u], ge.vbuf[i0*sF + 9u])
           + wgt.y * float2(ge.vbuf[i1*sF + 8u], ge.vbuf[i1*sF + 9u])
           + wgt.z * float2(ge.vbuf[i2*sF + 8u], ge.vbuf[i2*sF + 9u]);
+
+    // Per-vertex color (floats 14-16), barycentric; alpha (float 17) unused since RT baseColor is RGB.
+    // Color sits at float 14 in both the 18-float Vertex and 26-float SkinnedVertex layouts (shared prefix).
+    float3 vc0 = float3(ge.vbuf[i0*sF + 14u], ge.vbuf[i0*sF + 15u], ge.vbuf[i0*sF + 16u]);
+    float3 vc1 = float3(ge.vbuf[i1*sF + 14u], ge.vbuf[i1*sF + 15u], ge.vbuf[i1*sF + 16u]);
+    float3 vc2 = float3(ge.vbuf[i2*sF + 14u], ge.vbuf[i2*sF + 15u], ge.vbuf[i2*sF + 16u]);
+    g.color = wgt.x * vc0 + wgt.y * vc1 + wgt.z * vc2;
     return g;
 }
 

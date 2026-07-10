@@ -6,12 +6,14 @@
 #include "luth/resources/FileSystem.h"
 #include "luth/resources/AssetSerializer.h"
 #include "luth/resources/importers/TextureResolver.h"
+#include "luth/resources/importers/ProjectTextureIndex.h"
 #include "luth/resources/importers/TextureBaker.h"
 #include "luth/resources/importers/ImportReport.h"
 #include "luth/resources/importers/AnimationClipImporter.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/renderer/resources/Skeleton.h"
 #include "luth/renderer/resources/AnimationClip.h"
+#include "luth/jobs/SpinLock.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -24,11 +26,15 @@
 
 namespace Luth
 {
-    // Import report: cleared each import, readable by the editor.
+    // Published report from the most recent completed import. Model imports can run concurrently (ImportDirty dispatches one job per dirty
+    // asset), so each import fills its own ImportContext::Report and publishes it here once at the end under s_ReportLock; the editor reads
+    // a copy under the same lock.
     static ImportReport s_LastImportReport;
+    static SpinLock s_ReportLock;
 
     ImportReport ModelImporter::GetLastImportReport()
     {
+        SpinLockGuard lock(s_ReportLock);
         return s_LastImportReport;
     }
 
@@ -50,6 +56,8 @@ namespace Luth
         s.ImportLights                 = j.value("import_lights", true);
         s.PhysicsBake                  = static_cast<PhysicsBakeMode>(j.value("physics_bake", 0));
         s.AutoDetectTextureRoles       = j.value("auto_detect_texture_roles", true);
+        s.ConventionAutoBind           = j.value("convention_auto_bind", true);
+        s.RefreshMaterialsOnReimport   = j.value("refresh_materials_on_reimport", false);
         return s;
     }
 
@@ -68,7 +76,9 @@ namespace Luth
             { "import_cameras",                  ImportCameras },
             { "import_lights",                   ImportLights },
             { "physics_bake",                    static_cast<int>(PhysicsBake) },
-            { "auto_detect_texture_roles",       AutoDetectTextureRoles }
+            { "auto_detect_texture_roles",       AutoDetectTextureRoles },
+            { "convention_auto_bind",            ConventionAutoBind },
+            { "refresh_materials_on_reimport",   RefreshMaterialsOnReimport }
         };
     }
 
@@ -497,10 +507,23 @@ namespace Luth
             else
                 vertex.TexCoord1 = Vec2(0.0f);
 
-            if (mesh->HasTangentsAndBitangents())
-                vertex.Tangent = Math::Normalize(normalMatrix * AiVec3ToGLM(mesh->mTangents[i]));
-            else
-                vertex.Tangent = Vec3(0.0f);
+            if (mesh->HasTangentsAndBitangents()) {
+                Vec3 T = AiVec3ToGLM(mesh->mTangents[i]);
+                Vec3 B = AiVec3ToGLM(mesh->mBitangents[i]);
+                Vec3 Nn = mesh->HasNormals() ? AiVec3ToGLM(mesh->mNormals[i]) : Vec3(0.0f, 0.0f, 1.0f);
+                // glTF-convention handedness: the shader rebuilds bitangent = cross(N, T) * w. Compute w from
+                // the raw mesh basis so mirrored-UV islands (cross gives the wrong side) shade correctly.
+                float sign = (Math::Dot(Math::Cross(Nn, T), B) < 0.0f) ? -1.0f : 1.0f;
+                vertex.Tangent = Vec4(Math::Normalize(normalMatrix * T), sign);
+            } else {
+                vertex.Tangent = Vec4(0.0f, 0.0f, 0.0f, 1.0f);
+            }
+            if (mesh->HasVertexColors(0)) {
+                const aiColor4D& c = mesh->mColors[0][i];   // glTF COLOR_0 / FBX color set are linear; multiplied into albedo
+                vertex.Color = Vec4(c.r, c.g, c.b, c.a);
+            } else {
+                vertex.Color = Vec4(1.0f);   // no color channel: neutral white (identity tint)
+            }
 
             data.Vertices.push_back(vertex);
         }
@@ -552,10 +575,23 @@ namespace Luth
             else
                 vertex.TexCoord1 = Vec2(0.0f);
 
-            if (mesh->HasTangentsAndBitangents())
-                vertex.Tangent = Math::Normalize(normalMatrix * AiVec3ToGLM(mesh->mTangents[i]));
-            else
-                vertex.Tangent = Vec3(0.0f);
+            if (mesh->HasTangentsAndBitangents()) {
+                Vec3 T = AiVec3ToGLM(mesh->mTangents[i]);
+                Vec3 B = AiVec3ToGLM(mesh->mBitangents[i]);
+                Vec3 Nn = mesh->HasNormals() ? AiVec3ToGLM(mesh->mNormals[i]) : Vec3(0.0f, 0.0f, 1.0f);
+                // glTF-convention handedness: the shader rebuilds bitangent = cross(N, T) * w. Compute w from
+                // the raw mesh basis so mirrored-UV islands (cross gives the wrong side) shade correctly.
+                float sign = (Math::Dot(Math::Cross(Nn, T), B) < 0.0f) ? -1.0f : 1.0f;
+                vertex.Tangent = Vec4(Math::Normalize(normalMatrix * T), sign);
+            } else {
+                vertex.Tangent = Vec4(0.0f, 0.0f, 0.0f, 1.0f);
+            }
+            if (mesh->HasVertexColors(0)) {
+                const aiColor4D& c = mesh->mColors[0][i];   // glTF COLOR_0 / FBX color set are linear; multiplied into albedo
+                vertex.Color = Vec4(c.r, c.g, c.b, c.a);
+            } else {
+                vertex.Color = Vec4(1.0f);   // no color channel: neutral white (identity tint)
+            }
 
             // BoneIDs and BoneWeights initialized to defaults by SkinnedVertex constructor
             data.SkinnedVertices.push_back(vertex);
@@ -734,6 +770,14 @@ namespace Luth
         std::unordered_map<std::string, UUID> TexturePathToUUID;
         std::vector<UUID> MaterialUUIDs;
         bool AutoDetectRoles = true;
+        bool ConventionAutoBind = true;
+        bool RefreshMaterials = false;   // opt-in: regenerate existing .mat from source on reimport
+        // Per-import, never shared across fibers: distinct source materials that sanitize to the same name must not collide on one .mat
+        // path, and unresolved/degraded report entries accumulate here and then publish once (see s_ReportLock).
+        std::unordered_set<std::string> UsedMaterialNames;
+        ImportReport Report;
+        // Project-wide texture lookup for widened resolution + convention auto-bind (built once per import).
+        ProjectTextureIndex Index;
     };
 
     static void ProcessTextures(ImportContext& ctx)
@@ -789,10 +833,23 @@ namespace Luth
         std::replace(matName.begin(), matName.end(), '/', '_');
         std::replace(matName.begin(), matName.end(), '\\', '_');
 
+        // Uniquify within this import: two source materials that sanitize to the same string must not share one .mat path, or the second
+        // GetUUID-hits the first and silently aliases it, giving every mesh on the collided slot the wrong material. Assimp material order
+        // is stable, so the suffixing stays deterministic across reimports.
+        {
+            std::string base = matName;
+            int dup = 1;
+            while (ctx.UsedMaterialNames.count(matName))
+                matName = base + "_" + std::to_string(dup++);
+            ctx.UsedMaterialNames.insert(matName);
+        }
+
         fs::path matPath = ctx.MaterialDir / (matName + ".mat");
 
-        UUID matUUID = AssetDatabase::GetUUID(matPath);
-        if (matUUID.IsValid()) return matUUID;
+        // Create-once by default: an existing .mat is reused verbatim so Material Editor edits survive a
+        // reimport. Opt-in RefreshMaterials regenerates it from source (same UUID/meta kept; content rewritten).
+        UUID existingUUID = AssetDatabase::GetUUID(matPath);
+        if (existingUUID.IsValid() && !ctx.RefreshMaterials) return existingUUID;
 
         // Create new Material
         nlohmann::json matJson;
@@ -858,9 +915,9 @@ namespace Luth
                 t.path = AssetDatabase::GetMetadata(t.uuid).Path;
             }
             else {
-                ResolveResult r = ResolveTexturePath(ctx.SourcePath.parent_path(), pathStr);
+                ResolveResult r = ResolveTexturePath(ctx.SourcePath.parent_path(), pathStr, &ctx.Index);
                 if (r.ResolvedPath.empty()) {
-                    s_LastImportReport.Unresolved.push_back({ matName, matPath, pathStr, reportType });
+                    ctx.Report.Unresolved.push_back({ matName, matPath, pathStr, reportType });
                     return {};
                 }
                 t.uuid = AssetDatabase::GetUUID(r.ResolvedPath);
@@ -869,7 +926,10 @@ namespace Luth
                     AssetDatabase::RegisterAsset(r.ResolvedPath, t.uuid, AssetType::Texture);
                 }
                 t.path = r.ResolvedPath;
-                if (r.Strategy != "direct")
+                if (r.Strategy == "fuzzy")
+                    LH_LOG(Assets, warn, "ModelImporter: fuzzy-matched '{0}' -> '{1}' (verify binding)",
+                        pathStr, r.ResolvedPath.filename().string());
+                else if (r.Strategy != "direct")
                     LH_LOG(Assets, info, "ModelImporter: Found texture via '{0}' strategy: {1} -> {2}",
                         r.Strategy, pathStr, r.ResolvedPath.filename().string());
             }
@@ -915,6 +975,9 @@ namespace Luth
 
         Resolved normal = ResolveSlot(aiTextureType_NORMALS, MapType::Normal);
         if (!normal.uuid.IsValid()) normal = ResolveSlot(aiTextureType_NORMAL_CAMERA, MapType::Normal);
+        // OBJ stores bump/normal maps under HEIGHT (Assimp maps map_Bump/bump there). Last resort only, so a real tangent-space normal
+        // always wins; InferNormalRole still picks GL vs DX by suffix.
+        if (!normal.uuid.IsValid()) normal = ResolveSlot(aiTextureType_HEIGHT, MapType::Normal);
         StampRole(normal, InferNormalRole(normal.path));
         AddNode(MapType::Normal, normal);
 
@@ -959,7 +1022,7 @@ namespace Luth
                     StampRole(rough, TextureRole::LinearData);
                     AddNode(MapType::Metalness, rough);
                     LH_LOG(Assets, warn, "ModelImporter: '{0}' metal+rough bake failed; routed roughness only", matName);
-                    s_LastImportReport.Degraded.push_back({ matName, matPath,
+                    ctx.Report.Degraded.push_back({ matName, matPath,
                         "separate metal+rough bake failed: roughness routed, metallic from factor" });
                 }
             }
@@ -1017,10 +1080,72 @@ namespace Luth
                     aiMat->Get(AI_MATKEY_GLOSSINESS_FACTOR, gloss);
                     matJson["roughness"] = 1.0f - gloss;
                     LH_LOG(Assets, warn, "ModelImporter: '{0}' spec-gloss bake failed; roughness from gloss factor", matName);
-                    s_LastImportReport.Degraded.push_back({ matName, matPath,
+                    ctx.Report.Degraded.push_back({ matName, matPath,
                         "spec-gloss bake failed: roughness from factor, metallic from factor" });
                 }
             }
+        }
+
+        // Convention auto-bind: a material the DCC exported with NO texture bindings (common in FBX that ship only material slots) leaves
+        // matJson["textures"] empty. Pair it with on-disk textures by matching the material or model name plus a role suffix
+        // (T_<Name>_<suffix>), routed through the same slots, roles, and baker as the Assimp path. Fires only when nothing was bound, so it
+        // never overrides an explicit binding.
+        if (ctx.ConventionAutoBind && matJson["textures"].empty() && !ctx.Index.Empty())
+        {
+            std::string nameLower = matName;
+            std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            std::string modelStem = ctx.SourcePath.stem().string();
+            fs::path modelDir = ctx.SourcePath.parent_path();
+
+            auto conv = [&](std::initializer_list<const char*> sufs) -> Resolved {
+                std::string matched;
+                fs::path p = ctx.Index.FindByConvention(nameLower, modelStem, sufs, modelDir, matched);
+                Resolved t;
+                if (!p.empty()) {
+                    t.uuid = AssetDatabase::GetUUID(p);
+                    if (!t.uuid.IsValid()) {
+                        t.uuid = MetaFile::Create(p, AssetType::Texture);
+                        AssetDatabase::RegisterAsset(p, t.uuid, AssetType::Texture);
+                    }
+                    t.path = p;
+                }
+                return t;
+            };
+
+            Resolved d = conv({ "bc","basecolor","albedo","diffuse","diff","d","col","color" });
+            StampRole(d, TextureRole::Color);        AddNode(MapType::Diffuse, d);
+            Resolved n = conv({ "n","nrm","normal","norm","nml" });
+            StampRole(n, InferNormalRole(n.path));   AddNode(MapType::Normal, n);
+            Resolved o = conv({ "ao","occ","occlusion" });
+            StampRole(o, TextureRole::LinearData);   AddNode(MapType::Occlusion, o);
+            Resolved em = conv({ "e","emissive","emission","emis","glow" });
+            StampRole(em, TextureRole::Color);       AddNode(MapType::Emissive, em);
+
+            // Metal-rough: a packed ORM/MR wins; else pack separate rough + metal (same bake as Assimp).
+            Resolved orm = conv({ "orm","arm","rma","mr","metalrough","metallicroughness" });
+            if (orm.uuid.IsValid()) {
+                StampRole(orm, InferMetalRoughRole(orm.path));
+                AddNode(MapType::Metalness, orm);
+                if (!o.uuid.IsValid() && IsOrmStem(orm.path)) AddNode(MapType::Occlusion, orm);
+            } else {
+                Resolved rough = conv({ "r","rough","roughness","rgh" });
+                Resolved metal = conv({ "m","metal","metallic","met" });
+                if (rough.uuid.IsValid() && metal.uuid.IsValid()) {
+                    UUID baked = TextureBaker::BakeMetalRough(ctx.TextureDir, matName,
+                                                              rough.path, rough.uuid, metal.path, metal.uuid);
+                    if (baked.IsValid()) { Resolved t; t.uuid = baked; AddNode(MapType::Metalness, t); }
+                    else { StampRole(rough, TextureRole::LinearData); AddNode(MapType::Metalness, rough); }
+                } else if (rough.uuid.IsValid()) {
+                    StampRole(rough, TextureRole::LinearData); AddNode(MapType::Metalness, rough);
+                } else if (metal.uuid.IsValid()) {
+                    StampRole(metal, TextureRole::LinearData); AddNode(MapType::Metalness, metal);
+                }
+            }
+
+            if (!matJson["textures"].empty())
+                LH_LOG(Assets, info, "ModelImporter: '{0}' auto-bound {1} texture(s) by naming convention",
+                    matName, matJson["textures"].size());
         }
 
         // Emissive factor -> the direct "emissive" key (rgb factor, a strength), NOT the dead u_*
@@ -1045,18 +1170,20 @@ namespace Luth
         file << matJson.dump(4);
         file.close();
 
-        matUUID = MetaFile::Create(matPath, AssetType::Material);
+        // Refresh kept the original UUID + .meta so every reference stays valid; only the content was rewritten.
+        // A genuinely new material mints its UUID + meta here.
+        if (existingUUID.IsValid()) {
+            AssetDatabase::RegisterAsset(matPath, existingUUID, AssetType::Material);
+            return existingUUID;
+        }
+        UUID matUUID = MetaFile::Create(matPath, AssetType::Material);
         AssetDatabase::RegisterAsset(matPath, matUUID, AssetType::Material);
-        
         return matUUID;
     }
 
     bool ModelImporter::Import(const std::filesystem::path& source, const std::filesystem::path& destination)
     {
         LH_PROFILE_FUNCTION();
-
-        s_LastImportReport.Clear();
-        s_LastImportReport.ModelPath = source;
 
         // Load import settings from .meta file
         ModelImportSettings settings;
@@ -1072,6 +1199,9 @@ namespace Luth
         ctx.TextureDir = source.parent_path() / (source.stem().string() + "_Textures");
         ctx.MaterialDir = source.parent_path() / (source.stem().string() + "_Materials");
         ctx.AutoDetectRoles = settings.AutoDetectTextureRoles;
+        ctx.ConventionAutoBind = settings.ConventionAutoBind;
+        ctx.RefreshMaterials = settings.RefreshMaterialsOnReimport;
+        ctx.Report.ModelPath = source;
 
         Assimp::Importer importer;
         importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);
@@ -1080,7 +1210,7 @@ namespace Luth
         u32 flags = aiProcess_Triangulate | aiProcess_FlipUVs
             | aiProcess_JoinIdenticalVertices | aiProcess_LimitBoneWeights;
         if (settings.ImportNormals)  flags |= aiProcess_GenSmoothNormals;
-        if (settings.ImportTangents) flags |= aiProcess_CalcTangentSpace;
+        flags |= aiProcess_CalcTangentSpace;   // always: the vertex format now carries tangent.w (handedness sign)
         if (settings.OptimizeMesh)   flags |= aiProcess_OptimizeMeshes;
 
         const aiScene* scene;
@@ -1091,12 +1221,17 @@ namespace Luth
 
         if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
             LH_LOG(Assets, error, "ModelImporter: Failed to load model {0} : {1}", source.string(), importer.GetErrorString());
+            SpinLockGuard lock(s_ReportLock);
+            s_LastImportReport = ctx.Report;   // publish (empty) so a parse failure clears any stale report
             return false;
         }
 
         ctx.Scene = scene;
 
         ProcessTextures(ctx);
+
+        // Build the project-wide texture index once (after embedded extraction, before materials resolve).
+        ctx.Index.Build(source.parent_path());
 
         {
             LH_PROFILE_SCOPE("ProcessMaterials");
@@ -1106,10 +1241,17 @@ namespace Luth
             }
         }
 
-        if (s_LastImportReport.HasUnresolved()) {
+        if (ctx.Report.HasUnresolved()) {
             LH_LOG(Assets, warn, "ModelImporter: {} texture(s) could not be resolved for '{}'."
                 " Use the Texture Remap dialog to assign them.",
-                s_LastImportReport.Unresolved.size(), source.filename().string());
+                ctx.Report.Unresolved.size(), source.filename().string());
+        }
+
+        // Publish this import's report to the single editor-visible slot. Concurrent imports each fill their own ctx.Report, so this lock
+        // only serializes the final swap (last import to finish wins).
+        {
+            SpinLockGuard lock(s_ReportLock);
+            s_LastImportReport = ctx.Report;
         }
 
         // Extract skeleton if the model has bones

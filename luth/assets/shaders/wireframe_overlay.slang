@@ -14,6 +14,7 @@ struct VIn
     [[vk::location(7)]] nointerpolation uint materialIndex;
     [[vk::location(8)]] nointerpolation uint shadeMode;
     [[vk::location(9)]] nointerpolation uint entityID;
+    [[vk::location(10)]] float4 color;   // unused here; keeps the VIn an exact mirror of the pbr_vert output
 };
 struct FOut
 {

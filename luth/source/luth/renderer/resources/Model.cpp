@@ -47,7 +47,8 @@ namespace Luth
                     { ShaderDataType::Float3, "a_Normal"      },
                     { ShaderDataType::Float2, "a_TexCoord0"   },
                     { ShaderDataType::Float2, "a_TexCoord1"   },
-                    { ShaderDataType::Float3, "a_Tangent"     },
+                    { ShaderDataType::Float4, "a_Tangent"     },
+                    { ShaderDataType::Float4, "a_Color"       },
                     { ShaderDataType::Int4,   "a_BoneIDs"     },
                     { ShaderDataType::Float4, "a_BoneWeights" }
                 });
@@ -62,7 +63,8 @@ namespace Luth
                     { ShaderDataType::Float3, "a_Normal"    },
                     { ShaderDataType::Float2, "a_TexCoord0" },
                     { ShaderDataType::Float2, "a_TexCoord1" },
-                    { ShaderDataType::Float3, "a_Tangent"   }
+                    { ShaderDataType::Float4, "a_Tangent"   },
+                    { ShaderDataType::Float4, "a_Color"     }
                 });
             }
 

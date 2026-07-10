@@ -109,7 +109,9 @@ namespace Luth
                 nodeEntities[i] = e;
 
                 auto& t = e.GetComponent<Transform>();
-                if (n.ParentIndex == skipRoot) {
+                // Guard skipRoot >= 0: with no root skipped (-1), a genuine root's ParentIndex (-1) must NOT
+                // match, or nodes[skipRoot] indexes nodes[-1]. Only fold when an actual root is being skipped.
+                if (skipRoot >= 0 && n.ParentIndex == skipRoot) {
                     // Fold the skipped root's local transform in so the child keeps its world pose.
                     const auto& r = nodes[skipRoot];
                     Mat4 rootM  = Math::Translate(Mat4(1.0f), r.Translation) * Math::ToMat4(r.Rotation) * Math::Scale(Mat4(1.0f), r.Scale);
@@ -134,10 +136,11 @@ namespace Luth
                 if (n.MeshIndices.size() == 1) {
                     attachMesh(e, n.MeshIndices[0]);
                 } else {
+                    const auto& meshInfos = model->GetCachedModelInfo().Meshes;
                     for (u32 mi : n.MeshIndices) {
-                        Entity child = CreateEntity(model->GetCachedModelInfo().Meshes[mi].Name);
+                        Entity child = CreateEntity(mi < meshInfos.size() ? meshInfos[mi].Name : "Mesh");
                         child.SetParent(e);
-                        attachMesh(child, mi);
+                        attachMesh(child, mi);   // attachMesh bounds-checks meshIdx internally
                     }
                 }
 

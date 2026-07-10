@@ -15,6 +15,7 @@ struct VIn   // matches pbr.vert (TBN delivered as separate T/B/N varyings)
     [[vk::location(7)]] nointerpolation uint materialIndex;
     [[vk::location(8)]] nointerpolation uint shadeMode;
     [[vk::location(9)]] nointerpolation uint entityID;
+    [[vk::location(10)]] float4 color;
 };
 struct FOut
 {
@@ -28,6 +29,6 @@ FOut main(VIn i, bool frontFacing : SV_IsFrontFace, float4 fragCoord : SV_Positi
     FOut o;
     o.entityID = i.entityID;
     o.color = EvalTransparentSurfaceColor(i.materialIndex, i.shadeMode, i.uv0, i.uv1,
-                                          i.T, i.B, i.N, frontFacing, i.worldPos, fragCoord);
+                                          i.T, i.B, i.N, frontFacing, i.worldPos, fragCoord, i.color);
     return o;
 }

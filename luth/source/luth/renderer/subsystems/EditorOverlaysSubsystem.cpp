@@ -34,7 +34,8 @@ namespace Luth
                 { ShaderDataType::Float3, "a_Normal"      },
                 { ShaderDataType::Float2, "a_TexCoord0"   },
                 { ShaderDataType::Float2, "a_TexCoord1"   },
-                { ShaderDataType::Float3, "a_Tangent"     },
+                { ShaderDataType::Float4, "a_Tangent"     },
+                { ShaderDataType::Float4, "a_Color"       },
                 { ShaderDataType::Int4,   "a_BoneIDs"     },
                 { ShaderDataType::Float4, "a_BoneWeights" }
             };
@@ -44,7 +45,7 @@ namespace Luth
             BufferLayout layout = { { ShaderDataType::Float3, "a_Position" } };
             auto bindings = layout.GetBindingDescriptions();
             auto attribs  = layout.GetAttributeDescriptions();
-            if (!bindings.empty()) bindings[0].stride = sizeof(float) * (3 + 3 + 2 + 2 + 3);
+            if (!bindings.empty()) bindings[0].stride = sizeof(float) * (3 + 3 + 2 + 2 + 4 + 4);
             return { std::move(bindings), std::move(attribs) };
         }
     }

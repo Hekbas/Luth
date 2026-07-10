@@ -21,6 +21,7 @@ struct VIn   // matches pbr.vert
     [[vk::location(7)]] nointerpolation uint materialIndex;
     [[vk::location(8)]] nointerpolation uint shadeMode;
     [[vk::location(9)]] nointerpolation uint entityID;
+    [[vk::location(10)]] float4 color;
 };
 
 // Depth test BEFORE the shader so occluded fragments never shade or store (legal; no depth writes here).
@@ -29,7 +30,7 @@ struct VIn   // matches pbr.vert
 void main(VIn i, bool frontFacing : SV_IsFrontFace, float4 fragCoord : SV_Position)
 {
     float4 c = EvalTransparentSurfaceColor(i.materialIndex, i.shadeMode, i.uv0, i.uv1,
-                                           i.T, i.B, i.N, frontFacing, i.worldPos, fragCoord);
+                                           i.T, i.B, i.N, frontFacing, i.worldPos, fragCoord, i.color);
 
     uint idx;
     oitNodes.InterlockedAdd(0u, 1u, idx);   // atomic count++ at byte offset 0

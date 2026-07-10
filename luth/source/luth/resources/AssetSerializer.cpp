@@ -241,7 +241,7 @@ namespace Luth
         if (!out.is_open()) return false;
 
         AssetHeader header;
-        header.Version = 5; // V5: per-mesh IsDeformable (was V4 scene-graph nodes + cameras + lights)
+        header.Version = 6; // V6: Vertex gains tangent.w handedness sign + Vec4 color (was V5 per-mesh IsDeformable)
         header.Type = AssetType::Model;
         out.write((const char*)&header, sizeof(AssetHeader));
 
@@ -310,9 +310,9 @@ namespace Luth
         in.read((char*)&header, sizeof(AssetHeader));
         if (header.Type != AssetType::Model) return false;
 
-        // V5 schema: per-mesh IsDeformable. Older artifacts are rejected so they get re-imported under
-        // the new schema on first load (mirrors the Shader V1->V2 reject pattern).
-        if (header.Version != 5) return false;
+        // V6 schema: Vertex gains tangent.w handedness sign + Vec4 color. Older artifacts are rejected so
+        // they get re-imported under the new schema on first load (mirrors the Shader V1->V2 reject pattern).
+        if (header.Version != 6) return false;
 
         ModelHeader modelHeader;
         in.read((char*)&modelHeader, sizeof(ModelHeader));

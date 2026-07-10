@@ -44,15 +44,15 @@ public HitSurface FetchHitSurface(GtGeomEntry* geomTable, uint customIndex, uint
 
     float3 N = g.ns;
     if ((m.flags & FLAG_HAS_NORMAL) != 0u && g.hasTangent)
-        N = ApplyNormalMap<RayFetch>(m, g.uv0, g.uv1, g.T, cross(g.ns, g.T), g.ns, rf);
+        N = ApplyNormalMap<RayFetch>(m, g.uv0, g.uv1, g.T, cross(g.ns, g.T) * g.tSign, g.ns, rf);
     // Graphed normal overrides on tangented meshes; tangentless RT keeps g.ns (stock-map parity).
     if (any(mi.normal != float3(0.0, 0.0, 1.0)) && g.hasTangent)
-        N = ApplyTangentNormal(mi.normal, g.T, cross(g.ns, g.T), g.ns);
+        N = ApplyTangentNormal(mi.normal, g.T, cross(g.ns, g.T) * g.tSign, g.ns);
     if (dot(N, g.ng) < 0.0) N = -N;   // face shading normal to the geometric side (RT analog of gl_FrontFacing)
 
     HitSurface s;
     s.ns = N;  s.ng = g.ng;
-    s.baseColor = mi.baseColor.rgb;
+    s.baseColor = mi.baseColor.rgb * g.color;   // per-vertex color modulation (raster==RT albedo parity)
     s.emission  = mi.emissive;
     s.metalness = mi.metallic;
     s.roughness = mi.roughness;

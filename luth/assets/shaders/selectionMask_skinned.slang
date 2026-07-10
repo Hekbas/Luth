@@ -1,4 +1,4 @@
-// Selection mask (skinned): VS-side Linear Blend Skinning from the 84 B skinned VB + Set 4 bones (this
+// Selection mask (skinned): VS-side Linear Blend Skinning from the 104 B skinned VB + Set 4 bones (this
 // pass stays on isSkinned, not the deform seam). Un-jitters the projection like the non-skinned variant.
 import globals;
 
@@ -8,9 +8,9 @@ struct VSIn
     [[vk::location(1)]] float3 normal;
     [[vk::location(2)]] float2 uv0;
     [[vk::location(3)]] float2 uv1;
-    [[vk::location(4)]] float3 tangent;
-    [[vk::location(5)]] int4   boneIDs;
-    [[vk::location(6)]] float4 boneWeights;
+    [[vk::location(4)]] float4 tangent;
+    [[vk::location(6)]] int4   boneIDs;      // color occupies loc 5, so bones shift to 6/7
+    [[vk::location(7)]] float4 boneWeights;
 };
 
 [[vk::binding(0, 4)]] StructuredBuffer<float4x4> bones;   // Set 4: BoneMatrices

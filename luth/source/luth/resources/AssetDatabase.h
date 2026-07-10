@@ -47,6 +47,10 @@ namespace Luth
         static std::filesystem::path GetArtifactPath(UUID uuid);
         static bool Exists(UUID uuid);
 
+        // Snapshot of registered source paths of a given asset type, taken under s_Mutex (the registry accessor is otherwise
+        // unsynchronized). Backs the importer's project-wide texture index.
+        static std::vector<std::filesystem::path> GetPathsOfType(AssetType type);
+
         // Registry Management
         static void RegisterAsset(const std::filesystem::path& path, UUID uuid, AssetType type);
         static void UnregisterAsset(UUID uuid);
