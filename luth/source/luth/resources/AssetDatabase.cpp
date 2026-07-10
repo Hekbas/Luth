@@ -4,6 +4,7 @@
 #include "luth/resources/MetaFile.h"
 #include "luth/core/diagnostics/Log.h"
 #include "luth/resources/AssetManager.h"
+#include "luth/resources/importers/TextureResolver.h"
 #include <fstream>
 #include <nlohmann/json.hpp>
 
@@ -447,6 +448,17 @@ namespace Luth
         }
     }
 
+    std::vector<fs::path> AssetDatabase::GetPathsOfType(AssetType type)
+    {
+        std::vector<fs::path> paths;
+        std::lock_guard<std::mutex> lock(s_Mutex);
+        paths.reserve(s_Assets.size());
+        for (const auto& [uuid, meta] : s_Assets)
+            if (meta.Type == type)
+                paths.push_back(meta.Path);
+        return paths;
+    }
+
     void AssetDatabase::IngestFile(const fs::path& sourcePath, const fs::path& destDir)
     {
         LH_PROFILE_FUNCTION();
@@ -479,12 +491,7 @@ namespace Luth
                 fs::path srcDir = sourcePath.parent_path();
 
                 std::vector<fs::path> scanDirs = { srcDir };
-                static const char* k_SiblingDirs[] = {
-                    "textures", "Textures", "texture", "Texture",
-                    "tex",      "Tex",      "maps",   "Maps",
-                    "images",   "Images"
-                };
-                for (const char* sub : k_SiblingDirs) {
+                for (const char* sub : k_CommonTextureDirs) {
                     fs::path candidate = srcDir / sub;
                     if (fs::exists(candidate) && fs::is_directory(candidate))
                         scanDirs.push_back(candidate);
