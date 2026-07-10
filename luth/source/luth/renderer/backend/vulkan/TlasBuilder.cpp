@@ -240,10 +240,13 @@ namespace Luth
                                            std::span<const MeshDrawSnapshot> instances,
                                            u32 frameAbs,
                                            const TlasBuildResult& prev,
-                                           const std::unordered_map<UUID, u32, UUIDHash>& materialSlotMap)
+                                           const std::unordered_map<UUID, u32, UUIDHash>& materialSlotMap,
+                                           u64 blasReadyGen)
     {
         const u64 hash = HashInstances(instances);
-        if (prev.tlas != VK_NULL_HANDLE && hash == prev.instanceHash)
+        // A newly first-built BLAS changes the ready-generation but not the instance hash; force one rebuild
+        // when the generation advances so the now-ready BLAS is gathered, then hash-reuse resumes.
+        if (prev.tlas != VK_NULL_HANDLE && hash == prev.instanceHash && blasReadyGen == prev.blasReadyGen)
         {
             TlasBuildResult r = prev;
             r.reused = true;
@@ -332,6 +335,7 @@ namespace Luth
         TlasBuildResult result{};
         result.instanceHash  = hash;
         result.instanceCount = static_cast<u32>(packed.size());
+        result.blasReadyGen  = blasReadyGen;
 
         if (packed.empty())
         {

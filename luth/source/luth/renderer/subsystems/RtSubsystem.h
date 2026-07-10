@@ -98,6 +98,7 @@ namespace Luth
 
         RenderPipeline* m_Pipeline      = nullptr;
         TlasBuildResult m_LastResult{};
+        u64             m_BlasReadyGeneration = 0;  // ++ when a deferred BLAS first-builds; forces one TLAS rebuild (H1)
         u64             m_LastBuildFrame = ~u64(0);  // TLAS is scene-global; guard short-circuits the
                                                      // second view's rebuild. RT shadow trace is per-view
                                                      // (each view's depth/camera/mask differ) so no guard.
