@@ -24,6 +24,10 @@ namespace Luth
                          | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
                          | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        // The deferred static BLAS build reads the VB via BDA on the AsyncCompute queue; EXCLUSIVE +
+        // cross-queue access without QFOT is spec-undefined and TDRs on NVIDIA (mirrors the IB below).
+        // Single-family GPUs silently fall back to EXCLUSIVE. see arch/multi-queue.md
+        VulkanContext::Get().ApplyConcurrentSharing(bufferInfo);
 
         m_Allocation = VulkanAllocator::AllocateBuffer(bufferInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, m_Buffer);
 

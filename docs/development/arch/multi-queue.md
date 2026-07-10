@@ -141,7 +141,7 @@ Same logic for buffer barriers and external `finalState` post-barriers when the 
 | Persistent `VKTexture` | `VKTexture::CreateImage` | CONCURRENT iff `STORAGE_BIT` (compute outputs) **OR** (`DEPTH_STENCIL_ATTACHMENT_BIT` + `SAMPLED_BIT`) (depth sampled by compute — SceneDepth → GTAODepthPrefilter); else EXCLUSIVE |
 | `UploadContext` staging | `CreateResources` | EXCLUSIVE — transfer-queue-only |
 | Color RTs (RGBA16F SceneColor, RGBA8 LDR) | per-format VKTexture path | EXCLUSIVE — preserves AMD Delta Color Compression |
-| Geometry vertex/index buffers | `VulkanBuffer` | EXCLUSIVE — graphics-queue-only |
+| Geometry vertex/index buffers | `VulkanBuffer` | CONCURRENT — read cross-queue by the AsyncCompute BLAS build (index on the skinned refit, vertex on the deferred static build); NVIDIA ignores sharing, VBs carry no DCC |
 | Swapchain images | `VulkanSwapchain` | EXCLUSIVE — graphics presents |
 
 **Why CONCURRENT, not EXCLUSIVE + QFOT.** NVIDIA driver guidance: `VkSharingMode` is ignored — CONCURRENT carries zero overhead. AMD's only documented concern is DCC on color render targets, which the per-resource opt-in preserves. EXCLUSIVE + QFOT (paired release/acquire `VkImageMemoryBarrier2` per cross-queue handoff) is a documented future-polish path — would require `SolveBarriers` to emit paired barriers on both queues' primaries. Not done because: (1) zero in-scope perf delta on the current hardware target, (2) the barrier solver complication isn't justified until forward-plus / gpu-particles surface a workload where DCC on a cross-queue color RT actually matters.
