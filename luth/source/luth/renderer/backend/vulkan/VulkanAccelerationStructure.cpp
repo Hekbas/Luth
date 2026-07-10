@@ -21,21 +21,6 @@ namespace Luth
             return (value + (alignment - 1)) & ~(alignment - 1);
         }
 
-        // Allocate a device-local VkBuffer with the requested usage. Returns the buffer + alloc
-        // (caller stores both for PushDeletion) and the cached device address.
-        VkDeviceAddress AllocateDeviceBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
-                                             VkBuffer& outBuffer, VmaAllocation& outAlloc)
-        {
-            VkBufferCreateInfo ci{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-            ci.size        = size;
-            ci.usage       = usage;
-            ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-            outAlloc = VulkanAllocator::AllocateBuffer(ci, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, outBuffer);
-            VkBufferDeviceAddressInfo addrInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
-            addrInfo.buffer = outBuffer;
-            return vkGetBufferDeviceAddress(VulkanContext::Get().GetDevice(), &addrInfo);
-        }
-
         // Static BLAS builds queued by CreateStaticBLAS (main thread) and drained on the async-compute AS
         // pass (render worker). SpinLock, not std::mutex: the drain runs inside a RecordingScope where a
         // fiber must not yield on OS sync (fiber-system.md V1/V3). weak_ptr so an evicted mesh cancels.
@@ -338,8 +323,8 @@ namespace Luth
         // geometry table reads post-skin normals/tangents byte-identical to a static VB; the AS build
         // reads positions at offset 0. Double-buffered (curr/prev regions) so raster motion vectors can
         // read the previous frame's positions; region alternates by frame parity, region 0 == CURR on
-        // frame 0. Zero-filled before the initial build (VMA leaves memory uninitialized; recycled
-        // NaN/Inf would TDR the BVH builder). see arch/multi-queue.md
+        // frame 0. The first refit does the MODE_BUILD over CURR after the deform has written it (gated on
+        // the source-VB upload), so no pre-build zero-fill is needed. see arch/multi-queue.md
         const VkDeviceSize deformedRegionBytes = static_cast<VkDeviceSize>(vertCount) * sizeof(Vertex);
         const VkDeviceSize deformedSize        = 2 * deformedRegionBytes;
         result->m_DeformedRegionBytes = deformedRegionBytes;
@@ -348,8 +333,7 @@ namespace Luth
             ci.size        = deformedSize;
             ci.usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
                            | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-                           | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
-                           | VK_BUFFER_USAGE_TRANSFER_DST_BIT;  // vkCmdFillBuffer zero-init pre-build
+                           | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
             ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
             ctx.ApplyConcurrentSharing(ci);
             result->m_DeformedAlloc = VulkanAllocator::AllocateBuffer(
@@ -358,11 +342,6 @@ namespace Luth
             addrInfo.buffer = result->m_DeformedBuffer;
             result->m_DeformedBda = vkGetBufferDeviceAddress(device, &addrInfo);
         }
-
-        // Wait for VB + IB uploads before the initial build; the per-frame skinning compute reads
-        // the VB directly, so it must be resident before this mesh goes live.
-        const u64 fence = std::max<u64>(ib->GetUploadFence(), vb->GetUploadFence());
-        if (fence > 0) UploadContext::Get().WaitForUpload(fence);
 
         // Geometry desc reads positions (offset 0) from the deformed vertex buffer (NOT the source
         // SkinnedVertex VB). The initial build sees zero positions; the first per-frame Refit
@@ -412,15 +391,9 @@ namespace Luth
         result->m_StorageAlloc = VulkanAllocator::AllocateBuffer(
             storageCi, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, result->m_StorageBuffer);
 
-        // One-shot build scratch.
+        // Build scratch is allocated at refit time (the first refit does the MODE_BUILD); record its size.
         const u64 scratchAlign = ctx.GetAsProperties().minAccelerationStructureScratchOffsetAlignment;
         const u64 buildScratchSize = AlignUp(sizes.buildScratchSize, scratchAlign);
-        VkBuffer scratchBuffer = VK_NULL_HANDLE;
-        VmaAllocation scratchAlloc = nullptr;
-        const VkDeviceAddress scratchBda = AllocateDeviceBuffer(
-            buildScratchSize,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-            scratchBuffer, scratchAlloc);
 
         VkAccelerationStructureCreateInfoKHR asCi{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
         asCi.buffer = result->m_StorageBuffer;
@@ -439,33 +412,14 @@ namespace Luth
         result->m_GeomFlags         = geom.flags;
         result->m_BuildFlags        = buildInfo.flags;
 
-        // Transitional: still build synchronously (with the zero-init fill) so the engine renders through
-        // the factory split; the deferred first-build in RefitSkinnedBLASes replaces this and drops the fill.
-        ctx.ImmediateSubmit([&](VkCommandBuffer cmd) {
-            // VMA leaves this uninitialized; zero it so the build reads degenerate tris, not NaN/Inf (TDR).
-            vkCmdFillBuffer(cmd, result->m_DeformedBuffer, 0, VK_WHOLE_SIZE, 0u);
-            VkMemoryBarrier2 fillBarrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
-            fillBarrier.srcStageMask  = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
-            fillBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            fillBarrier.dstStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-            fillBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-            VkDependencyInfo fillDep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-            fillDep.memoryBarrierCount = 1;
-            fillDep.pMemoryBarriers    = &fillBarrier;
-            vkCmdPipelineBarrier2(cmd, &fillDep);
-            result->RecordBuild(cmd, scratchBda, 0);
-        });
-
-        VulkanContext::Get().PushDeletion([scratchBuffer, scratchAlloc]() {
-            VulkanAllocator::FreeBuffer(scratchBuffer, scratchAlloc);
-        });
-
         VkAccelerationStructureDeviceAddressInfoKHR addrInfo{
             VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR };
         addrInfo.accelerationStructure = result->m_Handle;
         result->m_DeviceAddress = rt.vkGetAccelerationStructureDeviceAddressKHR(device, &addrInfo);
 
-        LH_LOG(Renderer, trace, "Deformable BLAS built ({} verts, {} tris, AS size={} B, update scratch={} B)",
+        // No enqueue + no synchronous build: the first per-frame RefitSkinnedBLASes does the MODE_BUILD over
+        // the deform's CURR region once the source VB/IB upload retires, then MODE_UPDATEs thereafter.
+        LH_LOG(Renderer, trace, "Deformable BLAS created, build deferred ({} verts, {} tris, AS size={} B, update scratch={} B)",
                       vertCount, result->m_PrimitiveCount, sizes.accelerationStructureSize,
                       sizes.updateScratchSize);
         return result;

@@ -47,6 +47,9 @@ namespace Luth
         bool IsBuildRecorded()     const { return m_BuildRecorded; }
         u32  GetBuildFrameAbs()    const { return m_BuildFrameAbs; }
         u64  GetBuildScratchSize() const { return m_BuildScratchSize; }
+        // Marks a deferred BLAS built at `frameAbs`. Used by the batched RefitSkinnedBLASes first-build path
+        // (which packs its own build info); RecordBuild sets these directly for the static-drain path.
+        void MarkBuildRecorded(u32 frameAbs) { m_BuildRecorded = true; m_BuildFrameAbs = frameAbs; }
 
         // Per-mesh static BLAS factory. Synchronous main-thread ImmediateSubmit on the graphics queue (graphics
         // families always advertise VK_QUEUE_COMPUTE_BIT per spec, which is what vkCmdBuildAccelerationStructuresKHR

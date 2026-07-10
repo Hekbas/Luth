@@ -62,8 +62,11 @@ namespace Luth
         // rule), then issues ONE vkCmdBuildAccelerationStructuresKHR(N, infos, ranges) call. Caller must have
         // already populated each mesh's deformed-VB via the skinning compute pass + emitted the
         // compute-write -> AS-build-read memory barrier.
-        static void RefitSkinnedBLASes(VkCommandBuffer cmd,
-                                       std::span<const MeshDrawSnapshot> instances,
-                                       u32 frameAbs);
+        // Per-entry mode: a deformable BLAS whose build has not been recorded yet gets a MODE_BUILD
+        // (its first, over the deform's CURR region); the rest MODE_UPDATE. Gated on the source VB/IB
+        // upload. Returns the number of first-builds recorded (a null->ready transition the TLAS folds in).
+        static u32 RefitSkinnedBLASes(VkCommandBuffer cmd,
+                                      std::span<const MeshDrawSnapshot> instances,
+                                      u32 frameAbs);
     };
 }
