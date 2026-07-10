@@ -51,19 +51,16 @@ namespace Luth
         // (which packs its own build info); RecordBuild sets these directly for the static-drain path.
         void MarkBuildRecorded(u32 frameAbs) { m_BuildRecorded = true; m_BuildFrameAbs = frameAbs; }
 
-        // Per-mesh static BLAS factory. Synchronous main-thread ImmediateSubmit on the graphics queue (graphics
-        // families always advertise VK_QUEUE_COMPUTE_BIT per spec, which is what vkCmdBuildAccelerationStructuresKHR
-        // requires). PREFER_FAST_TRACE flag per NVIDIA RTX best practices: static BLAS optimizes for ray-trace
-        // performance, build cost is paid once. Gates on UploadContext::WaitForUpload of the VB/IB upload fences
-        // before recording the build; VB/IB upload runs on a separate submission chain (transfer queue), so the
-        // graphics-queue draws' implicit serialize does NOT cover this build path.
+        // Per-mesh static BLAS factory. Creates the AS object only + enqueues a deferred build (never blocks):
+        // DrainPendingStaticBuilds records the MODE_BUILD on the async-compute AS pass once the VB/IB upload
+        // retires. PREFER_FAST_TRACE per NVIDIA RTX best practices (static BLAS optimizes for trace, built once).
+        // Until the build is recorded the TLAS gather + the raster draw list skip the mesh (progressive load).
         static std::shared_ptr<VKAccelerationStructure> CreateStaticBLAS(const Mesh& mesh);
 
-        // Per-mesh DEFORMABLE BLAS factory (skinned OR static wind-deformable). Allocates a persistent
-        // double-buffered deformed-positions buffer and builds the AS over its (zero-init) curr region with
-        // ALLOW_UPDATE | PREFER_FAST_TRACE; the first per-frame deform compute + Refit fills the real positions
-        // before any consumer reads the BLAS. The deform compute reads the mesh's source VB directly; this
-        // waits on the VB + IB upload fences before the initial build.
+        // Per-mesh DEFORMABLE BLAS factory (skinned OR static wind-deformable). Creates the AS object + its
+        // persistent double-buffered deformed-positions buffer (never blocks, no synchronous build). The first
+        // per-frame RefitSkinnedBLASes does the MODE_BUILD (ALLOW_UPDATE | PREFER_FAST_TRACE) over the deform's
+        // CURR region once the source VB upload retires, then MODE_UPDATEs each frame.
         static std::shared_ptr<VKAccelerationStructure> CreateDeformableBLAS(const Mesh& mesh);
 
         // In-place refit (MODE_UPDATE_KHR). Requires the BLAS was originally built with

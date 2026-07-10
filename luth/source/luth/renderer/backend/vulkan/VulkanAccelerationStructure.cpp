@@ -244,11 +244,9 @@ namespace Luth
         auto result = std::make_shared<VKAccelerationStructure>();
         result->m_PrimitiveCount = primitiveCount;
 
-        // Persistent AS storage buffer. CONCURRENT: BLAS is built on graphics (ImmediateSubmit)
-        // but read on compute (RtSunShadowsPass raygen) via TLAS device-address dereference.
-        // Per arch/multi-queue.md, cross-queue buffer access requires CONCURRENT or QFOT; AS
-        // storage was missed in the original policy because the early per-frame TLAS was culled
-        // silently and never exercised cross-queue.
+        // Persistent AS storage buffer. CONCURRENT: built + read on the async-compute AS pass, and read by the
+        // RT trace via the TLAS device-address dereference; cross-queue access needs CONCURRENT or QFOT
+        // (arch/multi-queue.md).
         VkBufferCreateInfo storageCi{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
         storageCi.size        = sizes.accelerationStructureSize;
         storageCi.usage       = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR

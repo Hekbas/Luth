@@ -142,6 +142,7 @@
 | v3.7.3 | `node-breadth` | 16 new node types: math breadth, UV source + TextureSample UV pin, FBM Noise (graph_lib.slang, conditional import), fetch-context inputs (WorldPos/ViewDir/Time/Fresnel via ITexFetch getters filled per tier), sandboxed custom-Slang expression node; VertexColor deferred | 2026-07-03 |
 | v3.7.3 | `effect-layer` | Composable layers on the graph codegen: a MaterialInputs "layer" wire with MakeLayer/LayerBlend/Output.Surface (per-channel mask blend, normalized-lerp normal) + Triplanar (WorldNormal-weighted 3-plane) and DetailNormal (RNM) effect nodes from common/effects.slang; derivative-free raster==RT, typed pins, effect scalars as gMatParams data, hash-stable slot-6. Closes #157 | 2026-07-06 |
 | v3.7.4 | `importer-hardening` | Model-import hardening: project-wide texture resolution + convention auto-bind, nested glTF texture copy, vertex format v6 (tangent handedness sign, vertex colors consumed into albedo raster==RT), opt-in material reimport-refresh, InstantiateModel multi-child-root crash guard | 2026-07-10 |
+| v3.7.5 | `async-blas-build` | Deferred ray-tracing BLAS builds: model load no longer freezes the main thread. The factories enqueue instead of blocking; the async-compute TLAS pass records the MODE_BUILD once the VB/IB upload retires (non-blocking poll). A TLAS ready-generation folds late builds in without moving the mesh; per-mesh raster/skinning gating gives progressive, hazard-free load | 2026-07-10 |
 
 ---
 
