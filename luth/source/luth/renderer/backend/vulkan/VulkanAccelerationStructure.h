@@ -78,6 +78,12 @@ namespace Luth
         // deformed region for `frameAbs`; static reads its fixed source VB. Sets IsBuildRecorded().
         void RecordBuild(VkCommandBuffer cmd, VkDeviceAddress scratchBda, u32 frameAbs);
 
+        // Drains pending static BLAS builds onto `cmd` (the async-compute AS pass): records the MODE_BUILD
+        // for each queued static BLAS whose VB/IB upload fence has retired (non-blocking poll), batching one
+        // device-local scratch. A mesh evicted before its build cancels via weak_ptr expiry. Returns the
+        // number of builds recorded (a null->ready transition the TLAS must fold in). see arch/rendering-pipeline.md
+        static u32 DrainPendingStaticBuilds(VkCommandBuffer cmd, u32 frameAbs);
+
     private:
         VkAccelerationStructureKHR m_Handle          = VK_NULL_HANDLE;
         VkBuffer                   m_StorageBuffer   = VK_NULL_HANDLE;

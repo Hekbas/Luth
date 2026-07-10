@@ -242,7 +242,10 @@ namespace Luth
         for (const auto& inst : instances)
         {
             ResolvedMesh r = Resolve(inst);
-            if (!r.blas || r.blas->GetDeviceAddress() == 0) continue;
+            // Skip a BLAS whose build hasn't been recorded yet (deferred static build still pending, or
+            // upload not retired): its storage is uninitialized and the TLAS builder would TDR on it. The
+            // device address is valid pre-build, so IsBuildRecorded (not address) is the readiness test.
+            if (!r.blas || !r.blas->IsBuildRecorded()) continue;
 
             // Resolve the material once: slot (geom table) + render mode -> visibility mask + opaque flag.
             // Transparent/Fade pack with the GLASS mask only: shadow-class rays cull to SOLID (glass

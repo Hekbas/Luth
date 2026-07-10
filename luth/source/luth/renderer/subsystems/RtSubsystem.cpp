@@ -6,6 +6,7 @@
 #include "luth/renderer/FrameTargets.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/renderer/backend/vulkan/VulkanAccelerationStructure.h"
 #include "luth/renderer/backend/vulkan/VulkanComputePipeline.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/renderer/backend/vulkan/VulkanTexture.h"
@@ -472,6 +473,11 @@ namespace Luth
                 // the deformed buffers are ready for both raster and this refit. The gA->compute timeline
                 // semaphore makes the deform writes visible to this async-compute refit; no inline
                 // compute-write barrier here. see arch/multi-queue.md
+
+                // Deferred static BLAS builds: record the MODE_BUILD for every queued static mesh whose
+                // VB/IB upload has retired. Batched on this async-compute cmd before the refit + TLAS
+                // build; the AS-build -> AS-read barrier below covers both writer steps.
+                VKAccelerationStructure::DrainPendingStaticBuilds(cmd, static_cast<u32>(frameAbs));
 
                 // Batched skinned-BLAS refits: one vkCmdBuildAccelerationStructuresKHR call
                 // with N infos sharing one tagged scratch (per-mesh sub-regions, no overlap).
