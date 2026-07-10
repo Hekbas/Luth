@@ -5,6 +5,7 @@
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
 #include "luth/renderer/backend/vulkan/VulkanAccelerationStructure.h"
 #include "luth/renderer/backend/vulkan/VulkanBuffer.h"
+#include "luth/renderer/backend/vulkan/UploadContext.h"
 #include "luth/renderer/resources/BoneMatrixBuffer.h"
 #include "luth/renderer/resources/Mesh.h"
 #include "luth/renderer/resources/Model.h"
@@ -136,10 +137,11 @@ namespace Luth
         if (!blas || !blas->IsDeformable()) return;
         if (blas->GetDeformedBdaCurr(frameAbs) == 0) return;
 
-        // The compute reads the source SkinnedVertex VB directly (scalar buffer_reference); its
-        // upload fence is waited at BLAS-build time, so it is resident before the first dispatch.
+        // The compute reads the source SkinnedVertex VB directly (scalar buffer_reference). The deferred
+        // BLAS build no longer waits on its upload, so gate here: skip until the VB has retired.
         auto vb = std::dynamic_pointer_cast<VKVertexBuffer>(mesh.GetVertexBuffer());
         if (!vb) return;
+        if (!UploadContext::Get().IsComplete(vb->GetUploadFence())) return;
 
         SkinPC pc{};
         pc.inputBda    = vb->GetDeviceAddress();
@@ -213,6 +215,7 @@ namespace Luth
             if (!blas || !blas->IsDeformable() || blas->GetDeformedBdaCurr(frameAbs) == 0) continue;
             auto vb = std::dynamic_pointer_cast<VKVertexBuffer>(mesh->GetVertexBuffer());
             if (!vb) continue;
+            if (!UploadContext::Get().IsComplete(vb->GetUploadFence())) continue;   // source VB not resident yet
 
             // Lazy bind; no descriptor set (deform.slang has no Set 0). A snapshot with zero deformable
             // meshes records zero commands.

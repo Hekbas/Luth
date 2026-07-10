@@ -40,6 +40,10 @@ namespace Luth
         // Checks if a specific upload has finished.
         bool IsComplete(u64 fenceValue);
 
+        // Latest retired upload-timeline value. Sample once per pass and compare fences against it to gate a
+        // hot loop (the draw list) without a timeline query per element.
+        u64 CompletedUploadValue();
+
         // Blocks until a specific upload finishes; use sparingly.
         void WaitForUpload(u64 fenceValue);
 

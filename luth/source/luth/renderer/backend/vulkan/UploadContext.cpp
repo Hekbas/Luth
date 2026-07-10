@@ -503,6 +503,11 @@ namespace Luth
         return m_UploadTimeline.GetValue() >= fenceValue;
     }
 
+    u64 UploadContext::CompletedUploadValue()
+    {
+        return m_UploadTimeline.GetValue();
+    }
+
     void UploadContext::PushPendingBind(u32* outIndex, VkImageView view, VkSampler sampler, u64 fenceValue)
     {
         std::lock_guard<std::mutex> lock(m_Lock);
