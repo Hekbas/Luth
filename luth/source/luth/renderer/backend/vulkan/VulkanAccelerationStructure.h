@@ -42,6 +42,12 @@ namespace Luth
         u32             GetVertexCount()     const { return m_VertexCount; }
         u64             GetUpdateScratchSize() const { return m_UpdateScratchSize; }
 
+        // Deferred-build readiness. The AS object exists (valid device address) before its build is
+        // recorded, so IsBuildRecorded() (not GetDeviceAddress) is the TLAS-inclusion predicate.
+        bool IsBuildRecorded()     const { return m_BuildRecorded; }
+        u32  GetBuildFrameAbs()    const { return m_BuildFrameAbs; }
+        u64  GetBuildScratchSize() const { return m_BuildScratchSize; }
+
         // Per-mesh static BLAS factory. Synchronous main-thread ImmediateSubmit on the graphics queue (graphics
         // families always advertise VK_QUEUE_COMPUTE_BIT per spec, which is what vkCmdBuildAccelerationStructuresKHR
         // requires). PREFER_FAST_TRACE flag per NVIDIA RTX best practices: static BLAS optimizes for ray-trace
@@ -66,6 +72,12 @@ namespace Luth
         // minAccelerationStructureScratchOffsetAlignment from VulkanContext::GetAsProperties().
         void Refit(VkCommandBuffer cmd, VkDeviceAddress scratchBda) const;
 
+        // Records the initial MODE_BUILD onto `cmd`, reconstructed from the recipe captured at creation
+        // (no Mesh needed, so a deferred pass can drive it). scratchBda must be >= GetBuildScratchSize()
+        // and aligned to minAccelerationStructureScratchOffsetAlignment. Deformable reads its CURR
+        // deformed region for `frameAbs`; static reads its fixed source VB. Sets IsBuildRecorded().
+        void RecordBuild(VkCommandBuffer cmd, VkDeviceAddress scratchBda, u32 frameAbs);
+
     private:
         VkAccelerationStructureKHR m_Handle          = VK_NULL_HANDLE;
         VkBuffer                   m_StorageBuffer   = VK_NULL_HANDLE;
@@ -81,5 +93,17 @@ namespace Luth
         u32             m_PrimitiveCount   = 0;
         u64             m_UpdateScratchSize = 0;
         bool            m_IsDeformable     = false;
+
+        // Deferred initial build. The object is created up-front; RecordBuild replays this recipe onto a
+        // command buffer later (the async-compute AS pass), so no Mesh / VB shared_ptr is retained.
+        bool                                 m_BuildRecorded     = false;
+        u32                                  m_BuildFrameAbs     = ~0u;   // frameAbs of RecordBuild; ~0u = built at load
+        VkDeviceAddress                      m_BuildVbBda        = 0;     // static source VB (deformable uses CURR region)
+        VkDeviceAddress                      m_BuildIbBda        = 0;
+        u32                                  m_BuildVertexStride = 0;
+        u32                                  m_BuildMaxVertex    = 0;
+        u64                                  m_BuildScratchSize  = 0;     // MODE_BUILD scratch (aligned)
+        VkGeometryFlagsKHR                   m_GeomFlags         = 0;
+        VkBuildAccelerationStructureFlagsKHR m_BuildFlags        = 0;
     };
 }
