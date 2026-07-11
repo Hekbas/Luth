@@ -27,6 +27,7 @@ struct PC
     int      gbufferScale;
     int      dispatchW;
     int      dispatchH;
+    float    diSpecClamp;   // luminance cap on the demodulated spec lobe (1/(4*NoV) blows up at grazing)
 };
 [[vk::push_constant]] PC pc;
 
@@ -82,7 +83,16 @@ void main(uint3 tid : SV_DispatchThreadID)
         float3 H     = normalize(V + L);
         float  NoV   = max(dot(N, V), 1.0e-4);
         S = Li * (D_GGX(N, H, rough) * G_Smith(N, V, L, rough) / (4.0 * NoV)) * r.W;
+
+        // The spec lobe's 1/(4*NoV) reaches ~2500x at grazing; cap its luminance before the denoiser
+        // smears the spike. Diffuse E is left to the boiling filter + final visibility (later efforts).
+        float slum = Luminance(S);
+        if (slum > pc.diSpecClamp) S *= pc.diSpecClamp / slum;
     }
+
+    // Never poison SVGF / remodulation with a non-finite value (parity with the GI shade guard).
+    if (any(isnan(E)) || any(isinf(E))) E = float3(0.0);
+    if (any(isnan(S)) || any(isinf(S))) S = float3(0.0);
 
     outDirectLighting[pixel] = float4(E, 1.0);
     outDirectSpec[pixel]     = float4(S, 1.0);

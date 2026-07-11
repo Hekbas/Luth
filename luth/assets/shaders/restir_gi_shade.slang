@@ -61,6 +61,12 @@ void main(uint3 tid : SV_DispatchThreadID)
         {
             L *= rsqrt(d2);
             E = r.sampleRadiance * max(dot(Nv, L), 0.0) * r.W;
+
+            // sampleRadiance was clamped at generation, but a W spike past reuse can still push E bright.
+            // Clamp post-reuse irradiance (x4 headroom over the generation cap for the receiver cosine).
+            float lum = Luminance(E);
+            float cap = pc.maxIndirect * 4.0;
+            if (cap > 0.0 && lum > cap) E *= cap / lum;
         }
     }
 

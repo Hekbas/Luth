@@ -32,6 +32,8 @@ struct PC
     int          dispatchW;         // reflection working (dispatch) resolution
     int          dispatchH;
     GtGeomEntry* geomTable;
+    float        minLobeAlpha;   // GGX rough^2 floor: near-mirror 1-spp point-samples bright hits -> fireflies
+    float        neeClamp;       // luminance cap on the point-light NEE term (the x-count un-pdf spike)
 };
 [[vk::push_constant]] PC pc;
 
@@ -95,7 +97,14 @@ float3 ShadeHit(float3 xs, HitSurface hs, inout uint seed)
         float3 Li  = PointLightRadiance(pl, xs, Lw, ld);
         float  ndl = max(dot(ns, Lw), 0.0);
         if (ndl > 0.0 && Visible(xs, hs.ng, Lw, ld - 2.0 * ubo.rtShadowParams.y))
-            Lo += (diffAlb / GI_PI) * Li * ndl * float(lc);   // x count undoes the 1/count pick pdf
+        {
+            // x count undoes the 1/count pick pdf; that single-light lottery is the NEE spike source, so
+            // clamp this term (not sun/emission/IBL) before it enters the 1-spp reflection.
+            float3 nee  = (diffAlb / GI_PI) * Li * ndl * float(lc);
+            float  nlum = Luminance(nee);
+            if (nlum > pc.neeClamp) nee *= pc.neeClamp / nlum;
+            Lo += nee;
+        }
     }
     DirectionalLightData dl = LoadDirLight();
     if (dl.intensity > 0.0)
@@ -136,7 +145,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     // GGX-VNDF reflection ray: sample a visible half-vector in tangent space (N = +Z), reflect V.
     float3 t, bt; BranchlessONB(N, t, bt);
     float3 Vt = float3(dot(V, t), dot(V, bt), dot(V, N));
-    float3 Ht = SampleGGXVNDF(Vt, rough * rough, RandFromSeed(seed), RandFromSeed(seed));
+    float3 Ht = SampleGGXVNDF(Vt, max(rough * rough, pc.minLobeAlpha), RandFromSeed(seed), RandFromSeed(seed));
     float3 H  = Ht.x * t + Ht.y * bt + Ht.z * N;
     float3 R  = reflect(-V, H);
     if (dot(N, R) <= 0.0)           { u_Refl[uint2(pixel)] = float4(0.0); return; }   // below horizon

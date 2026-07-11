@@ -164,8 +164,11 @@ namespace Luth
                     ReallocHint("Trace + denoise DI at half-res, then bilateral-upscale. ~4x fewer rays/denoise pixels.");
                     UI::Property("Specular", rs.specular);
                     Tip("Demodulated point-light specular via a dedicated SVGF channel + combined RIS target.\nOff = diffuse-only DI.");
-                    if (rs.specular)
+                    if (rs.specular) {
                         UI::Property("Specular Intensity", rs.specularIntensity, 0.01f, 0.0f, 4.0f);
+                        UI::Property("Specular Firefly Clamp", rs.diSpecClamp, 1.0f, 0.0f, 512.0f);
+                        Tip("Luminance cap on the demodulated spec lobe. Smooth metals drive D_GGX and 1/(4*NoV)\nto huge values at grazing angles; this bounds the spike before the denoiser smears it.");
+                    }
 
                     int candidateCount = static_cast<int>(rs.candidateCount);
                     if (UI::Property("Candidate Count (M)", candidateCount, 1, 64)) rs.candidateCount = static_cast<u32>(candidateCount);
@@ -235,7 +238,12 @@ namespace Luth
                     UI::Property("Roughness Fade End", rf.roughnessFadeEnd, 0.01f, 0.0f, 1.0f);
                     Tip("Pure prefiltered-env IBL above this roughness; smoothstep blend between Start and End.");
                     UI::Property("Max Ray Distance", rf.maxRayDistance, 1.0f, 0.0f, 10000.0f);
-                    UI::Property("Firefly Clamp", rf.fireflyClamp, 0.5f, 0.0f, 100.0f);
+                    UI::Property("Min Lobe Alpha", rf.minLobeAlpha, 0.0002f, 0.0f, 0.05f);
+                    Tip("GGX rough^2 floor. Spreads near-mirror lobes so the 1-spp ray stops point-sampling\nbright hits into fireflies the 3-tap specular denoiser cannot remove.");
+                    UI::Property("NEE Clamp", rf.neeClamp, 0.5f, 0.0f, 100.0f);
+                    Tip("Luminance cap on the reflection-hit point-light term (the x-light-count spike).\nSun and emission stay unclamped.");
+                    UI::Property("Firefly Clamp", rf.fireflyClamp, 1.0f, 0.0f, 256.0f);
+                    Tip("Per-ray radiance backstop, after the lobe floor + NEE clamp do the real work.");
                     UI::Property("Denoise", rf.denoise);
                     Tip("Run the specular denoiser. Off = raw 1-spp reflection (the A/B compare).");
                     UI::EndProperties();

@@ -34,6 +34,7 @@ namespace Luth
             i32  gbufferScale;   // 1 = full-res; 2 = half-res DI (G-buffer reads remap to full)
             i32  dispatchW;      // DI working (dispatch) resolution
             i32  dispatchH;
+            f32  diSpecClamp;    // fills the pre-pointer pad (offset 84); read only by the shade pass
             u64  geomTableBDA;   // cutout alpha-test material fetch; stays 8-aligned at offset 88
         };
         static_assert(sizeof(RestirPC) == 96, "RestirPC must be 96 B (matches restir_initial.slang push_constant)");
@@ -522,6 +523,7 @@ namespace Luth
         RestirPC pc{};
         pc.invViewProj    = invVP;
         pc.candidateCount = settings.candidateCount;
+        pc.diSpecClamp    = settings.diSpecClamp;
         pc.frameSeed      = frameAbs;
         pc.gbufferScale   = diScale;
         pc.dispatchW      = diW2;
