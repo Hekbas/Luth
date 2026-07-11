@@ -12,6 +12,7 @@
 #include "luth/renderer/resources/Mesh.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/resources/AssetManager.h"
+#include "luth/renderer/lighting/EmissiveLight.h"
 
 #include <vma/vk_mem_alloc.h>
 #include <cstring>
@@ -44,7 +45,7 @@ namespace Luth
         // table carries each instance's material slot: a runtime material reassignment on a static
         // mesh must force a rebuild or GI would shade the secondary hit with the stale material's
         // albedo. see arch/rendering-pipeline.md
-        u64 HashInstances(std::span<const MeshDrawSnapshot> instances)
+        u64 HashInstances(std::span<const MeshDrawSnapshot> instances, bool markEmitters)
         {
             u64 h = 0xcbf29ce484222325ull; // FNV-1a basis
             for (const auto& inst : instances)
@@ -66,7 +67,13 @@ namespace Luth
                 // the per-instance TLAS opaque flag depends on it.
                 if (inst.materialUUID.IsValid())
                     if (auto mat = AssetManager::GetAsset<Material>(inst.materialUUID))
-                    { h ^= static_cast<u64>(mat->GetRenderMode()); h *= 0x100000001b3ull; }
+                    {
+                        h ^= static_cast<u64>(mat->GetRenderMode()); h *= 0x100000001b3ull;
+                        // Fold the emitter bit: an emissive on/off edit (or the feature toggle) must force
+                        // a rebuild so the geometry-table bit re-masks in lockstep with the light gatherer.
+                        const u64 emit = (markEmitters && IsEmissiveLightMaterial(*mat, inst.isSkinned, inst.isDeformable)) ? 1u : 0u;
+                        h ^= emit; h *= 0x100000001b3ull;
+                    }
             }
             return h;
         }
@@ -74,14 +81,14 @@ namespace Luth
         // GPU geometry-table entry: one per packed TLAS instance, indexed by instanceCustomIndex.
         // Mirrors the GtGeomEntry buffer_reference struct in common/material.slang (std430, 24 B).
         // Static meshes point vertexBDA at the original VB; skinned meshes point it at the per-mesh
-        // deformed vertex buffer (both the 52 B Vertex layout) so ray hits read post-skin
+        // deformed vertex buffer (both the interleaved Vertex layout) so ray hits read post-skin
         // normals/tangents/UVs, not bind pose. Stride is sizeof(Vertex) for both.
         struct GPUGeometryEntry
         {
             VkDeviceAddress vertexBDA;     // VB (static) or deformed vertex buffer (skinned)
             VkDeviceAddress indexBDA;      // uint32 index buffer device address
             u32             materialSlot;  // index into the Material SSBO
-            u32             vertexStride;  // bytes: sizeof(Vertex) = 52 (both tiers)
+            u32             vertexStride;  // bytes = sizeof(Vertex); bit 31 = emissive-area-light flag
         };
         static_assert(sizeof(GPUGeometryEntry) == 24, "GPUGeometryEntry must match common/material.slang GtGeomEntry (24 B)");
 
@@ -241,9 +248,10 @@ namespace Luth
                                            u32 frameAbs,
                                            const TlasBuildResult& prev,
                                            const std::unordered_map<UUID, u32, UUIDHash>& materialSlotMap,
-                                           u64 blasReadyGen)
+                                           u64 blasReadyGen,
+                                           bool markEmitters)
     {
-        const u64 hash = HashInstances(instances);
+        const u64 hash = HashInstances(instances, markEmitters);
         // A newly first-built BLAS changes the ready-generation but not the instance hash; force one rebuild
         // when the generation advances so the now-ready BLAS is gathered, then hash-reuse resumes.
         if (prev.tlas != VK_NULL_HANDLE && hash == prev.instanceHash && blasReadyGen == prev.blasReadyGen)
@@ -286,6 +294,7 @@ namespace Luth
             u32  matSlot     = 0;  // slot 0 = reserved white material
             bool cutout      = false;
             bool transparent = false;
+            bool isEmitter   = false;
             if (inst.materialUUID.IsValid())
             {
                 auto it = materialSlotMap.find(inst.materialUUID);
@@ -295,6 +304,7 @@ namespace Luth
                     const Material::RenderMode mode = mat->GetRenderMode();
                     transparent = mode == Material::RenderMode::Transparent || mode == Material::RenderMode::Fade;
                     cutout      = mode == Material::RenderMode::Cutout;
+                    isEmitter   = markEmitters && IsEmissiveLightMaterial(*mat, inst.isSkinned, inst.isDeformable);
                 }
             }
 
@@ -313,8 +323,8 @@ namespace Luth
 
             // Skinned meshes source attributes from the deformed vertex buffer (post-skin pos/normal/
             // tangent + passthrough UVs, interleaved Vertex layout) so ray hits shade with the same
-            // deformed basis raster sees; static meshes read the original VB. Both are the 52 B Vertex
-            // layout, so GatherHitGeometry reads either unchanged.
+            // deformed basis raster sees; static meshes read the original VB. Both use the interleaved
+            // Vertex layout (sizeof(Vertex)), so GatherHitGeometry reads either unchanged.
             auto ib = std::dynamic_pointer_cast<VKIndexBuffer>(r.mesh->GetIndexBuffer());
             GPUGeometryEntry ge{};
             if (r.blas->IsDeformable())
@@ -328,7 +338,9 @@ namespace Luth
             }
             ge.indexBDA     = ib ? ib->GetDeviceAddress() : 0;
             ge.materialSlot = matSlot;
-            ge.vertexStride = sizeof(Vertex);
+            // Stride is sizeof(Vertex); bit 31 flags an emissive AREA LIGHT (DI owns its direct lighting,
+            // so restir_gi_initial drops its on-hit emission seed). GatherHitGeometry masks bit 31 before >>2.
+            ge.vertexStride = static_cast<u32>(sizeof(Vertex)) | (isEmitter ? 0x80000000u : 0u);
             geomEntries.push_back(ge);
         }
 

@@ -53,12 +53,16 @@ namespace Luth
         // geometry table (built in the same packed-instance loop). Defaults to slot 0 (white) on miss.
         // `blasReadyGen` is folded into the reuse guard so a BLAS that first-builds late (identical instance
         // hash) still forces one rebuild that gathers it, instead of staying skipped until the mesh moves.
+        // markEmitters (emissive-area-lights on AND ReSTIR DI on): sets vertexStride bit 31 on the geometry
+        // table for emissive-light instances so DI/GI/reflections gate on it; folded into the instance hash
+        // so a runtime emissive edit re-masks via the rebuild.
         static TlasBuildResult BuildTlas(VkCommandBuffer cmd,
                                          std::span<const MeshDrawSnapshot> instances,
                                          u32 frameAbs,
                                          const TlasBuildResult& prev,
                                          const std::unordered_map<UUID, u32, UUIDHash>& materialSlotMap,
-                                         u64 blasReadyGen);
+                                         u64 blasReadyGen,
+                                         bool markEmitters);
 
         // Batched skinned-BLAS refit. Walks `instances` filtering for isSkinned + non-null skinned BLAS, packs one
         // VkAccelerationStructureBuildGeometryInfoKHR per mesh, all sharing a single tagged-heap scratch allocation
