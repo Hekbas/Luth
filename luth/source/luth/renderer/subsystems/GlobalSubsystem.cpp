@@ -33,6 +33,7 @@ namespace Luth
             LH_GU(volNoiseParams), LH_GU(volNoiseWind), LH_GU(volScatterParams), LH_GU(specAaParams),
             LH_GU(taaParams), LH_GU(prevJitter), LH_GU(rtShadowParams), LH_GU(restirParams),
             LH_GU(pathTraceParams), LH_GU(reflParams), LH_GU(invViewProjection),
+            LH_GU(prevInvViewProjection), LH_GU(prevCameraPos),
         };
         #undef LH_GU
         MaterialLayoutGuard::Validate(FileSystem::EngineAssetsPath("shaders/common/globals.slang"),
@@ -149,6 +150,10 @@ namespace Luth
         if (vr) {
             ubo.prevViewProjection = vr->prevViewProj;
             vr->prevViewProj       = ubo.viewProjection;
+            // Prev inverse-VP + camera pos for DI temporal BASIC (reproject the previous surface).
+            ubo.prevInvViewProjection = Math::Inverse(ubo.prevViewProjection);
+            ubo.prevCameraPos         = Vec4(vr->prevCameraPos, 0.0f);
+            vr->prevCameraPos         = camera.position;
             ubo.viewportSize       = Vec2(static_cast<float>(vr->width), static_cast<float>(vr->height));
             // Cross-frame near/far cache, read for the resolve pass's reprojection. Bootstrap to
             // current frame's values if uninitialized so frame 0's slice reconstruction is sane.
@@ -164,6 +169,8 @@ namespace Luth
             ubo.prevJitter    = Vec4(vr->prevJitter, 0.0f, 0.0f);
         } else {
             ubo.prevViewProjection = ubo.viewProjection;  // no view yet -> zero motion
+            ubo.prevInvViewProjection = ubo.invViewProjection;
+            ubo.prevCameraPos      = Vec4(camera.position, 0.0f);
             ubo.viewportSize       = Vec2(0.0f);
             ubo.prevViewParams     = Vec4(camera.nearZ, camera.farZ, 0.0f, 0.0f);
             ubo.prevJitter         = Vec4(0.0f);

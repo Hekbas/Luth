@@ -38,6 +38,8 @@ public struct GlobalUniforms
     public float4   pathTraceParams;           // x = enabled, y = samplesPerFrame, z = maxBounces, w = accumCount
     public float4   reflParams;                // x = RT reflections enabled, y = roughFadeStart, z = roughFadeEnd
     public float4x4 invViewProjection;         // depth -> world. APPENDED; never insert mid-struct (inline-prefix shaders desync)
+    public float4x4 prevInvViewProjection;     // prev depth -> world; DI temporal BASIC reprojects the previous surface
+    public float4   prevCameraPos;             // xyz = last frame's camera pos; DI temporal domain view vector
 }
 
 [[vk::binding(0, 0)]] public ConstantBuffer<GlobalUniforms> ubo;

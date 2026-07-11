@@ -89,20 +89,59 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     uint seed = PcgHash(flatIdx ^ (pc.frameSeed * 2654435761u));
 
+    // RTXDI BASIC (generalized balance heuristic) over two domains: this pixel (canonical) and the
+    // reprojected previous surface. Streaming weights use each candidate's target at the canonical pixel;
+    // the final W re-evaluates the WINNER's light at BOTH surfaces (x that domain's M), so a domain whose
+    // target vanishes at the winner is excluded instead of paying full 1/M confidence (the edge darkening).
+    // Reconstructing the ACTUAL previous surface is what separates this from biased 1/M: approximate it by
+    // the current surface and psPrev == psCurr, collapsing BASIC back to 1/M.
     Reservoir c; ReservoirReset(c);
-    ReservoirMerge(c, r.lightIndex, r.targetPdf, r.W, r.M, RandFromSeed(seed));   // current (target already at this pixel)
+    int selDomain = -1;
+    if (ReservoirMergeSel(c, r.lightIndex, r.targetPdf, r.W, r.M, RandFromSeed(seed))) selDomain = 0;
 
+    float3 prevPos = float3(0.0);
+    float3 prevN   = float3(0.0);
+    float3 prevV   = float3(0.0);
+    uint   Mprev   = 0u;
     if (valid)
     {
-        PointLightData pl = LoadPoint(pr.lightIndex);
-        float3 L; float dist;
-        float3 Li   = PointLightRadiance(pl, worldPos, L, dist);
-        float  pHat = RestirTargetPdf(N, V, L, Li, rough);   // re-evaluate prev's light at THIS pixel
-        // Relative history clamp (Bitterli 2020): prev confidence capped to mCap x the current frame's M.
-        ReservoirMerge(c, pr.lightIndex, pHat, pr.W, min(pr.M, pc.mCap * r.M), RandFromSeed(seed));
+        prevN = OctDecode(float2(pr._pad1, pr._pad2));
+        float4 pWh = mul(ubo.prevInvViewProjection, float4(prevUV * 2.0 - 1.0, pr._pad0, 1.0));
+        prevPos = pWh.xyz / pWh.w;
+        prevV   = normalize(ubo.prevCameraPos.xyz - prevPos);
+        Mprev   = min(pr.M, pc.mCap * r.M);   // Bitterli relative history clamp
+
+        // Streaming weight: prev's light target at THIS (canonical) pixel.
+        PointLightData plp = LoadPoint(pr.lightIndex);
+        float3 Lp; float dp;
+        float3 Lip  = PointLightRadiance(plp, worldPos, Lp, dp);
+        float  pHat = RestirTargetPdf(N, V, Lp, Lip, rough);
+        if (ReservoirMergeSel(c, pr.lightIndex, pHat, pr.W, Mprev, RandFromSeed(seed))) selDomain = 1;
     }
 
-    ReservoirFinalize(c);
+    // BASIC finalize: piSum sums the winner's target at each domain; selTgt is the winner at the canonical
+    // pixel. No accepted prev -> selPi == selTgt and piSum == selTgt * M -> W == canonical.W (passthrough).
+    float Wout = 0.0;
+    if (c.lightIndex != RESTIR_NO_LIGHT && c.M > 0u)
+    {
+        PointLightData sel = LoadPoint(c.lightIndex);
+        float3 Lc; float dc;
+        float3 Lic    = PointLightRadiance(sel, worldPos, Lc, dc);
+        float  psCurr = RestirTargetPdf(N, V, Lc, Lic, rough);   // selTgt (winner at canonical)
+        float  piSum  = psCurr * float(r.M);
+        float  selPi  = (selDomain == 0) ? psCurr : 0.0;
+        if (valid)
+        {
+            float3 Lp2; float dp2;
+            float3 Lip2   = PointLightRadiance(sel, prevPos, Lp2, dp2);
+            float  psPrev = RestirTargetPdf(prevN, prevV, Lp2, Lip2, rough);   // winner at prev surface
+            piSum += psPrev * float(Mprev);
+            if (selDomain == 1) selPi = psPrev;
+        }
+        Wout = (psCurr > 0.0 && piSum > 0.0) ? (c.wSum * selPi / (psCurr * piSum)) : 0.0;
+    }
+    c.W = Wout;
+
     // Carry this pixel's geometry forward for next frame's validation.
     c._pad0 = depth;
     c._pad1 = octN.x;

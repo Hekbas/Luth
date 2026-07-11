@@ -102,6 +102,10 @@ namespace Luth
         // depth->world for the RT-reflection denoiser's virtual reprojection. APPENDED at the end; never
         // insert mid-struct: shaders with an inline GlobalUniforms prefix (skybox.frag etc.) would desync.
         Mat4 invViewProjection;
+        // Prev depth->world + prev camera pos. APPENDED; DI temporal BASIC reprojects the previous
+        // surface and evaluates the winner's light there (else BASIC degenerates to biased 1/M).
+        Mat4 prevInvViewProjection;
+        Vec4 prevCameraPos;
     };
 
     // Top-level render path selector. Raster = the clustered Forward+ / ReSTIR pipeline; PathTrace = the

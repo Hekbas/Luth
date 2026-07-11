@@ -201,6 +201,9 @@ namespace Luth
         // Game panel) cross-contaminates the prev-VP. Per-view storage keeps each view's prev-VP
         // independent. Identity-initialized, so frame 0 has nonsense motion; settles by frame 1.
         Mat4 prevViewProj{ 1.0f };
+        // Per-view previous-frame camera position; feeds ubo.prevCameraPos for DI temporal BASIC's
+        // view-dependent spec target. Per-view for the same multi-view reason as prevViewProj.
+        Vec3 prevCameraPos{ 0.0f };
 
         // Prev-frame near/far for the resolve pass's reprojection slice math; needed because the
         // current frame's nearZ/farZ may differ if camera FOV/clip planes animate.
