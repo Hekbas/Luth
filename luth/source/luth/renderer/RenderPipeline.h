@@ -204,6 +204,9 @@ namespace Luth
         // Per-view previous-frame camera position; feeds ubo.prevCameraPos for DI temporal BASIC's
         // view-dependent spec target. Per-view for the same multi-view reason as prevViewProj.
         Vec3 prevCameraPos{ 0.0f };
+        // Un-jittered twin of prevViewProj; pairs into GlobalSubsystem's cached sky reprojection
+        // (prevVP * inv(currVP)) for the TAA resolve's depth==1 fallback (sky rasterizes no motion).
+        Mat4 prevViewProjNoJitter{ 1.0f };
 
         // Prev-frame near/far for the resolve pass's reprojection slice math; needed because the
         // current frame's nearZ/farZ may differ if camera FOV/clip planes animate.
