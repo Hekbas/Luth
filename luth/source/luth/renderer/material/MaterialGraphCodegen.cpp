@@ -84,7 +84,8 @@ namespace Luth
         {
             return t == MatNodeType::ConstFloat || t == MatNodeType::ConstColor || t == MatNodeType::Remap
                 || t == MatNodeType::Noise      || t == MatNodeType::Fresnel
-                || t == MatNodeType::Triplanar  || t == MatNodeType::DetailNormal;
+                || t == MatNodeType::Triplanar  || t == MatNodeType::DetailNormal
+                || t == MatNodeType::Parallax;
         }
 
         u8 InputCount(MatNodeType t)
@@ -286,6 +287,15 @@ namespace Luth
                     case MatNodeType::Triplanar:     return "GraphTriplanar<F>(fetch, " + std::string(TexSampleIndexToken(n.tex)) + ", fetch.WorldPos(), fetch.WorldNormal(), fetch.Param(" + std::to_string(paramSlot.at(n.id)) + ").x)";
                     case MatNodeType::DetailNormal:  return "GraphDetailNormal(" + Input(n, 0) + ", " + Input(n, 1) + ", fetch.Param(" + std::to_string(paramSlot.at(n.id)) + ").x)";
                     case MatNodeType::LayerBlend:    return "GraphLayerBlend(" + InputLayer(n, 0) + ", " + InputLayer(n, 1) + ", (" + Input(n, 2) + ").x)";
+                    case MatNodeType::Parallax:
+                    {
+                        // Optional UV input (slot 0) defaults to uv0; always marches the material's height map.
+                        std::string uv = "float4(uv0, 0.0, 0.0)";
+                        if (const MatLink* l = Incoming(g, n.id, 0))
+                            if (seq.count(l->fromNode)) uv = SourceExpr(*byId.at(l->fromNode), l->fromSlot);
+                        return "GraphParallax<F>(fetch, m.heightIndex, (" + uv
+                             + ").xy, fetch.TangentViewDir(), fetch.Param(" + std::to_string(paramSlot.at(n.id)) + "))";
+                    }
                     default:                         return "float4(0.0)";
                 }
             }
@@ -324,7 +334,8 @@ namespace Luth
                 for (u32 id : order)
                 {
                     const MatNodeType t = byId.at(id)->type;
-                    if (t == MatNodeType::Triplanar || t == MatNodeType::DetailNormal || IsLayerNode(t))
+                    if (t == MatNodeType::Triplanar || t == MatNodeType::DetailNormal || IsLayerNode(t)
+                        || t == MatNodeType::Parallax)
                     { ss << "import effects;\n"; break; }
                 }
                 ss << "\n";

@@ -43,7 +43,8 @@ namespace Luth
         Triplanar,      // world-projected 3-plane sample of map slot `tex`; tiling = value.x (data)
         DetailNormal,   // RNM detail-normal stack: in0 base tangent-normal, in1 detail; strength = value.x
         MakeLayer,      // 6 channel inputs -> a MaterialInputs "layer" bundle (Make Material Attributes)
-        LayerBlend      // per-channel mask blend of two layers: in0 bottom, in1 top, in2 float4 mask
+        LayerBlend,     // per-channel mask blend of two layers: in0 bottom, in1 top, in2 float4 mask
+        Parallax        // parallax-occlusion: marches the height map along the tangent view dir -> displaced UV
     };
 
     struct MatNode
@@ -72,7 +73,7 @@ namespace Luth
             || t == MatNodeType::Remap      || t == MatNodeType::TextureSample
             || t == MatNodeType::StaticSwitch || t == MatNodeType::Noise
             || t == MatNodeType::Fresnel      || t == MatNodeType::Triplanar
-            || t == MatNodeType::DetailNormal;
+            || t == MatNodeType::DetailNormal || t == MatNodeType::Parallax;
     }
 
     // Nodes whose SSA local is a MaterialInputs "layer" bundle, not a float4. The codegen emits them as
