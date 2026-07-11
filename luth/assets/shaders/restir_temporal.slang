@@ -1,8 +1,9 @@
 // ReSTIR DI temporal reuse (Bitterli 2020). Reprojects each pixel to the previous frame via the motion
-// vector and merges the previous final reservoir into this frame's RIS candidate with confidence weights
-// (M-capped). The reservoir self-carries its origin pixel's geometry in the _pad fields (raw depth + oct
-// normal), so validation needs no separate previous-frame G-buffer. Runs between initial and shade.
-// AsyncCompute. see arch/rendering-pipeline.md
+// vector and merges the previous frame's SPATIAL output (b4: post-spatial history, final visibility
+// already folded into W) into this frame's RIS candidate with confidence weights (M-capped). The history
+// reservoir self-carries its origin pixel's geometry in the _pad fields (raw depth + oct normal, written
+// by the spatial pass), so validation needs no separate previous-frame G-buffer. Reads + writes the
+// scratch reservoir in-place. Runs between initial and spatial. AsyncCompute. see arch/rendering-pipeline.md
 import globals;
 import restir_common;       // Reservoir + merge/PCG/oct + PointLightRadiance
 import restir_di_target;    // RestirTargetPdf
@@ -10,8 +11,8 @@ import restir_di_target;    // RestirTargetPdf
 [[vk::binding(0, 1)]] ByteAddressBuffer g_Lights;
 [[vk::binding(0, 2)]] Sampler2D u_CurrDepth;
 [[vk::binding(1, 2)]] Sampler2D u_CurrNormal;
-[[vk::binding(2, 2)]] RWStructuredBuffer<Reservoir> curr;       // this frame's RIS candidate (read + write)
-[[vk::binding(4, 2)]] StructuredBuffer<Reservoir> prevRes;      // previous frame's final reservoirs
+[[vk::binding(2, 2)]] RWStructuredBuffer<Reservoir> curr;       // scratch: this frame's RIS candidate (read + write)
+[[vk::binding(4, 2)]] StructuredBuffer<Reservoir> prevRes;      // last frame's SPATIAL output (persistent history)
 [[vk::binding(5, 2)]] Sampler2D u_Motion;
 [[vk::binding(7, 2)]] Sampler2D u_SlimRoughness;   // combined diffuse+spec target
 
@@ -156,10 +157,6 @@ void main(uint3 tid : SV_DispatchThreadID)
         Wout = (psCurr > 0.0 && piSum > 0.0) ? (c.wSum * selPi / (psCurr * piSum)) : 0.0;
     }
     c.W = Wout;
-
-    // Carry this pixel's geometry forward for next frame's validation.
-    c._pad0 = depth;
-    c._pad1 = octN.x;
-    c._pad2 = octN.y;
+    // Geometry self-carry moved to the spatial pass tail: THAT buffer is the history now, not this one.
     curr[flatIdx] = c;
 }

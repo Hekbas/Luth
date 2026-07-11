@@ -12,8 +12,8 @@ import brdf;                 // D_GGX / G_Smith (specular shade)
 [[vk::binding(0, 1)]] ByteAddressBuffer g_Lights;
 [[vk::binding(0, 2)]] Sampler2D u_SceneDepth;
 [[vk::binding(1, 2)]] Sampler2D u_SlimNormal;
-// Reads the final reservoir at b6 (spatial-reuse output), not b2; the temporal buffer stays untouched as
-// next frame's history; the spatial pass writes the per-frame final result here.
+// Reads the final reservoir at b6 (spatial-reuse output, final visibility already folded into W), not b2;
+// that same buffer then persists as next frame's temporal history.
 [[vk::binding(6, 2)]] StructuredBuffer<Reservoir> reservoirs;
 [[vk::binding(3, 2)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> outDirectLighting;
 [[vk::binding(7, 2)]] Sampler2D u_SlimRoughness;

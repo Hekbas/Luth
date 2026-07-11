@@ -1,12 +1,17 @@
 // ReSTIR GI spatial reuse (Ouyang 2021) with RTXDI BASIC bias correction. Merges each pixel's
 // temporal-output reservoir (b2, read-only) with a few disk neighbours into a SEPARATE spatial output (b6);
 // neighbours read un-modified, never in-place. Each reused neighbour is reweighted by the reconnection
-// Jacobian (Eq. 11). The final unbiased weight uses BASIC normalization (pi/piSum, no extra rays) instead
-// of biased 1/M. AsyncCompute; shade reads b6. see arch/rendering-pipeline.md
+// Jacobian (Eq. 11). The final unbiased weight uses BASIC normalization (pi/piSum) instead of biased 1/M,
+// then ONE final-visibility rayQuery (receiver -> selected sample) folds occlusion into W before the store:
+// the output IS next frame's temporal history, so occluded samples stop persisting. AsyncCompute; shade
+// reads b6. see arch/rendering-pipeline.md
 import globals;
 import restir_common;        // OctDecode / PcgHash / RandFromSeed
 import restir_gi_common;     // GIReservoir + GiTargetFunction + Jacobian
+import material;
+import material_bindings_rt; // RtConfirmAlphaCandidates (Set 3 material, Set 4 bindless)
 
+[[vk::binding(6, 0)]] RaytracingAccelerationStructure topLevelAS;
 [[vk::binding(0, 2)]] Sampler2D u_SceneDepth;
 [[vk::binding(1, 2)]] Sampler2D u_SlimNormal;
 [[vk::binding(2, 2)]] StructuredBuffer<GIReservoir> inRes;        // temporal out
@@ -22,6 +27,7 @@ struct PC
     int      gbufferScale;
     int      dispatchW;
     int      dispatchH;
+    GtGeomEntry* geomTable;      // final-visibility alpha test; 8-aligned (C++ mirrors the 4 B pad)
 };
 [[vk::push_constant]] PC pc;
 
@@ -142,6 +148,23 @@ void main(uint3 tid : SV_DispatchThreadID)
         if (int(d) == selDomain) selPi = ps;
     }
     c.W = (selTgt > 0.0 && piSum > 0.0 && c.M > 0u) ? (c.wSum * selPi / (selTgt * piSum)) : 0.0;
+
+    // Final visibility receiver -> selected sample, folded MULTIPLICATIVELY into W before this reservoir
+    // becomes next frame's history (never into the BASIC denominator: that breaks the partition of unity).
+    // M is kept: occlusion is information, not invalidation; history self-cleans next frame.
+    if (c.M > 0u && c.W > 0.0)
+    {
+        float3 toS    = c.samplePos - worldPos;
+        float  dist   = length(toS);
+        float3 d      = toS / max(dist, 1e-4);
+        float  tMin   = ubo.rtShadowParams.y;
+        float3 origin = worldPos + N * (ubo.rtShadowParams.z * 0.5) + d * tMin;
+        RayDesc ray; ray.Origin = origin; ray.TMin = tMin; ray.Direction = d; ray.TMax = max(dist - 2.0 * tMin, tMin);
+        RayQuery<RAY_FLAG_NONE> rq;
+        rq.TraceRayInline(topLevelAS, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, GT_VIS_SOLID, ray);
+        RtConfirmAlphaCandidates(rq, pc.geomTable);
+        if (rq.CommittedStatus() != COMMITTED_NOTHING) c.W = 0.0;
+    }
 
     c.visPos          = worldPos;
     c.visNormalPacked = f32tof16(octN.x) | (f32tof16(octN.y) << 16u);

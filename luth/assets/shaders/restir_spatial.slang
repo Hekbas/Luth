@@ -3,11 +3,16 @@
 // point lights store a light INDEX, so the shift map is identity and there is NO Jacobian: the
 // neighbour's light target is re-evaluated at this pixel. Reads the temporal output (in) and
 // writes a separate output (out); neighbours must be read un-modified, so this can't be in-place.
-// AsyncCompute. see arch/rendering-pipeline.md
+// The output IS next frame's temporal history: one final-visibility rayQuery folds occlusion into W
+// before the store (occluded samples stop persisting), and the pixel's depth + oct normal are
+// self-carried in the pads for next frame's validation. AsyncCompute. see arch/rendering-pipeline.md
 import globals;
 import restir_common;
 import restir_di_target;    // RestirTargetPdf
+import material;
+import material_bindings_rt; // RtConfirmAlphaCandidates (Set 3 material, Set 4 bindless)
 
+[[vk::binding(6, 0)]] RaytracingAccelerationStructure topLevelAS;
 [[vk::binding(0, 1)]] ByteAddressBuffer g_Lights;
 [[vk::binding(0, 2)]] Sampler2D u_Depth;
 [[vk::binding(1, 2)]] Sampler2D u_Normal;
@@ -27,6 +32,7 @@ struct PC
     int      dispatchH;
     float    normalThreshold;     // min dot(neighbourN, currN)
     float    roughnessThreshold;  // max |neighbourRough - rough| (spec reuse gate)
+    GtGeomEntry* geomTable;       // final-visibility alpha test; 8-aligned (C++ mirrors the 4 B pad)
 };
 [[vk::push_constant]] PC pc;
 
@@ -66,7 +72,8 @@ void main(uint3 tid : SV_DispatchThreadID)
     float     depth     = u_Depth.Load(int3(GbufCoord(pixel), 0)).r;
     if (depth >= 1.0) { resOut[flatIdx] = canonical; return; }   // sky; pass through
 
-    float3 N        = OctDecode(u_Normal.Load(int3(GbufCoord(pixel), 0)).rg);
+    float2 octN     = u_Normal.Load(int3(GbufCoord(pixel), 0)).rg;
+    float3 N        = OctDecode(octN);
     float2 uv       = (float2(pixel) + 0.5) / float2(size);
     float4 worldH   = mul(pc.invViewProj, float4(uv * 2.0 - 1.0, depth, 1.0));
     float3 worldPos = worldH.xyz / worldH.w;
@@ -159,7 +166,28 @@ void main(uint3 tid : SV_DispatchThreadID)
             if (int(d) == selDomain) selPi = ps;
         }
         Wout = (selTgt > 0.0 && piSum > 0.0) ? (c.wSum * selPi / (selTgt * piSum)) : 0.0;
+
+        // Final visibility of the selected sample, folded MULTIPLICATIVELY into W before this reservoir
+        // becomes next frame's history (never into the BASIC denominator: that breaks the partition of
+        // unity). M is kept: occlusion is information, not invalidation; history self-cleans next frame.
+        // Same ray recipe as restir_initial (Ls/ds from PointLightRadiance above).
+        if (Wout > 0.0)
+        {
+            float  tMin   = ubo.rtShadowParams.y;
+            float3 origin = worldPos + N * (ubo.rtShadowParams.z * 0.5) + Ls * tMin;
+            RayDesc ray; ray.Origin = origin; ray.TMin = tMin; ray.Direction = Ls; ray.TMax = max(ds - 2.0 * tMin, tMin);
+            RayQuery<RAY_FLAG_NONE> rq;
+            rq.TraceRayInline(topLevelAS, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, GT_VIS_SOLID, ray);
+            RtConfirmAlphaCandidates(rq, pc.geomTable);
+            if (rq.CommittedStatus() != COMMITTED_NOTHING) Wout = 0.0;
+        }
     }
     c.W = Wout;
+
+    // Self-carry this pixel's geometry (raw depth + oct normal) for next frame's temporal validation:
+    // this buffer IS the history now, so the carry lives here, not in the temporal pass.
+    c._pad0 = depth;
+    c._pad1 = octN.x;
+    c._pad2 = octN.y;
     resOut[flatIdx] = c;
 }

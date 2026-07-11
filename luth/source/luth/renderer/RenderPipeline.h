@@ -233,20 +233,19 @@ namespace Luth
         std::shared_ptr<Texture> sunShadowMask;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> rtShadowPassDescSet{};
 
-        // ReSTIR DI (Bitterli 2020). restirReservoir[2] is a ping-pong pair of Garlic device-local
-        // large-tagged buffers (w*h*32 B each) reused across frames; destroyed on resize via
-        // FreeTagAndDestroy. Tags stay in NextReservoirTag's reserved high range, disjoint from the per-frame
-        // FreeTag(N-2) sweep. Temporal reuse reads last frame's reservoir (prev) while writing this
-        // frame's (curr); parity = frameAbs & 1u picks which slot is curr, with Set 2 b2/b4 rebound
-        // per frame to swap. restirDI is viewport-sized rgba16f STORAGE+SAMPLED (demodulated diffuse
-        // irradiance, consumed by pbr.frag Set 3 b5). The cycled set carries Set 2's depth/normal +
-        // motion samplers + reservoir SSBOs + DI storage image.
-        Memory::GPUSubRegion restirReservoir[2]{};
-        u32 restirReservoirTag[2] = { 0, 0 };
-        // Spatial-reuse output: a SINGLE Garlic device-local buffer (not ping-pong), fully
-        // overwritten then consumed each frame. The spatial pass reads b2 (temporal output) for
-        // self+neighbours and writes here (Set 2 b6); shade reads it. Reserved high tag, freed only
-        // on resize/destroy. The temporal ping-pong (b2) stays intact as next frame's history.
+        // ReSTIR DI (Bitterli 2020). restirReservoir is a SINGLE Garlic device-local large-tagged
+        // scratch buffer (w*h*32 B): initial writes it, temporal merges history into it in-place
+        // (Set 2 b2); same-frame lifetime only. Destroyed on resize via FreeTagAndDestroy; tags stay
+        // in NextReservoirTag's reserved high range, disjoint from the per-frame FreeTag(N-2) sweep.
+        // restirDI is viewport-sized rgba16f STORAGE+SAMPLED (demodulated diffuse irradiance,
+        // consumed by pbr.frag Set 3 b5). The cycled set carries Set 2's depth/normal + motion
+        // samplers + reservoir SSBOs + DI storage image.
+        Memory::GPUSubRegion restirReservoir{};
+        u32 restirReservoirTag = 0;
+        // Spatial-reuse output AND temporal history (post-spatial topology): temporal reads it as
+        // prev (Set 2 b4), spatial overwrites it (b6, RG WAR barrier on the shared import), shade
+        // consumes it; it then persists as next frame's history with final visibility already folded
+        // into W. Reserved high tag, freed only on resize/destroy.
         Memory::GPUSubRegion restirSpatial{};
         u32 restirSpatialTag = 0;
         std::shared_ptr<Texture> restirDI;
@@ -256,12 +255,12 @@ namespace Luth
         std::shared_ptr<Texture> restirDISpec;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> restirDescSet{};
 
-        // ReSTIR GI (Ouyang 2021): sibling of the DI reservoirs above, w*h*64 B each (GIReservoir is
-        // a world-space path vertex, not a light index). Same ping-pong + single spatial-output shape;
+        // ReSTIR GI (Ouyang 2021): sibling of the DI buffers above, w*h*64 B each (GIReservoir is
+        // a world-space path vertex, not a light index). Same scratch + spatial/history shape;
         // tags mint from RtRestirGiSubsystem's disjoint 0xFFFF8000 reserved range. restirGiDI is the
         // viewport-sized rgba16f STORAGE+SAMPLED demodulated indirect-diffuse image (pbr.frag Set 3 b6).
-        Memory::GPUSubRegion restirGiReservoir[2]{};
-        u32 restirGiReservoirTag[2] = { 0, 0 };
+        Memory::GPUSubRegion restirGiReservoir{};
+        u32 restirGiReservoirTag = 0;
         Memory::GPUSubRegion restirGiSpatial{};
         u32 restirGiSpatialTag = 0;
         std::shared_ptr<Texture> restirGiDI;

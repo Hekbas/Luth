@@ -1,8 +1,9 @@
 // ReSTIR GI temporal reuse (Ouyang 2021). Reprojects each pixel to the previous frame via the motion
-// vector and merges the previous reservoir into this frame's fresh candidate, confidence-weighted (Bitterli
-// relative M-cap) and age-capped. Because a GI reservoir stores a WORLD-SPACE sample point, reusing the
-// previous sample at the current receiver is a reconnection SHIFT: the resampling weight is multiplied by
-// the reconnection Jacobian (Eq. 11). Runs between initial and shade; the merged result stays in CURR (b2).
+// vector and merges the previous frame's SPATIAL output (b4: post-spatial history, final visibility
+// already folded into W) into this frame's fresh candidate, confidence-weighted (Bitterli relative M-cap)
+// and age-capped. Because a GI reservoir stores a WORLD-SPACE sample point, reusing the previous sample at
+// the current receiver is a reconnection SHIFT: the resampling weight is multiplied by the reconnection
+// Jacobian (Eq. 11). Runs between initial and spatial; the merged result stays in the scratch (b2).
 // AsyncCompute. see arch/rendering-pipeline.md
 import globals;
 import restir_common;        // OctDecode / PcgHash / RandFromSeed
@@ -10,8 +11,8 @@ import restir_gi_common;     // GIReservoir + merge + GiTargetFunction + Jacobia
 
 [[vk::binding(0, 2)]] Sampler2D u_CurrDepth;
 [[vk::binding(1, 2)]] Sampler2D u_CurrNormal;
-[[vk::binding(2, 2)]] RWStructuredBuffer<GIReservoir> curr;
-[[vk::binding(4, 2)]] StructuredBuffer<GIReservoir> prevRes;
+[[vk::binding(2, 2)]] RWStructuredBuffer<GIReservoir> curr;     // scratch (initial -> temporal in-place)
+[[vk::binding(4, 2)]] StructuredBuffer<GIReservoir> prevRes;    // last frame's SPATIAL output (persistent history)
 [[vk::binding(5, 2)]] Sampler2D u_Motion;
 
 struct PC
