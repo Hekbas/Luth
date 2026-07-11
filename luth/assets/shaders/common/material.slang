@@ -9,7 +9,7 @@ public struct GPUMaterialData
 {
     public float4 color;
     public uint   diffuseIndex, normalIndex, metalRoughIndex, occlusionIndex;
-    public uint   emissiveIndex, alphaIndex, specularIndex, thicknessIndex;  // alpha/spec/thickness reserved, unsampled
+    public uint   emissiveIndex, alphaIndex, heightIndex, thicknessIndex;  // alpha/thickness reserved; height feeds parallax
     public float  metalness, roughness, alphaCutoff;
     public uint   flags;          // bits 0-7 = HAS_* per map; bits 16-23 = per-map UV index (2 bits each)
     public float4 emissive;       // rgb = factor (linear), a = HDR strength

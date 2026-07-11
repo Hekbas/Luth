@@ -35,7 +35,7 @@ namespace Luth
                 case MapType::Occlusion: return "fetch.Sample(m.occlusionIndex, SelectUV(m.flags, UV_SHIFT_OCCLUSION, uv0, uv1))";
                 case MapType::Emissive:  return "fetch.Sample(m.emissiveIndex, uv0)";
                 case MapType::Alpha:     return "fetch.Sample(m.alphaIndex, uv0)";
-                case MapType::Specular:  return "fetch.Sample(m.specularIndex, uv0)";
+                case MapType::Height:    return "fetch.Sample(m.heightIndex, uv0)";
                 case MapType::Thickness: return "fetch.Sample(m.thicknessIndex, uv0)";
                 default:                 return "float4(0.0)";
             }
@@ -54,7 +54,7 @@ namespace Luth
                 case MapType::Occlusion: idx = "m.occlusionIndex";  break;
                 case MapType::Emissive:  idx = "m.emissiveIndex";   break;
                 case MapType::Alpha:     idx = "m.alphaIndex";      break;
-                case MapType::Specular:  idx = "m.specularIndex";   break;
+                case MapType::Height:    idx = "m.heightIndex";     break;
                 case MapType::Thickness: idx = "m.thicknessIndex";  break;
                 default:                 return "float4(0.0)";
             }
@@ -74,7 +74,7 @@ namespace Luth
                 case MapType::Occlusion: return "m.occlusionIndex";
                 case MapType::Emissive:  return "m.emissiveIndex";
                 case MapType::Alpha:     return "m.alphaIndex";
-                case MapType::Specular:  return "m.specularIndex";
+                case MapType::Height:    return "m.heightIndex";
                 case MapType::Thickness: return "m.thicknessIndex";
                 default:                 return "m.diffuseIndex";
             }

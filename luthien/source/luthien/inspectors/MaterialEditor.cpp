@@ -297,7 +297,7 @@ namespace Luth
                     }
                 });
 
-                DrawSurfaceInput(MapType::Specular, "Specular", nullptr);
+                DrawSurfaceInput(MapType::Height, "Height", nullptr);
                 DrawSurfaceInput(MapType::Occlusion, "Occlusion", nullptr);
                 DrawSurfaceInput(MapType::Emissive, "Emissive", [&]() {
                     // Direct GPUData accessors (like Albedo); the u_* uniform channel never reached
