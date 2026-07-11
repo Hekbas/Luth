@@ -5,11 +5,13 @@
 #include "luth/renderer/lighting/CascadeBuilder.h"
 #include "luth/renderer/lighting/FogVolumeGatherer.h"
 #include "luth/renderer/lighting/LightGatherer.h"
+#include "luth/renderer/lighting/EmissiveLightGatherer.h"
 #include "luth/renderer/lighting/LightTypes.h"
 
 namespace Luth
 {
     struct RenderSnapshot;
+    struct EmissiveLightSettings;
 
     // CPU-side per-frame light gathering + directional-light CSM cascade fit.
     // Outputs feed RenderPipeline's per-view LightSSBO + cluster passes, shadow-cascade frustum
@@ -22,7 +24,8 @@ namespace Luth
     public:
         void Update(Scene* scene) override {}
 
-        void UpdateFor(const RenderSnapshot& snapshot, const CameraParams& camera);
+        void UpdateFor(const RenderSnapshot& snapshot, const CameraParams& camera,
+                       const EmissiveLightSettings& emissiveSettings, bool diEnabled);
 
         const GatheredLights&               GetLights()       const { return m_Lights; }
         const GatheredFogVolumes&           GetFogVolumes()   const { return m_FogVolumes; }
@@ -31,6 +34,7 @@ namespace Luth
 
     private:
         LightGatherer                m_Gatherer;
+        EmissiveLightGatherer        m_EmissiveGatherer;
         FogVolumeGatherer            m_FogGatherer;
         CascadeBuilder               m_Builder;
         GatheredLights               m_Lights{};

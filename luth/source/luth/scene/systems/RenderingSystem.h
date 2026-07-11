@@ -22,6 +22,7 @@
 #include "luth/renderer/settings/SvgfSettings.h"
 #include "luth/renderer/settings/PathTraceSettings.h"
 #include "luth/renderer/settings/ReflectionsSettings.h"
+#include "luth/renderer/settings/EmissiveLightSettings.h"
 #include "luth/renderer/settings/WindSettings.h"
 
 #include <entt/entt.hpp>
@@ -251,6 +252,10 @@ namespace Luth
         ReflectionsSettings& GetReflectionsSettings() { return m_ReflectionsSettings; }
         const ReflectionsSettings& GetReflectionsSettings() const { return m_ReflectionsSettings; }
 
+        // Emissive-as-area-lights. EmissiveLightGatherer reads .enabled / .minPowerLum; rides with ReSTIR DI.
+        EmissiveLightSettings& GetEmissiveLightSettings() { return m_EmissiveLightSettings; }
+        const EmissiveLightSettings& GetEmissiveLightSettings() const { return m_EmissiveLightSettings; }
+
         // Top-level render path (Raster / PathTrace). PathTraceSubsystem::IsEnabled() reads this; the
         // editor RenderPanel toggles it. Switching modes resets the PT accumulation on the next frame.
         RenderMode GetRenderMode() const { return m_RenderMode; }
@@ -370,6 +375,7 @@ namespace Luth
         SvgfSettings         m_SvgfDiSpecSettings{ .alphaColor = 0.15f, .alphaMoments = 0.15f, .historyCap = 24u, .atrousIterations = 3u };  // ReSTIR-DI specular
         PathTraceSettings    m_PathTraceSettings;
         ReflectionsSettings  m_ReflectionsSettings;
+        EmissiveLightSettings m_EmissiveLightSettings;
         WindSettings         m_WindSettings;
         RenderMode           m_RenderMode   = RenderMode::Raster;
         ShadeMode            m_ShadeMode    = ShadeMode::Lit;
