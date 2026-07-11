@@ -25,8 +25,8 @@ namespace Luth
         switch (type) {
             case AssetType::Texture:
                 settings["generate_mipmaps"] = true;
-                settings["compression_format"] = "BC7";
-                settings["srgb"] = true;
+                settings["compression"] = "auto";       // auto | none | bc1 | bc4 | bc5 | bc7
+                settings["compression_quality"] = 1;    // 0 fast | 1 normal | 2 high
                 settings["wrap_mode"] = 0;   // TextureWrapMode::Repeat
                 settings["filter_min"] = 0;  // TextureFilterMode::Linear
                 settings["filter_mag"] = 0;  // TextureFilterMode::Linear

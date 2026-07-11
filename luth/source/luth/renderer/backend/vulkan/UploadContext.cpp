@@ -339,6 +339,103 @@ namespace Luth
         return fenceValue;
     }
 
+    u64 UploadContext::UploadImageLevels(const void* data, u64 size, VkImage dstImage,
+                                         const std::vector<VkBufferImageCopy>& regions)
+    {
+        std::lock_guard<std::mutex> lock(m_Lock);
+        LH_PROFILE_FUNCTION();
+
+        // The whole chain stages in one allocation; an oversized payload would overrun the ring (the
+        // AllocateStaging assert is NDEBUG-compiled out in Release -> heap corruption). Skip rather than
+        // corrupt; a per-level split upload is the future path for single textures over the ring size.
+        if (size > STAGING_SIZE)
+        {
+            LH_LOG(Renderer, error, "UploadImageLevels: {} B chain exceeds the {} B staging ring; texture skipped (use BC1 / lower resolution)", size, (u64)STAGING_SIZE);
+            return 0;
+        }
+
+        void* stagingPtr;
+        VkBuffer stagingBuffer;
+        u64 stagingOffset;
+
+        // Align 16 so each level's bufferOffset stays a multiple of the BC block size (8 or 16 B) once
+        // rebased -- the per-level relative offsets are already block multiples.
+        u64 fenceValue = AllocateStaging(size, 16, &stagingPtr, stagingBuffer, stagingOffset);
+
+        memcpy(stagingPtr, data, size);
+
+        // Regions arrive with payload-relative offsets (VKTexture owns the block-size math); rebase.
+        std::vector<VkBufferImageCopy> copies(regions);
+        for (auto& c : copies) c.bufferOffset += stagingOffset;
+        const u32 mipCount = (u32)copies.size();
+
+        VkCommandBuffer cmd = BeginTransferRingSlot();
+
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(cmd, &beginInfo);
+
+        // Pre-barrier: all mips UNDEFINED -> TRANSFER_DST (sync2, transfer-queue-compatible stages).
+        VkImageMemoryBarrier2 pre{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+        pre.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+        pre.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        pre.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        pre.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        pre.image               = dstImage;
+        pre.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        pre.subresourceRange.baseMipLevel   = 0;
+        pre.subresourceRange.levelCount     = mipCount;
+        pre.subresourceRange.baseArrayLayer = 0;
+        pre.subresourceRange.layerCount     = 1;
+        pre.srcStageMask  = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+        pre.srcAccessMask = VK_ACCESS_2_NONE;
+        pre.dstStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        pre.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        VkDependencyInfo preDep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+        preDep.imageMemoryBarrierCount = 1;
+        preDep.pImageMemoryBarriers    = &pre;
+        vkCmdPipelineBarrier2(cmd, &preDep);
+
+        vkCmdCopyBufferToImage(cmd, stagingBuffer, dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               mipCount, copies.data());
+
+        // Post-barrier: all mips TRANSFER_DST -> SHADER_READ_ONLY. BOTTOM_OF_PIPE dst; the cross-queue
+        // fragment-read dependency is supplied by the upload-fence-gated bindless bind (see UploadImage).
+        VkImageMemoryBarrier2 post = pre;
+        post.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        post.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        post.srcStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        post.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        post.dstStageMask  = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+        post.dstAccessMask = VK_ACCESS_2_NONE;
+        VkDependencyInfo postDep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+        postDep.imageMemoryBarrierCount = 1;
+        postDep.pImageMemoryBarriers    = &post;
+        vkCmdPipelineBarrier2(cmd, &postDep);
+
+        vkEndCommandBuffer(cmd);
+
+        VkSemaphoreSubmitInfo signalInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+        signalInfo.semaphore = m_UploadTimeline.GetHandle();
+        signalInfo.value     = fenceValue;
+        signalInfo.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        VkCommandBufferSubmitInfo cmdInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+        cmdInfo.commandBuffer = cmd;
+        VkSubmitInfo2 submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+        submitInfo.commandBufferInfoCount   = 1;
+        submitInfo.pCommandBufferInfos      = &cmdInfo;
+        submitInfo.signalSemaphoreInfoCount = 1;
+        submitInfo.pSignalSemaphoreInfos    = &signalInfo;
+        VulkanContext::Get().SubmitTransfer2(submitInfo, VK_NULL_HANDLE);
+
+        m_CurrentValue = fenceValue;
+        m_InFlightBlocks.push_back({ stagingOffset, size, fenceValue });
+        RecordTransferRingSlotFence(fenceValue);
+
+        return fenceValue;
+    }
+
     u64 UploadContext::UploadImageMipped(const void* data, u64 size, VkImage dstImage,
                                          u32 width, u32 height, u32 mipLevels, u32 arrayLayers)
     {

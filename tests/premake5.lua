@@ -48,6 +48,7 @@ project "LuthTests"
       "Luth",
       "Jolt",
       "Tracy",
+      "bc7enc",
       "vulkan-1",
       "ws2_32",
       "dbghelp"

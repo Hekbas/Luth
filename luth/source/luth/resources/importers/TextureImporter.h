@@ -15,6 +15,7 @@ namespace Luth
         uint32_t Width = 0;
         uint32_t Height = 0;
         TextureFormat Format = TextureFormat::None;
+        uint32_t MipLevels = 1; // pre-baked BCn chain length; 1 for uncompressed (runtime blit-gens)
         TextureSettings Settings;
     };
 

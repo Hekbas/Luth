@@ -27,8 +27,9 @@ namespace Luth
             switch (static_cast<MapType>(tex))
             {
                 case MapType::Diffuse:   return "fetch.Sample(m.diffuseIndex, SelectUV(m.flags, UV_SHIFT_DIFFUSE, uv0, uv1))";
-                // Decode to a signed tangent normal so routing it to Output.normal honors the mi.normal convention.
-                case MapType::Normal:    return "float4(fetch.Sample(m.normalIndex, SelectUV(m.flags, UV_SHIFT_NORMAL, uv0, uv1)).xyz * 2.0 - 1.0, 0.0)";
+                // Decode to a signed tangent normal (Z reconstructed, so BC5 RG normals work) so routing it
+                // to Output.normal honors the mi.normal convention.
+                case MapType::Normal:    return "float4(DecodeTangentNormal(fetch.Sample(m.normalIndex, SelectUV(m.flags, UV_SHIFT_NORMAL, uv0, uv1)).rgb), 0.0)";
                 case MapType::Metalness:
                 case MapType::Roughness: return "fetch.Sample(m.metalRoughIndex, SelectUV(m.flags, UV_SHIFT_METALROUGH, uv0, uv1))";
                 case MapType::Occlusion: return "fetch.Sample(m.occlusionIndex, SelectUV(m.flags, UV_SHIFT_OCCLUSION, uv0, uv1))";
@@ -47,7 +48,7 @@ namespace Luth
             switch (static_cast<MapType>(tex))
             {
                 case MapType::Diffuse:   idx = "m.diffuseIndex";    break;
-                case MapType::Normal:    return "float4(fetch.Sample(m.normalIndex, (" + uvExpr + ").xy).xyz * 2.0 - 1.0, 0.0)";
+                case MapType::Normal:    return "float4(DecodeTangentNormal(fetch.Sample(m.normalIndex, (" + uvExpr + ").xy).rgb), 0.0)";
                 case MapType::Metalness:
                 case MapType::Roughness: idx = "m.metalRoughIndex"; break;
                 case MapType::Occlusion: idx = "m.occlusionIndex";  break;

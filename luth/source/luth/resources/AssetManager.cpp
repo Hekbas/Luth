@@ -315,6 +315,10 @@ namespace Luth
         LH_PROFILE_FUNCTION();
         if (type == AssetType::Texture) {
             auto* d = static_cast<TextureAssetData*>(data);
+            // Pre-baked BCn uploads the stored mip chain directly; uncompressed keeps the blit-mip path.
+            if (GetTextureFormatInfo(d->Format).compressed)
+                return Texture::Create(d->Width, d->Height, d->Format, d->Pixels.data(),
+                                       (u64)d->Pixels.size(), d->MipLevels, d->Settings);
             return Texture::Create(d->Width, d->Height, d->Format, d->Pixels.data(), d->Settings);
         }
         else if (type == AssetType::Model) {
@@ -366,6 +370,15 @@ namespace Luth
         std::unique_ptr<AssetData> data = nullptr;
         if (fs::exists(artifactPath))
             data = DeserializeArtifact(req->Type, artifactPath);
+
+        // Schema-bump self-heal (mirrors LoadImmediate): a present-but-incompatible artifact fails to
+        // deserialize; force one reimport so async/material-referenced assets migrate instead of vanishing.
+        if (!data && fs::exists(artifactPath))
+        {
+            LH_LOG(Assets, warn, "AssetManager: artifact incompatible (schema bump?) -- reimporting {0}", req->Path.string());
+            EnsureImported(req->Handle, /*forceReimport*/ true, /*blockIfBusy*/ true);
+            data = DeserializeArtifact(req->Type, artifactPath);
+        }
 
         // Push to upload queue regardless of success to clear the loading flag on main thread
         {

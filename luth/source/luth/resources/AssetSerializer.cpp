@@ -41,6 +41,7 @@ namespace Luth
         return SerializeAtomic(path, [&](std::ofstream& out) {
             AssetHeader header;
             header.Type = AssetType::Texture;
+            header.Version = 2; // V2: BCn payload + MipLevels. V1 artifacts fail the deserialize gate.
             out.write((char*)&header, sizeof(AssetHeader));
 
             TextureHeader texHeader;
@@ -52,6 +53,7 @@ namespace Luth
             texHeader.WrapMode = (u32)data.Settings.WrapMode;
             texHeader.MinFilter = (u32)data.Settings.MinFilter;
             texHeader.MagFilter = (u32)data.Settings.MagFilter;
+            texHeader.MipLevels = data.MipLevels;
             out.write((char*)&texHeader, sizeof(TextureHeader));
 
             out.write((char*)data.Pixels.data(), data.Pixels.size());
@@ -68,6 +70,8 @@ namespace Luth
         AssetHeader header;
         in.read((char*)&header, sizeof(AssetHeader));
         if (header.Type != AssetType::Texture) return false;
+        // Reject pre-BCn (V1) artifacts so the loader's force-reimport self-heals them (AssetManager).
+        if (header.Version != 2) return false;
 
         TextureHeader texHeader;
         in.read((char*)&texHeader, sizeof(TextureHeader));
@@ -75,12 +79,29 @@ namespace Luth
         outData.Width = texHeader.Width;
         outData.Height = texHeader.Height;
         outData.Format = (TextureFormat)texHeader.Format;
+        outData.MipLevels = texHeader.MipLevels;
         outData.Settings.GenerateMipmaps = texHeader.GenerateMipmaps != 0;
         outData.Settings.WrapMode = (TextureWrapMode)texHeader.WrapMode;
         outData.Settings.MinFilter = (TextureFilterMode)texHeader.MinFilter;
         outData.Settings.MagFilter = (TextureFilterMode)texHeader.MagFilter;
         outData.Pixels.resize(texHeader.SizeBytes);
         in.read((char*)outData.Pixels.data(), texHeader.SizeBytes);
+
+        // Reject corrupt compressed artifacts before they reach Vulkan (mipLevels 0 -> invalid image / 0
+        // copy regions; short payload -> OOB GPU read). Failing here triggers the loader force-reimport.
+        if (GetTextureFormatInfo(outData.Format).compressed)
+        {
+            u64 expect = 0;
+            u32 mw = outData.Width, mh = outData.Height;
+            for (u32 m = 0; m < outData.MipLevels; ++m)
+            {
+                expect += TextureLevelBytes(outData.Format, mw, mh);
+                mw = std::max(1u, mw >> 1);
+                mh = std::max(1u, mh >> 1);
+            }
+            if (outData.MipLevels == 0 || outData.MipLevels > 16 || outData.Pixels.size() != expect)
+                return false;
+        }
 
         return true;
     }

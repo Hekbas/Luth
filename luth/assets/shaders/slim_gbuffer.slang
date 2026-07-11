@@ -51,7 +51,7 @@ FOut main(FIn i, bool frontFacing : SV_IsFrontFace)
     float3 N;
     if ((m.flags & FLAG_HAS_NORMAL) != 0u)
     {
-        float3 tn = rf.Sample(m.normalIndex, SelectUV(m.flags, UV_SHIFT_NORMAL, i.uv0, i.uv1)).rgb * 2.0 - 1.0;
+        float3 tn = DecodeTangentNormal(rf.Sample(m.normalIndex, SelectUV(m.flags, UV_SHIFT_NORMAL, i.uv0, i.uv1)).rgb);
         N = ApplyTangentNormal(tn, i.T, i.B, i.N);
     }
     else

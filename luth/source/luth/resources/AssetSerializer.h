@@ -34,6 +34,7 @@ namespace Luth
         u32 WrapMode;        // TextureWrapMode enum
         u32 MinFilter;       // TextureFilterMode enum
         u32 MagFilter;       // TextureFilterMode enum
+        u32 MipLevels;       // V2+: stored levels in the payload (1 for uncompressed / no-mips)
     };
 
     struct MeshHeader

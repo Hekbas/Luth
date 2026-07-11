@@ -19,8 +19,29 @@ namespace Luth
         R32_Float,                    // Compute storage (GTAO linear depth, etc.)
         D32_Float, D24_Unorm_S8_Uint, // Depth formats
         R32_Uint,
-        R16_Uint                      // Slim G-buffer material ID (16-bit, fits 16384-entry material SSBO)
+        R16_Uint,                     // Slim G-buffer material ID (16-bit, fits 16384-entry material SSBO)
+
+        // Block-compressed imported material textures. Appended so existing serialized enum values stay
+        // stable. UNORM only (appearance-preserving); a future sRGB pass maps color roles to _SRGB in
+        // ToVkFormat with no re-encode.
+        BC1_Unorm,  // RGB (opaque albedo), 8 B/block
+        BC4_Unorm,  // single-channel R mask, 8 B/block
+        BC5_Unorm,  // RG normals (Z reconstructed in-shader), 16 B/block
+        BC7_Unorm   // RGBA high quality (default color/ORM), 16 B/block
     };
+
+    // Block/layout facts for the compressed-upload + artifact paths. Uncompressed formats report
+    // blockDim = 1 and blockBytes = bytes-per-texel so one level-size formula serves both.
+    struct TextureFormatInfo {
+        bool compressed;
+        u32  blockDim;    // texels per block edge
+        u32  blockBytes;  // bytes per 4x4 block (per texel when uncompressed)
+    };
+
+    TextureFormatInfo GetTextureFormatInfo(TextureFormat fmt);
+
+    // Byte size of mip level (w,h). BCn: ceil(w/4)*ceil(h/4)*blockBytes; sub-4x4 levels use one block.
+    u64 TextureLevelBytes(TextureFormat fmt, u32 w, u32 h);
 
     enum class TextureWrapMode {
         Repeat, ClampToEdge, MirroredRepeat
@@ -88,5 +109,9 @@ namespace Luth
             TextureFormat format, const void* data = nullptr);
         static std::shared_ptr<Texture> Create(u32 width, u32 height,
             TextureFormat format, const void* data, const TextureSettings& settings);
+        // Pre-baked compressed form: data holds the full concatenated BCn mip chain (sizeBytes across
+        // mipLevels levels). Only the asset pipeline produces this; render targets never compress.
+        static std::shared_ptr<Texture> Create(u32 width, u32 height, TextureFormat format,
+            const void* data, u64 sizeBytes, u32 mipLevels, const TextureSettings& settings);
     };
 }
