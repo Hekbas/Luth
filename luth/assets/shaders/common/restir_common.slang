@@ -206,3 +206,41 @@ public LightSample ReSampleLight(ByteAddressBuffer lb, uint lightIndex, uint uvP
     }
     return s;
 }
+
+// Draw ONE unified local-light candidate: power-weighted alias over [points | tris] when triangles exist,
+// else the legacy uniform point pick. Returns the encoded lightIndex + quantized barycentric uv + the RIS
+// source-pdf inverse (1/pmf for points, area/pmf for triangles in area measure, or pointCount for the
+// legacy path). Advances `seed`. Single-sample NEE seam shared by ReSTIR GI + RT reflections.
+public void DrawLightCandidate(ByteAddressBuffer lb, inout uint seed, out uint lightIndex, out uint uvPacked, out float invSourcePdf)
+{
+    uint pointCount = lb.Load(32);
+    uint triCount   = LightTriCount(lb);
+    uvPacked = 0u;
+    if (triCount > 0u)
+    {
+        uint  numLights = pointCount + triCount;
+        uint  bucket    = min(uint(RandFromSeed(seed) * float(numLights)), numLights - 1u);
+        float u         = RandFromSeed(seed);
+        float pmf; uint sel = AliasSelect(lb, bucket, u, pmf);
+        if (sel < pointCount)
+        {
+            lightIndex   = sel;
+            invSourcePdf = (pmf > 0.0) ? (1.0 / pmf) : 0.0;
+        }
+        else
+        {
+            uint  triLocal = sel - pointCount;
+            float su = sqrt(RandFromSeed(seed));   // uniform-area barycentric warp
+            float u2 = RandFromSeed(seed);
+            uvPacked     = PackUV(float2(u2 * su, su * (1.0 - u2)));
+            lightIndex   = triLocal | LIGHT_TYPE_TRI;
+            invSourcePdf = (pmf > 0.0) ? (LoadTriL(lb, triLocal).area / pmf) : 0.0;
+        }
+    }
+    else
+    {
+        uint pc = max(pointCount, 1u);
+        lightIndex   = min(uint(RandFromSeed(seed) * float(pc)), pc - 1u);
+        invSourcePdf = float(pointCount);
+    }
+}
