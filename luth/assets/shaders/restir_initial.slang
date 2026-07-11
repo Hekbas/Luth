@@ -108,7 +108,8 @@ void main(uint3 tid : SV_DispatchThreadID)
         LightSample s = ReSampleLight(g_Lights, r.lightIndex, r.uvPacked, worldPos);
         float  tMin   = ubo.rtShadowParams.y;
         float3 origin = worldPos + N * (ubo.rtShadowParams.z * 0.5) + s.L * tMin;
-        RayDesc ray; ray.Origin = origin; ray.TMin = tMin; ray.Direction = s.L; ray.TMax = max(s.dist - 2.0 * tMin, tMin);
+        RayDesc ray; ray.Origin = origin; ray.TMin = tMin; ray.Direction = s.L;
+        ray.TMax = ShadowTMax(r.lightIndex, s.dist, tMin, ubo.rtShadowParams.z);
         RayQuery<RAY_FLAG_NONE> rq;
         rq.TraceRayInline(topLevelAS, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, GT_VIS_SOLID, ray);
         RtConfirmAlphaCandidates(rq, pc.geomTable);

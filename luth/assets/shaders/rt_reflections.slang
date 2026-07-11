@@ -83,7 +83,7 @@ float3 ShadeHit(float3 xs, HitSurface hs, inout uint seed)
         DrawLightCandidate(g_Lights, seed, lightIndex, uvPacked, invSourcePdf);
         LightSample s = ReSampleLight(g_Lights, lightIndex, uvPacked, xs);
         float ndl = max(dot(ns, s.L), 0.0);
-        if (ndl > 0.0 && Visible(xs, hs.ng, s.L, s.dist - 2.0 * ubo.rtShadowParams.y))
+        if (ndl > 0.0 && Visible(xs, hs.ng, s.L, ShadowTMax(lightIndex, s.dist, ubo.rtShadowParams.y, ubo.rtShadowParams.z)))
         {
             // invSourcePdf undoes the alias/uniform pick pdf; that single-light lottery is the NEE spike
             // source, so clamp this term (not sun/emission/IBL) before it enters the 1-spp reflection.

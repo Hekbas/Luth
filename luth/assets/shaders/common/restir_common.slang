@@ -244,3 +244,14 @@ public void DrawLightCandidate(ByteAddressBuffer lb, inout uint seed, out uint l
         invSourcePdf = float(pointCount);
     }
 }
+
+// Shadow-ray far distance to a light sample, backed off so the ray stops SHORT of the sample. A triangle
+// (area) light's sample IS scene geometry, so the receiver normal-offset origin (N * normalEps*0.5, pushed
+// toward the light) can overshoot the sample INTO the emitter -> self-occlusion -> W=0. Back off past that
+// offset for triangles; a point light is not geometry, so 2*tMin suffices (unchanged, no regression).
+// see arch/rendering-pipeline.md
+public float ShadowTMax(uint lightIndex, float dist, float tMin, float normalEps)
+{
+    float extra = ((lightIndex & LIGHT_TYPE_TRI) != 0u) ? normalEps : 0.0;
+    return max(dist - extra - 2.0 * tMin, tMin);
+}

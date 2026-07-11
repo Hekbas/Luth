@@ -135,7 +135,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         {
             float  sMin  = ubo.rtShadowParams.y;
             float3 sOrig = xs + ns * (ubo.rtShadowParams.z * 0.5) + ls.L * sMin;
-            float  vis   = TraceVisibility(sOrig, ls.L, sMin, max(ls.dist - 2.0 * sMin, sMin));
+            float  vis   = TraceVisibility(sOrig, ls.L, sMin, ShadowTMax(lightIndex, ls.dist, sMin, ubo.rtShadowParams.z));
             Lo += (baseColor / GI_PI) * ls.Li * ndl * vis * invSourcePdf;
         }
     }
