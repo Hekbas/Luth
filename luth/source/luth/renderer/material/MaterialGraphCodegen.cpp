@@ -385,6 +385,7 @@ namespace Luth
             ss << "    rf.time      = ubo.time;\n";
             ss << "    rf.ndotv     = saturate(dot(normalize(i.normal), rf.viewDir));\n";
             ss << "    rf.worldNormal = normalize(i.normal);\n";
+            ss << "    rf.tangentViewDir = float3(dot(rf.viewDir, i.T), dot(rf.viewDir, i.B), dot(rf.viewDir, i.N));\n";
             ss << "    MaterialInputs mi = " << fnName << "<RasterFetch>(m, i.uv0, i.uv1, rf);\n";
             ss << "    return PbrShadeSurface(mi, m, i, frontFacing, fragCoord);\n";
             ss << "}\n";
