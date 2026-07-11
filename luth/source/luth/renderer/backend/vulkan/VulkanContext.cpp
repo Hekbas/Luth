@@ -345,6 +345,12 @@ namespace Luth
             if (!found) return false;
         }
 
+        // BC block compression is mandatory: imported material textures are baked to BCn and sampled
+        // natively. Every RT-capable desktop GPU supports it, so this rejects nothing new.
+        VkPhysicalDeviceFeatures feats{};
+        vkGetPhysicalDeviceFeatures(device, &feats);
+        if (!feats.textureCompressionBC) return false;
+
         u32 famCount = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(device, &famCount, nullptr);
         std::vector<VkQueueFamilyProperties> families(famCount);
@@ -589,6 +595,7 @@ namespace Luth
         deviceFeatures.samplerAnisotropy = VK_TRUE;
         deviceFeatures.fillModeNonSolid = VK_TRUE;
         deviceFeatures.independentBlend = VK_TRUE;
+        deviceFeatures.textureCompressionBC = VK_TRUE; // BCn sampling for import-baked textures
         // Per-pass GPU pipeline statistics (overdraw / geometry counts) for the editor profiler, enabled
         // only when supported; spanning secondary cmd buffers also needs inheritedQueries. GPUTimerPool gates
         // collection on SupportsPipelineStats(), so an unsupported GPU degrades cleanly to timing-only.

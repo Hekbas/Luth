@@ -6,6 +6,7 @@
 #include <array>
 #include <mutex>
 #include <functional>
+#include <vector>
 
 // Forward declare VMA types
 typedef struct VmaAllocation_T* VmaAllocation;
@@ -36,6 +37,12 @@ namespace Luth
         // BLIT_DST_BIT is a graphics-queue-only feature, so this stays on the graphics queue regardless of any future async-compute split.
         u64 UploadImageMipped(const void* data, u64 size, VkImage dstImage,
                               u32 width, u32 height, u32 mipLevels, u32 arrayLayers);
+
+        // Uploads a pre-baked compressed (BCn) mip chain in one transfer submit: no blit (mips are
+        // baked at import), so it runs on the transfer queue. Regions carry offsets relative to the
+        // payload start; this rebases them onto the staging allocation.
+        u64 UploadImageLevels(const void* data, u64 size, VkImage dstImage,
+                              const std::vector<VkBufferImageCopy>& regions);
 
         // Checks if a specific upload has finished.
         bool IsComplete(u64 fenceValue);
