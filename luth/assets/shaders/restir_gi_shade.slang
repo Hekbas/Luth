@@ -3,8 +3,9 @@
 //
 // CONTRACT: stores DEMODULATED indirect irradiance  E = L_o * NdotL_v * W  (no primary albedo, no 1/PI).
 // pbr.slang remodulates:  Lo += E * (albedo * (1-metallic) / PI). SVGF denoises E before remodulation,
-// same contract as the DI path. L_o already contains the secondary surface's albedo + cosine; only the
-// PRIMARY-vertex cosine (NdotL_v) and W are applied here. Reads the spatial-reuse output at b6.
+// same contract as the DI path; ALPHA carries reservoir confidence saturate(M / confidenceNorm) for the
+// SVGF reproject. L_o already contains the secondary surface's albedo + cosine; only the PRIMARY-vertex
+// cosine (NdotL_v) and W are applied here. Reads the spatial-reuse output at b6.
 // see arch/rendering-pipeline.md
 import globals;
 import restir_common;        // OctDecode
@@ -24,6 +25,8 @@ struct PC
     int      gbufferScale;
     int      dispatchW;
     int      dispatchH;
+    uint2    _padGeomBDA;    // C++ GiPC.geomTableBDA (initial pass only); keeps confidenceNorm at 96
+    float    confidenceNorm; // reservoir M mapping to full denoiser confidence (output alpha)
 };
 [[vk::push_constant]] PC pc;
 
@@ -51,7 +54,8 @@ void main(uint3 tid : SV_DispatchThreadID)
     if (depth < 1.0 && r.M > 0u && r.W > 0.0)
     {
         float2 uv       = (float2(pixel) + 0.5) / float2(size);
-        float4 worldH   = mul(pc.invViewProj, float4(uv * 2.0 - 1.0, depth, 1.0));
+        float2 uvR      = DejitterReconUV(uv, ubo.taaParams.zw);   // match reservoir recon; see globals
+        float4 worldH   = mul(pc.invViewProj, float4(uvR * 2.0 - 1.0, depth, 1.0));
         float3 worldPos = worldH.xyz / worldH.w;
         float3 Nv       = OctDecode(u_SlimNormal.Load(int3(GiGuide(pixel), 0)).rg);
 
@@ -61,9 +65,18 @@ void main(uint3 tid : SV_DispatchThreadID)
         {
             L *= rsqrt(d2);
             E = r.sampleRadiance * max(dot(Nv, L), 0.0) * r.W;
+
+            // sampleRadiance was clamped at generation, but a W spike past reuse can still push E bright.
+            // Clamp post-reuse irradiance (x4 headroom over the generation cap for the receiver cosine).
+            float lum = Luminance(E);
+            float cap = pc.maxIndirect * 4.0;
+            if (cap > 0.0 && lum > cap) E *= cap / lum;
         }
     }
 
     if (any(isnan(E)) || any(isinf(E))) E = float3(0.0);   // never poison SVGF / remodulation
-    outIndirect[pixel] = float4(E, 1.0);
+
+    // Alpha carries reservoir confidence for the SVGF reproject's history-cap control.
+    float conf = saturate(float(r.M) / max(pc.confidenceNorm, 1.0));
+    outIndirect[pixel] = float4(E, conf);
 }

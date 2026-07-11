@@ -19,13 +19,14 @@
 namespace Luth
 {
     // Mirrors the push_constant block in taa_resolve.slang. Source-side de-jitter lives in
-    // slim_gbuffer.slang (ubo.taaParams.zw + ubo.prevJitter), so the resolve no longer carries
-    // a jitter delta, just the temporal feedback weight.
+    // slim_gbuffer.slang (ubo.taaParams.zw + ubo.prevJitter); skyReproj (un-jittered
+    // prevVP * inv(currVP)) reprojects depth == 1 pixels, which rasterize no motion vector.
     struct TaaResolvePushConstants
     {
-        f32 temporalAlpha;
+        Mat4 skyReproj;
+        f32  temporalAlpha;
     };
-    static_assert(sizeof(TaaResolvePushConstants) == 4,
+    static_assert(sizeof(TaaResolvePushConstants) == 68,
                   "TaaResolvePushConstants must match taa_resolve.slang's push_constant block");
 
     // Mirrors bloom_downsample.slang's push_constant. prefilter=1 gates the threshold + Karis
@@ -972,9 +973,10 @@ namespace Luth
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_TaaResolvePipeline->GetLayout(), 0, 1, &vr->taaResolveDescSet[slot], 0, nullptr);
 
-                // Source-side de-jitter lives in slim_gbuffer.slang: the motion attachment carries
-                // pure scene displacement, so the resolve push constant is just the feedback weight.
+                // Motion carries pure scene displacement (source-side de-jitter in slim_gbuffer.slang);
+                // skyReproj covers depth == 1, where nothing rasterized a motion vector.
                 TaaResolvePushConstants pc{};
+                pc.skyReproj     = m_Pipeline->GetGlobal().GetCachedSkyReproj();
                 pc.temporalAlpha = sys.GetPostProcessSettings().taaTemporalAlpha;
                 vkCmdPushConstants(cmd, m_TaaResolvePipeline->GetLayout(),
                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);

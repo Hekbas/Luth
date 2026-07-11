@@ -49,6 +49,7 @@ namespace Luth
 
         VkDescriptorSetLayout                  GetSetLayout()       const { return m_GlobalSetLayout; }
         const Mat4&                            GetCachedViewProj()  const { return m_CachedViewProj; }
+        const Mat4&                            GetCachedSkyReproj() const { return m_CachedSkyReproj; }
         const CascadeData&                     GetCascades()        const { return m_FrameCascades; }
         const DirectionalLightShadowParams&    GetShadowParams()    const { return m_FrameShadowParams; }
 
@@ -64,6 +65,9 @@ namespace Luth
         CascadeData                        m_FrameCascades{};
         DirectionalLightShadowParams       m_FrameShadowParams{};
         Mat4                               m_CachedViewProj{ 1.0f };
+        // Un-jittered prevVP * inv(currVP) for the TAA resolve's sky (depth==1) reprojection; same
+        // per-view write/read-alternation guarantee as m_CachedViewProj.
+        Mat4                               m_CachedSkyReproj{ 1.0f };
         std::vector<u8>                    m_LastUboBytes;   // serialized GlobalUniforms, last UpdateUBO
     };
 }

@@ -1,24 +1,28 @@
 // SVGF temporal accumulation (Schied 2017). Reprojects the previous frame's integrated color + luminance
-// moments through the motion vector (2x2 bilinear, each tap depth/normal validated), blends the current
-// noisy DI with an EMA, and estimates per-pixel luminance variance from the accumulated moments. Per-pixel
-// geometry (linear depth + oct normal) is carried in a history buffer for next frame's disocclusion (no
-// fwidth in compute -> relative linear-depth tolerance + normal dot). see arch/rendering-pipeline.md
+// moments through the motion vector (2x2 bilinear, each tap depth/normal/matID validated), blends the
+// current noisy DI with an EMA, and estimates per-pixel luminance variance from the accumulated moments.
+// Per-pixel geometry (linear depth + oct normal + matID) is carried in a history buffer for next frame's
+// disocclusion (no fwidth in compute -> relative linear-depth tolerance + normal dot).
+// see arch/rendering-pipeline.md
 //
 // invariant: prev/curr history buffers selected by frame parity in C++; set[p] binds prev = hist[p^1]
 // (samplers b4-b6) and curr = hist[p] (storage b7-b9).
+// invariant: geom history alpha carries the matID here; the SPEC reproject variant stores hitDist in the
+// same channel. Keep the two packings distinct (this is why the spec variant has no matID gate).
 import globals;
 import svgf_common;
 
-[[vk::binding(0, 1)]] Sampler2D u_DiIn;          // current noisy demodulated DI
+[[vk::binding(0, 1)]] Sampler2D u_DiIn;          // current noisy demodulated DI (a = reservoir confidence)
 [[vk::binding(1, 1)]] Sampler2D u_CurrDepth;
 [[vk::binding(2, 1)]] Sampler2D u_CurrNormal;    // slim oct normal
 [[vk::binding(3, 1)]] Sampler2D u_Motion;        // slim NDC motion delta
 [[vk::binding(4, 1)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> u_ColorHistPrev;  // prev color + variance
 [[vk::binding(5, 1)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> u_MomentsPrev;    // prev (mu1, mu2, histLen)
-[[vk::binding(6, 1)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> u_GeomPrev;       // prev (linearZ, octN.x, octN.y)
+[[vk::binding(6, 1)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> u_GeomPrev;       // prev (linearZ, octN.x, octN.y, matID)
 [[vk::binding(7, 1)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> outColor;         // curr color + variance
 [[vk::binding(8, 1)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> outMoments;       // curr (mu1, mu2, histLen)
-[[vk::binding(9, 1)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> outGeom;          // curr (linearZ, octN.x, octN.y)
+[[vk::binding(9, 1)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> outGeom;          // curr (linearZ, octN.x, octN.y, matID)
+[[vk::binding(10, 1)]] Sampler2D<uint> u_MatId;  // slim material ID (R16U), history material gate
 
 struct PC
 {
@@ -30,6 +34,8 @@ struct PC
     int   gbufferScale;     // 1 = full-res; >1 = working res below the full G-buffer (half-res GI)
     int   dispatchW;
     int   dispatchH;
+    float antiFireflySigma; // 3x3 neighbourhood mean + k*sigma clamp on the incoming sample; 0 = off
+    float confidenceScale;  // reservoir-confidence (input alpha) history-cap shortening; 0 = off
 };
 [[vk::push_constant]] PC pc;
 
@@ -54,8 +60,12 @@ void main(uint3 tid : SV_DispatchThreadID)
     float  depth   = u_CurrDepth.Load(int3(SvgfGuide(pixel), 0)).r;
     float  curLinZ = SvgfLinearizeDepth(depth);
 
-    // Carry this pixel's geometry forward for next frame's disocclusion test (all pixels).
-    outGeom[pixel] = float4(curLinZ, octN.x, octN.y, 0.0);
+    // invariant: matID is quantized through f32tof16 on BOTH the store and compare sides - the same ID
+    // can never falsely reject (identical rounding); distinct IDs may alias above 2048 (benign accept).
+    uint matBits = f32tof16(float(u_MatId.Load(int3(SvgfGuide(pixel), 0)).r));
+
+    // Carry this pixel's geometry + matID forward for next frame's disocclusion test (all pixels).
+    outGeom[pixel] = float4(curLinZ, octN.x, octN.y, f16tof32(matBits));
 
     // Sky / background: no DI to accumulate; reset history so a later disocclusion starts clean.
     if (depth >= 1.0)
@@ -66,8 +76,29 @@ void main(uint3 tid : SV_DispatchThreadID)
     }
 
     // Clamp the HDR signal to f16 range; clamp the luminance so mu2 = lum^2 stays inside f16 (65504).
-    float3 di     = clamp(u_DiIn.Load(int3(pixel, 0)).rgb, 0.0, 65504.0);
-    float  curLum = min(SvgfLuminance(di), 255.0);
+    float4 diIn = u_DiIn.Load(int3(pixel, 0));
+    float3 di   = clamp(diIn.rgb, 0.0, 65504.0);
+
+    // In-loop anti-firefly (RT Gems ch. 25, spatial form): clamp the incoming sample's luminance to the
+    // 3x3 short-mean + k*sigma before the EMA, so one hot sample cannot seed a history-length streak
+    // (center excluded so the outlier cannot inflate its own budget; the f16/255 clamps bound only the encoding).
+    if (pc.antiFireflySigma > 0.0)
+    {
+        float m1 = 0.0, m2 = 0.0;
+        for (int yy = -1; yy <= 1; ++yy)
+        for (int xx = -1; xx <= 1; ++xx)
+        {
+            if (xx == 0 && yy == 0) continue;
+            int2  q = clamp(pixel + int2(xx, yy), int2(0), size - int2(1));
+            float l = min(SvgfLuminance(u_DiIn.Load(int3(q, 0)).rgb), 65504.0);
+            m1 += l; m2 += l * l;
+        }
+        m1 *= 1.0 / 8.0; m2 *= 1.0 / 8.0;
+        float cap = m1 + pc.antiFireflySigma * sqrt(max(m2 - m1 * m1, 0.0)) + 1.0e-3;
+        float lum = SvgfLuminance(di);
+        if (lum > cap) di *= cap / lum;
+    }
+    float curLum = min(SvgfLuminance(di), 255.0);
 
     // Reproject (TAA convention: motion is an NDC delta; UV offset = motion * 0.5).
     float2 uv       = (float2(pixel) + 0.5) / float2(size);
@@ -91,11 +122,12 @@ void main(uint3 tid : SV_DispatchThreadID)
             int2 tp = p0 + off[i];
             if (any(tp < int2(0)) || any(tp >= size)) continue;
 
-            float3 g        = u_GeomPrev[tp].rgb;      // prev (linearZ, octN.x, octN.y)
+            float4 g        = u_GeomPrev[tp];          // prev (linearZ, octN.x, octN.y, matID)
             float  prevLinZ = g.r;
             float3 prevN    = SvgfOctDecode(g.gb);
             bool ok = abs(curLinZ - prevLinZ) < pc.depthThreshold * curLinZ
-                   && dot(prevN, N) > pc.normalThreshold;
+                   && dot(prevN, N) > pc.normalThreshold
+                   && f32tof16(g.a) == matBits;        // material edge: never blend history across matIDs
             if (!ok) continue;
 
             float w = bw[i];
@@ -114,7 +146,18 @@ void main(uint3 tid : SV_DispatchThreadID)
     {
         float inv = 1.0 / sumw;
         pColor *= inv; pMom *= inv; pHist *= inv;
-        histLen  = min(pc.historyCap, pHist + 1.0);
+
+        // Reservoir confidence (producer-written input alpha): low confidence shortens the effective
+        // history cap so fresh / post-boil reservoirs re-converge in a few frames instead of dragging a
+        // full-length EMA. scale 1 = the full lerp(4, cap, conf); 0 = off (cap untouched).
+        float effCap = pc.historyCap;
+        if (pc.confidenceScale > 0.0)
+        {
+            float conf = saturate(diIn.a);
+            effCap = lerp(min(4.0, pc.historyCap), pc.historyCap,
+                          saturate(1.0 - (1.0 - conf) * pc.confidenceScale));
+        }
+        histLen  = min(effCap, pHist + 1.0);
         float a  = max(pc.alphaColor,   1.0 / histLen);
         float am = max(pc.alphaMoments, 1.0 / histLen);
         color = lerp(pColor, di, a);

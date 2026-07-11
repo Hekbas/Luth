@@ -72,6 +72,17 @@ public void ReservoirMerge(inout Reservoir c, uint lightIndex, float targetPdfAt
     if (c.wSum > 0.0 && rnd * c.wSum <= w) { c.lightIndex = lightIndex; c.targetPdf = targetPdfAtCurr; }
 }
 
+// Selection-reporting merge for BASIC bias correction: returns true when this candidate is chosen, so the
+// caller can record which domain won (needed for the pi / piSum generalized-balance normalization).
+public bool ReservoirMergeSel(inout Reservoir c, uint lightIndex, float targetPdfAtCurr, float Wsrc, uint Msrc, float rnd)
+{
+    float w = targetPdfAtCurr * Wsrc * float(Msrc);
+    c.wSum += w;
+    c.M    += Msrc;
+    if (c.wSum > 0.0 && rnd * c.wSum <= w) { c.lightIndex = lightIndex; c.targetPdf = targetPdfAtCurr; return true; }
+    return false;
+}
+
 public float Luminance(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 
 // PCG hash -> uint; RandFromSeed advances the stream and returns [0,1).

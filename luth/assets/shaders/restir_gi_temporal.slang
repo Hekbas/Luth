@@ -1,8 +1,9 @@
 // ReSTIR GI temporal reuse (Ouyang 2021). Reprojects each pixel to the previous frame via the motion
-// vector and merges the previous reservoir into this frame's fresh candidate, confidence-weighted (Bitterli
-// relative M-cap) and age-capped. Because a GI reservoir stores a WORLD-SPACE sample point, reusing the
-// previous sample at the current receiver is a reconnection SHIFT: the resampling weight is multiplied by
-// the reconnection Jacobian (Eq. 11). Runs between initial and shade; the merged result stays in CURR (b2).
+// vector and merges the previous frame's SPATIAL output (b4: post-spatial history, final visibility
+// already folded into W) into this frame's fresh candidate, confidence-weighted (Bitterli relative M-cap)
+// and age-capped. Because a GI reservoir stores a WORLD-SPACE sample point, reusing the previous sample at
+// the current receiver is a reconnection SHIFT: the resampling weight is multiplied by the reconnection
+// Jacobian (Eq. 11). Runs between initial and spatial; the merged result stays in the scratch (b2).
 // AsyncCompute. see arch/rendering-pipeline.md
 import globals;
 import restir_common;        // OctDecode / PcgHash / RandFromSeed
@@ -10,8 +11,8 @@ import restir_gi_common;     // GIReservoir + merge + GiTargetFunction + Jacobia
 
 [[vk::binding(0, 2)]] Sampler2D u_CurrDepth;
 [[vk::binding(1, 2)]] Sampler2D u_CurrNormal;
-[[vk::binding(2, 2)]] RWStructuredBuffer<GIReservoir> curr;
-[[vk::binding(4, 2)]] StructuredBuffer<GIReservoir> prevRes;
+[[vk::binding(2, 2)]] RWStructuredBuffer<GIReservoir> curr;     // scratch (initial -> temporal in-place)
+[[vk::binding(4, 2)]] StructuredBuffer<GIReservoir> prevRes;    // last frame's SPATIAL output (persistent history)
 [[vk::binding(5, 2)]] Sampler2D u_Motion;
 
 struct PC
@@ -51,7 +52,8 @@ void main(uint3 tid : SV_DispatchThreadID)
     float2 octN     = u_CurrNormal.Load(int3(GiGuide(pixel), 0)).rg;
     float3 N        = OctDecode(octN);
     float2 uv       = (float2(pixel) + 0.5) / float2(size);
-    float4 worldH   = mul(pc.invViewProj, float4(uv * 2.0 - 1.0, depth, 1.0));
+    float2 uvR      = DejitterReconUV(uv, ubo.taaParams.zw);   // un-jittered recon; see globals
+    float4 worldH   = mul(pc.invViewProj, float4(uvR * 2.0 - 1.0, depth, 1.0));
     float3 worldPos = worldH.xyz / worldH.w;
 
     const uint mCap   = pc.mCapMaxAge & 0xFFFFu;
@@ -59,14 +61,25 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     uint seed = PcgHash(flatIdx ^ (pc.frameSeed * 2246822519u));
 
-    // Start with this frame's candidate: already at this pixel, identity shift. GIReservoirMerge seeds
-    // the sample on the first merge even at w=0 (confident-zero invariant: M>0 => samplePos valid).
+    // RTXDI BASIC over two domains: this receiver (canonical) and the reprojected previous receiver
+    // (pr.visPos, self-carried). Streaming weights fold the reconnection Jacobian; the final W re-evaluates
+    // the winner's SAMPLE at both receivers (no Jacobian in the denominator, matching the GI spatial pass).
     GIReservoir c; GIReservoirReset(c);
+    int    selDomain = -1;
+    float3 prevPos   = float3(0.0);
+    float3 prevN     = float3(0.0);
+    uint   Mprev     = 0u;
+
+    // Canonical: this frame's candidate at this pixel (identity shift, no Jacobian). Seeds even at w=0
+    // (confident-zero invariant: M>0 => samplePos valid).
     if (r.M > 0u)
     {
         float pHatCurr = GiTargetFunction(r.samplePos, r.sampleRadiance, worldPos, N);
-        GIReservoirMerge(c, r.samplePos, r.sampleRadiance, r.sampleNormalOct, r.age,
-                         pHatCurr, r.W, r.M, RandFromSeed(seed));
+        c.wSum += pHatCurr * r.W * float(r.M);
+        c.M    += r.M;
+        c.samplePos = r.samplePos; c.sampleRadiance = r.sampleRadiance;
+        c.sampleNormalOct = r.sampleNormalOct; c.age = r.age;
+        selDomain = 0;
     }
 
     // Reproject (TAA convention: motion is NDC delta; UV offset = motion * 0.5).
@@ -76,10 +89,10 @@ void main(uint3 tid : SV_DispatchThreadID)
         int2 pPix = clamp(int2(prevUV * float2(size)), int2(0), size - int2(1));
         GIReservoir pr = prevRes[uint(pPix.y) * uint(size.x) + uint(pPix.x)];
 
-        float3 prevN = OctDecode(float2(f16tof32(pr.visNormalPacked & 0xFFFFu), f16tof32(pr.visNormalPacked >> 16u)));
+        float3 pN = OctDecode(float2(f16tof32(pr.visNormalPacked & 0xFFFFu), f16tof32(pr.visNormalPacked >> 16u)));
         bool valid = pr.M > 0u
                   && pr.age < maxAge
-                  && dot(prevN, N) > pc.normalThreshold
+                  && dot(pN, N) > pc.normalThreshold
                   && length(pr.visPos - worldPos) < pc.depthThreshold * length(worldPos - ubo.cameraPos);
 
         if (valid)
@@ -89,16 +102,36 @@ void main(uint3 tid : SV_DispatchThreadID)
             if (GiValidateJacobian(jac))
             {
                 float pHatPrev = GiTargetFunction(pr.samplePos, pr.sampleRadiance, worldPos, N);
-                uint  mClamped = min(pr.M, mCap * max(r.M, 1u));
-                GIReservoirMerge(c, pr.samplePos, pr.sampleRadiance, pr.sampleNormalOct, pr.age + 1u,
-                                 pHatPrev * jac, pr.W, mClamped, RandFromSeed(seed));
+                Mprev   = min(pr.M, mCap * max(r.M, 1u));
+                prevPos = pr.visPos; prevN = pN;
+                float w = (pHatPrev * jac) * pr.W * float(Mprev);
+                c.wSum += w; c.M += Mprev;
+                // Force-seed if nothing seeded yet (canonical missed, r.M==0): preserves the M>0 => samplePos
+                // valid invariant even when the prev streams w==0 (the visibility layer will trust samplePos).
+                float rnd = RandFromSeed(seed);
+                if (selDomain < 0 || (c.wSum > 0.0 && rnd * c.wSum <= w))
+                {
+                    c.samplePos = pr.samplePos; c.sampleRadiance = pr.sampleRadiance;
+                    c.sampleNormalOct = pr.sampleNormalOct; c.age = pr.age + 1u;
+                    selDomain = 1;
+                }
             }
         }
     }
 
-    // Finalize with the selected sample's target re-evaluated here, then carry receiver geometry forward.
-    float pHatSel = GiTargetFunction(c.samplePos, c.sampleRadiance, worldPos, N);
-    GIReservoirFinalize(c, pHatSel);
+    // BASIC finalize: winner's sample re-evaluated at each receiver (x that domain's M). No Jacobian here
+    // (it rides only the streaming weight). selTgt = winner at the canonical receiver.
+    float selTgt = GiTargetFunction(c.samplePos, c.sampleRadiance, worldPos, N);
+    float piSum  = selTgt * float(r.M);
+    float selPi  = (selDomain == 0) ? selTgt : 0.0;
+    if (Mprev > 0u)
+    {
+        float psPrev = GiTargetFunction(c.samplePos, c.sampleRadiance, prevPos, prevN);
+        piSum += psPrev * float(Mprev);
+        if (selDomain == 1) selPi = psPrev;
+    }
+    c.W = (selTgt > 0.0 && piSum > 0.0 && c.M > 0u && selDomain >= 0) ? (c.wSum * selPi / (selTgt * piSum)) : 0.0;
+
     c.visPos          = worldPos;
     c.visNormalPacked = f32tof16(octN.x) | (f32tof16(octN.y) << 16u);
     curr[flatIdx] = c;

@@ -19,7 +19,9 @@ namespace Luth
         f32  roughnessFadeStart = 0.45f;
         f32  roughnessFadeEnd   = 0.65f;
         f32  maxRayDistance     = 1000.0f;  // reflection-ray tMax
-        f32  fireflyClamp       = 8.0f;     // per-ray radiance-luminance clamp (bounds 1-spp variance)
+        f32  minLobeAlpha       = 1e-3f;    // GGX rough^2 floor (~0.032 roughness): kills near-mirror 1-spp fireflies
+        f32  neeClamp           = 16.0f;    // luminance cap on the reflection-hit point-light NEE term
+        f32  fireflyClamp       = 64.0f;    // per-ray radiance backstop (min-rough + NEE clamps are the mechanism now)
         bool denoise            = true;     // specular denoiser; off = raw 1-spp for A/B
     };
 }

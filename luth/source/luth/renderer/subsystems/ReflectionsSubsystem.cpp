@@ -30,8 +30,10 @@ namespace Luth
             i32  dispatchW;         // reflection working (dispatch) resolution
             i32  dispatchH;
             u64  geomTableBDA;      // secondary-hit material fetch (paired with the bound TLAS)
+            f32  minLobeAlpha;      // rough^2 floor: bounds near-mirror 1-spp variance
+            f32  neeClamp;          // luminance cap on the reflection-hit point-light NEE term
         };
-        static_assert(sizeof(ReflPC) == 104, "ReflPC must match rt_reflections.comp push_constant");
+        static_assert(sizeof(ReflPC) == 112, "ReflPC must match rt_reflections.comp push_constant");
         constexpr u32 k_ReflPCSize = 128;   // fixed range: tail headroom
 
         // Mirrors bilateral_upscale.slang's push_constant (shared with the GI/DI upscale).
@@ -259,6 +261,8 @@ namespace Luth
         pc.roughnessCutoff = s.roughnessFadeEnd;   // skip above the fade band; pbr.frag blends within it
         pc.maxRayDistance  = s.maxRayDistance;
         pc.fireflyClamp    = s.fireflyClamp;
+        pc.minLobeAlpha    = s.minLobeAlpha;
+        pc.neeClamp        = s.neeClamp;
         pc.envReady        = m_Pipeline->GetLighting().IsIBLReady() ? 1u : 0u;
         pc.gbufferScale    = reflScale;
         pc.dispatchW       = reflW;

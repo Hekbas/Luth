@@ -1,10 +1,10 @@
 // SVGF variance-guided edge-aware a-trous wavelet (Schied 2017). One level of the wavelet transform,
 // dispatched N times with a doubling step size for a 65x65 effective footprint. The 5x5 cross-bilateral
-// filter is gated by depth (gradient-normalized), world-normal (power), and luminance (driven by the moment
-// variance) edge-stops. Variance is co-filtered with the SQUARED weights; the luminance weight uses a 3x3
-// gaussian prefilter of the variance (not propagated). Pure post-filter: temporal feedback is the
-// reproject's integrated color (feedbackTap = -1); the final level writes the consumed image.
-// see arch/rendering-pipeline.md
+// filter is gated by depth (gradient-normalized), world-normal (power), luminance (driven by the moment
+// variance), and - on the specular channels - roughness edge-stops. Variance is co-filtered with the
+// SQUARED weights; the luminance weight uses a 3x3 gaussian prefilter of the variance (not propagated).
+// Pure post-filter: temporal feedback is the reproject's integrated color (feedbackTap = -1); the final
+// level writes the consumed image. see arch/rendering-pipeline.md
 import globals;
 import svgf_common;
 
@@ -13,6 +13,7 @@ import svgf_common;
 [[vk::binding(2, 1)]] Sampler2D u_Normal;
 [[vk::binding(3, 1)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> outAtrous;      // next a-trous level
 [[vk::binding(4, 1)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> outDenoised;    // consumed (final level)
+[[vk::binding(5, 1)]] Sampler2D u_Rough;       // slim roughness (R8); spec channels' roughness edge-stop
 
 struct PC
 {
@@ -24,6 +25,7 @@ struct PC
     int   gbufferScale;
     int   dispatchW;
     int   dispatchH;
+    float phiRough;     // roughness edge-stop scale; 0 disables (diffuse channels pass 0)
 };
 [[vk::push_constant]] PC pc;
 
@@ -60,6 +62,12 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     float  lzc = SvgfLinearizeDepth(depth);
     float3 Nc  = SvgfOctDecode(u_Normal.Load(int3(SvgfGuide(pixel), 0)).rg);
+
+    // Roughness edge-stop (spec channels only): stops a mirror's and a rough panel's radiance mixing
+    // across their shared edge, the cross-material smear depth/normal stops cannot see. phiRough == 0
+    // (diffuse channels) folds the weight to exp(0) = 1.
+    float rc          = u_Rough.Load(int3(SvgfGuide(pixel), 0)).r;
+    float invPhiRough = (pc.phiRough > 0.0) ? (1.0 / pc.phiRough) : 0.0;
 
     // Central-difference linear-depth gradient (compute substitute for fwidth).
     float dzdx = 0.5 * (linZAt(min(pixel + int2(1, 0), size - int2(1))) - linZAt(max(pixel - int2(1, 0), int2(0))));
@@ -100,9 +108,10 @@ void main(uint3 tid : SV_DispatchThreadID)
         float  wz = exp(-abs(lzc - lzq) / (pc.phiDepth * expectedDz + 1e-4));
         float  wn = pow(max(0.0, dot(Nc, Nq)), pc.phiNormal);
         float  wl = exp(-abs(lc - lq) / phiL);
+        float  wr = exp(-abs(rc - u_Rough.Load(int3(SvgfGuide(q), 0)).r) * invPhiRough);
 
         float kernel = kKernel[abs(xx)] * kKernel[abs(yy)];
-        float w = kernel * wz * wn * wl;
+        float w = kernel * wz * wn * wl * wr;
         sumColor += w * cq.rgb;
         sumVar   += w * w * cq.a;   // variance co-filtered with squared weights
         sumW     += w;

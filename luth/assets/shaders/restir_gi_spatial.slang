@@ -1,12 +1,18 @@
 // ReSTIR GI spatial reuse (Ouyang 2021) with RTXDI BASIC bias correction. Merges each pixel's
 // temporal-output reservoir (b2, read-only) with a few disk neighbours into a SEPARATE spatial output (b6);
 // neighbours read un-modified, never in-place. Each reused neighbour is reweighted by the reconnection
-// Jacobian (Eq. 11). The final unbiased weight uses BASIC normalization (pi/piSum, no extra rays) instead
-// of biased 1/M. AsyncCompute; shade reads b6. see arch/rendering-pipeline.md
+// Jacobian (Eq. 11). The final unbiased weight uses BASIC normalization (pi/piSum) instead of biased 1/M,
+// then ONE final-visibility rayQuery (receiver -> selected sample) folds occlusion into W before the store:
+// the output IS next frame's temporal history, so occluded samples stop persisting. A groupwide boiling
+// filter then resets outlier reservoirs before the store (main has NO early returns: its barriers need
+// every thread). AsyncCompute; shade reads b6. see arch/rendering-pipeline.md
 import globals;
 import restir_common;        // OctDecode / PcgHash / RandFromSeed
 import restir_gi_common;     // GIReservoir + GiTargetFunction + Jacobian
+import material;
+import material_bindings_rt; // RtConfirmAlphaCandidates (Set 3 material, Set 4 bindless)
 
+[[vk::binding(6, 0)]] RaytracingAccelerationStructure topLevelAS;
 [[vk::binding(0, 2)]] Sampler2D u_SceneDepth;
 [[vk::binding(1, 2)]] Sampler2D u_SlimNormal;
 [[vk::binding(2, 2)]] StructuredBuffer<GIReservoir> inRes;        // temporal out
@@ -22,6 +28,8 @@ struct PC
     int      gbufferScale;
     int      dispatchW;
     int      dispatchH;
+    float    boilingStrength;    // boiling-filter kill knob, 0 disables (fills the pre-pointer pad)
+    GtGeomEntry* geomTable;      // final-visibility alpha test; stays 8-aligned at offset 96
 };
 [[vk::push_constant]] PC pc;
 
@@ -37,107 +45,185 @@ static const uint GI_MAX_DOMAINS = 9u;   // canonical + up to 8 neighbours (BASI
 
 float LinearizeDepth(float d) { return (ubo.nearZ * ubo.farZ) / (ubo.farZ - d * (ubo.farZ - ubo.nearZ)); }
 
+// Boiling filter (RTXDI): average the NONZERO reservoir weights across the 8x8 threadgroup and kill any
+// reservoir whose weight exceeds avg * mult, mult = 10/strength - 9 (strength 0.2 -> ~41x). One rare
+// over-bright reservoir otherwise persists as history and spreads through reuse (the boiling blobs).
+// invariant: EVERY thread of the group calls this exactly once (group barriers inside); dead threads
+// (out-of-bounds / sky) pass weight 0 so they neither shift the average nor get killed.
+static const uint BOIL_GROUP = 64u;   // must match [numthreads] (8 * 8)
+groupshared float gs_BoilWeight[BOIL_GROUP];
+groupshared uint  gs_BoilCount[BOIL_GROUP];
+
+bool BoilingKillsReservoir(uint gtIdx, float weight)
+{
+    gs_BoilWeight[gtIdx] = weight;
+    gs_BoilCount[gtIdx]  = (weight > 0.0) ? 1u : 0u;
+    GroupMemoryBarrierWithGroupSync();
+    for (uint s = BOIL_GROUP / 2u; s > 0u; s >>= 1u)
+    {
+        if (gtIdx < s)
+        {
+            gs_BoilWeight[gtIdx] += gs_BoilWeight[gtIdx + s];
+            gs_BoilCount[gtIdx]  += gs_BoilCount[gtIdx + s];
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+    if (pc.boilingStrength <= 0.0 || gs_BoilCount[0] == 0u) return false;
+    float avg  = gs_BoilWeight[0] / float(gs_BoilCount[0]);
+    float mult = 10.0 / clamp(pc.boilingStrength, 1e-6, 1.0) - 9.0;
+    return weight > avg * mult;
+}
+
 [shader("compute")]
 [numthreads(8, 8, 1)]
-void main(uint3 tid : SV_DispatchThreadID)
+void main(uint3 tid : SV_DispatchThreadID, uint gtIdx : SV_GroupIndex)
 {
     int2 pixel = int2(tid.xy);
     int2 size  = int2(pc.dispatchW, pc.dispatchH);
-    if (pixel.x >= size.x || pixel.y >= size.y) return;
-    uint flatIdx = uint(pixel.y) * uint(size.x) + uint(pixel.x);
 
-    float depth = u_SceneDepth.Load(int3(GiGuide(pixel), 0)).r;
-    GIReservoir canonical = inRes[flatIdx];
-    if (depth >= 1.0) { outRes[flatIdx] = canonical; return; }   // sky -> passthrough
+    // No early returns past here: BoilingKillsReservoir's barriers need the whole group. Out-of-bounds
+    // and sky threads stay 'dead' (skip the resampling work, stream weight 0) but reach the barriers.
+    bool inBounds = pixel.x < size.x && pixel.y < size.y;
+    uint flatIdx  = inBounds ? uint(pixel.y) * uint(size.x) + uint(pixel.x) : 0u;
 
-    float2 octN     = u_SlimNormal.Load(int3(GiGuide(pixel), 0)).rg;
-    float3 N        = OctDecode(octN);
-    float2 uv       = (float2(pixel) + 0.5) / float2(size);
-    float4 worldH   = mul(pc.invViewProj, float4(uv * 2.0 - 1.0, depth, 1.0));
-    float3 worldPos = worldH.xyz / worldH.w;
-    float  linDepth = LinearizeDepth(depth);
-
-    const uint  neighbours = min(pc.neighboursRadius & 0xFFFFu, GI_MAX_DOMAINS - 1u);
-    const float radius     = float(pc.neighboursRadius >> 16);
-
-    uint seed = PcgHash(flatIdx ^ (pc.frameSeed * 2654435761u));
-
-    // Per-domain surface records for the BASIC denominator (index 0 = canonical / this pixel).
-    float3 domPos[GI_MAX_DOMAINS];
-    float3 domN[GI_MAX_DOMAINS];
-    uint   domM[GI_MAX_DOMAINS];
-    uint   domCount = 0u;
+    GIReservoir canonical; GIReservoirReset(canonical);
+    float depth = 1.0;
+    if (inBounds)
+    {
+        depth     = u_SceneDepth.Load(int3(GiGuide(pixel), 0)).r;
+        canonical = inRes[flatIdx];
+    }
+    bool alive = inBounds && depth < 1.0;   // sky passes canonical through unfiltered
 
     GIReservoir c; GIReservoirReset(c);
-    int selDomain = -1;
-
-    // Canonical (this pixel): identity shift, no Jacobian. ALWAYS seeds the reservoir's sample.
+    float3 worldPos = float3(0.0);
+    float2 octN     = float2(0.0);
+    if (alive)
     {
-        float pHat = GiTargetFunction(canonical.samplePos, canonical.sampleRadiance, worldPos, N);
-        domPos[domCount] = worldPos; domN[domCount] = N; domM[domCount] = canonical.M;
-        float w = pHat * canonical.W * float(canonical.M);
-        c.wSum += w; c.M += canonical.M;
-        RandFromSeed(seed);   // keep the neighbour RNG stream aligned with the prior conditional draw
-        c.samplePos = canonical.samplePos; c.sampleRadiance = canonical.sampleRadiance;
-        c.sampleNormalOct = canonical.sampleNormalOct; c.age = canonical.age;
-        selDomain = int(domCount);
-        domCount += 1u;
-    }
+        octN = u_SlimNormal.Load(int3(GiGuide(pixel), 0)).rg;
+        float3 N        = OctDecode(octN);
+        float2 uv       = (float2(pixel) + 0.5) / float2(size);
+        float2 uvR      = DejitterReconUV(uv, ubo.taaParams.zw);   // un-jittered recon; see globals
+        float4 worldH   = mul(pc.invViewProj, float4(uvR * 2.0 - 1.0, depth, 1.0));
+        worldPos        = worldH.xyz / worldH.w;
+        float  linDepth = LinearizeDepth(depth);
 
-    for (uint i = 0u; i < neighbours; ++i)
-    {
-        float ang = RandFromSeed(seed) * 6.28318530718;
-        float rad = sqrt(RandFromSeed(seed)) * radius;
-        int2  q   = pixel + int2(int(round(cos(ang) * rad)), int(round(sin(ang) * rad)));
-        if (q.x < 0 || q.y < 0 || q.x >= size.x || q.y >= size.y || (q.x == pixel.x && q.y == pixel.y)) continue;
+        const uint  neighbours = min(pc.neighboursRadius & 0xFFFFu, GI_MAX_DOMAINS - 1u);
+        const float radius     = float(pc.neighboursRadius >> 16);
 
-        float qDepth = u_SceneDepth.Load(int3(GiGuide(q), 0)).r;
-        if (qDepth >= 1.0) continue;
-        float3 qN = OctDecode(u_SlimNormal.Load(int3(GiGuide(q), 0)).rg);
-        if (dot(qN, N) < pc.normalThreshold) continue;                       // normal reject
-        float qLin = LinearizeDepth(qDepth);
-        if (abs(qLin - linDepth) > pc.depthThreshold * linDepth) continue;   // depth reject
+        uint seed = PcgHash(flatIdx ^ (pc.frameSeed * 2654435761u));
 
-        uint qFlat = uint(q.y) * uint(size.x) + uint(q.x);
-        GIReservoir nr = inRes[qFlat];
-        if (nr.M == 0u) continue;   // gate on confidence only (RTXDI): a zero-W neighbour still owes its M to piSum
+        // IGN-rotated Vogel disk (Jimenez 2014): blue-noise neighbour placement decorrelates the reuse set
+        // between adjacent pixels (matches the DI spatial pass).
+        uint   fo  = pc.frameSeed & 63u;
+        float2 pf  = float2(pixel + int2(int(fo) * 5, int(fo) * 7));
+        float  rot = frac(52.9829189 * frac(0.06711056 * pf.x + 0.00583715 * pf.y)) * 6.28318530718;
 
-        float2 qUv      = (float2(q) + 0.5) / float2(size);
-        float4 qWh      = mul(pc.invViewProj, float4(qUv * 2.0 - 1.0, qDepth, 1.0));
-        float3 qWorldPos = qWh.xyz / qWh.w;
+        // Per-domain surface records for the BASIC denominator (index 0 = canonical / this pixel).
+        float3 domPos[GI_MAX_DOMAINS];
+        float3 domN[GI_MAX_DOMAINS];
+        uint   domM[GI_MAX_DOMAINS];
+        uint   domCount = 0u;
 
-        float3 nrSampleN = OctDecode(nr.sampleNormalOct);
-        float  jac = GiReconnectionJacobian(worldPos, qWorldPos, nr.samplePos, nrSampleN);
-        if (!GiValidateJacobian(jac)) continue;
+        int selDomain = -1;
 
-        float pHat = GiTargetFunction(nr.samplePos, nr.sampleRadiance, worldPos, N);
-        domPos[domCount] = qWorldPos; domN[domCount] = qN; domM[domCount] = nr.M;
-        float w = (pHat * jac) * nr.W * float(nr.M);
-        c.wSum += w; c.M += nr.M;
-        if (c.wSum > 0.0 && RandFromSeed(seed) * c.wSum <= w)
+        // Canonical (this pixel): identity shift, no Jacobian. ALWAYS seeds the reservoir's sample.
         {
-            c.samplePos = nr.samplePos; c.sampleRadiance = nr.sampleRadiance;
-            c.sampleNormalOct = nr.sampleNormalOct; c.age = nr.age;
+            float pHat = GiTargetFunction(canonical.samplePos, canonical.sampleRadiance, worldPos, N);
+            domPos[domCount] = worldPos; domN[domCount] = N; domM[domCount] = canonical.M;
+            float w = pHat * canonical.W * float(canonical.M);
+            c.wSum += w; c.M += canonical.M;
+            RandFromSeed(seed);   // keep the neighbour RNG stream aligned with the prior conditional draw
+            c.samplePos = canonical.samplePos; c.sampleRadiance = canonical.sampleRadiance;
+            c.sampleNormalOct = canonical.sampleNormalOct; c.age = canonical.age;
             selDomain = int(domCount);
+            domCount += 1u;
         }
-        domCount += 1u;
+
+        for (uint i = 0u; i < neighbours; ++i)
+        {
+            float ang = rot + (float(i) + 0.5) * 2.39996322973;   // golden-angle spiral
+            float rad = radius * sqrt((float(i) + 0.5) / float(max(neighbours, 1u)));
+            int2  q   = pixel + int2(int(round(cos(ang) * rad)), int(round(sin(ang) * rad)));
+            if (q.x < 0 || q.y < 0 || q.x >= size.x || q.y >= size.y || (q.x == pixel.x && q.y == pixel.y)) continue;
+
+            float qDepth = u_SceneDepth.Load(int3(GiGuide(q), 0)).r;
+            if (qDepth >= 1.0) continue;
+            float3 qN = OctDecode(u_SlimNormal.Load(int3(GiGuide(q), 0)).rg);
+            if (dot(qN, N) < pc.normalThreshold) continue;                       // normal reject
+            float qLin = LinearizeDepth(qDepth);
+            if (abs(qLin - linDepth) > pc.depthThreshold * linDepth) continue;   // depth reject
+
+            uint qFlat = uint(q.y) * uint(size.x) + uint(q.x);
+            GIReservoir nr = inRes[qFlat];
+            if (nr.M == 0u) continue;   // gate on confidence only (RTXDI): a zero-W neighbour still owes its M to piSum
+
+            float2 qUv      = (float2(q) + 0.5) / float2(size);
+            float2 qUvR     = DejitterReconUV(qUv, ubo.taaParams.zw);   // match the canonical de-jitter
+            float4 qWh      = mul(pc.invViewProj, float4(qUvR * 2.0 - 1.0, qDepth, 1.0));
+            float3 qWorldPos = qWh.xyz / qWh.w;
+
+            float3 nrSampleN = OctDecode(nr.sampleNormalOct);
+            float  jac = GiReconnectionJacobian(worldPos, qWorldPos, nr.samplePos, nrSampleN);
+            if (!GiValidateJacobian(jac)) continue;
+
+            float pHat = GiTargetFunction(nr.samplePos, nr.sampleRadiance, worldPos, N);
+            domPos[domCount] = qWorldPos; domN[domCount] = qN; domM[domCount] = nr.M;
+            float w = (pHat * jac) * nr.W * float(nr.M);
+            c.wSum += w; c.M += nr.M;
+            if (c.wSum > 0.0 && RandFromSeed(seed) * c.wSum <= w)
+            {
+                c.samplePos = nr.samplePos; c.sampleRadiance = nr.sampleRadiance;
+                c.sampleNormalOct = nr.sampleNormalOct; c.age = nr.age;
+                selDomain = int(domCount);
+            }
+            domCount += 1u;
+        }
+
+        // RTXDI BASIC bias correction. W = wSum * selPi / (selTgt * piSum); piSum sums the SELECTED sample's
+        // target re-evaluated at every contributing domain (x that domain's M). No accepted neighbours
+        // collapses to canonical.W (passthrough).
+        float selTgt = GiTargetFunction(c.samplePos, c.sampleRadiance, worldPos, N);
+        float piSum  = 0.0;
+        float selPi  = 0.0;
+        for (uint d = 0u; d < domCount; ++d)
+        {
+            float ps = GiTargetFunction(c.samplePos, c.sampleRadiance, domPos[d], domN[d]);
+            piSum += ps * float(domM[d]);
+            if (int(d) == selDomain) selPi = ps;
+        }
+        c.W = (selTgt > 0.0 && piSum > 0.0 && c.M > 0u) ? (c.wSum * selPi / (selTgt * piSum)) : 0.0;
+
+        // Final visibility receiver -> selected sample, folded MULTIPLICATIVELY into W before this reservoir
+        // becomes next frame's history (never into the BASIC denominator: that breaks the partition of unity).
+        // M is kept: occlusion is information, not invalidation; history self-cleans next frame.
+        if (c.M > 0u && c.W > 0.0)
+        {
+            float3 toS    = c.samplePos - worldPos;
+            float  dist   = length(toS);
+            float3 d      = toS / max(dist, 1e-4);
+            float  tMin   = ubo.rtShadowParams.y;
+            float3 origin = worldPos + N * (ubo.rtShadowParams.z * 0.5) + d * tMin;
+            RayDesc ray; ray.Origin = origin; ray.TMin = tMin; ray.Direction = d; ray.TMax = max(dist - 2.0 * tMin, tMin);
+            RayQuery<RAY_FLAG_NONE> rq;
+            rq.TraceRayInline(topLevelAS, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, GT_VIS_SOLID, ray);
+            RtConfirmAlphaCandidates(rq, pc.geomTable);
+            if (rq.CommittedStatus() != COMMITTED_NOTHING) c.W = 0.0;
+        }
     }
 
-    // RTXDI BASIC bias correction. W = wSum * selPi / (selTgt * piSum); piSum sums the SELECTED sample's
-    // target re-evaluated at every contributing domain (x that domain's M). No accepted neighbours
-    // collapses to canonical.W (passthrough).
-    float selTgt = GiTargetFunction(c.samplePos, c.sampleRadiance, worldPos, N);
-    float piSum  = 0.0;
-    float selPi  = 0.0;
-    for (uint d = 0u; d < domCount; ++d)
+    // Boiling weight is luminance(sampleRadiance) * W (RTXDI GI convention): W alone misses the radiance
+    // magnitude that actually makes a blob bright. Kill = full reset (M = 0 keeps the samplePos invariant).
+    if (BoilingKillsReservoir(gtIdx, alive ? Luminance(c.sampleRadiance) * c.W : 0.0)) GIReservoirReset(c);
+
+    if (alive)
     {
-        float ps = GiTargetFunction(c.samplePos, c.sampleRadiance, domPos[d], domN[d]);
-        piSum += ps * float(domM[d]);
-        if (int(d) == selDomain) selPi = ps;
+        // Receiver geometry self-carry for next frame's temporal validation. Written on a boiling reset
+        // too (harmless: temporal gates history on M > 0 first).
+        c.visPos          = worldPos;
+        c.visNormalPacked = f32tof16(octN.x) | (f32tof16(octN.y) << 16u);
+        outRes[flatIdx] = c;
     }
-    c.W = (selTgt > 0.0 && piSum > 0.0 && c.M > 0u) ? (c.wSum * selPi / (selTgt * piSum)) : 0.0;
-
-    c.visPos          = worldPos;
-    c.visNormalPacked = f32tof16(octN.x) | (f32tof16(octN.y) << 16u);
-    outRes[flatIdx] = c;
+    else if (inBounds)
+        outRes[flatIdx] = canonical;   // sky: pass the temporal reservoir through untouched
 }

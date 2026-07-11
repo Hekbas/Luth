@@ -47,6 +47,18 @@ public struct FOut
     [[vk::location(1)]] public uint   entityID : SV_Target1;
 };
 
+// Karis mobile EnvBRDFApprox with F0 = 1 (rho = A + B): remodulates the ReSTIR DI-spec signal that
+// restir_shade.slang demodulated by the same scalar; keep the two in lockstep.
+float DiSpecRho(float NoV, float rough)
+{
+    float4 c0 = float4(-1.0, -0.0275, -0.572, 0.022);
+    float4 c1 = float4(1.0, 0.0425, 1.04, -0.04);
+    float4 r  = rough * c0 + c1;
+    float  a004 = min(r.x * r.x, exp2(-9.28 * NoV)) * r.x + r.y;
+    float2 ab = float2(-1.04, 1.04) * a004 + r.zw;
+    return ab.x + ab.y;
+}
+
 // RT sun-shadow visibility: samples the per-view R8 mask at screen UV (no cascade selection in RT mode).
 ShadowResult ComputeShadowRT(float2 uv)
 {
@@ -155,11 +167,13 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
     if (ubo.restirParams.y > 0.5)
         Lo += giIrradiance.Sample(screenUv).rgb * (albedo.rgb * (1.0 - metallic) / GI_PI);
 
-    // ReSTIR-DI specular: demodulated F0-free lobe, remodulated by F0.
+    // ReSTIR-DI specular: demodulated F0-free lobe, remodulated by DiSpecRho (restir_shade divided it
+    // out so the denoiser never sees the roughness/view response) and the per-pixel F0.
     if (ubo.restirParams.z > 0.0)
     {
-        float3 F0 = lerp(float3(0.04), albedo.rgb, metallic);
-        Lo += diSpecular.Sample(screenUv).rgb * F0 * ubo.restirParams.z;
+        float3 F0  = lerp(float3(0.04), albedo.rgb, metallic);
+        float  NoV = max(dot(N, V), 1.0e-4);
+        Lo += diSpecular.Sample(screenUv).rgb * (DiSpecRho(NoV, roughness) * ubo.restirParams.z) * F0;
     }
 
     IblResult ibl = EvalIblAmbient(N, V, albedo.rgb, metallic, roughness, ao, ubo.iblIntensity);

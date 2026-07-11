@@ -33,6 +33,7 @@ namespace Luth
             LH_GU(volNoiseParams), LH_GU(volNoiseWind), LH_GU(volScatterParams), LH_GU(specAaParams),
             LH_GU(taaParams), LH_GU(prevJitter), LH_GU(rtShadowParams), LH_GU(restirParams),
             LH_GU(pathTraceParams), LH_GU(reflParams), LH_GU(invViewProjection),
+            LH_GU(prevInvViewProjection), LH_GU(prevCameraPos),
         };
         #undef LH_GU
         MaterialLayoutGuard::Validate(FileSystem::EngineAssetsPath("shaders/common/globals.slang"),
@@ -121,6 +122,9 @@ namespace Luth
         ubo.view = camera.view;
         ubo.projection = camera.projection;
         ubo.projection[1][1] *= -1.0f;  // Vulkan Y-flip (shader only, not ImGuizmo)
+        // Un-jittered projection snapshot, taken before ApplyJitter mutates ubo.projection: feeds the
+        // TAA resolve's sky reprojection (depth == 1 rasterizes no motion vector).
+        const Mat4 projNoJitter = ubo.projection;
 
         // Per-view prev-VP + viewport size: stored on ViewResources, NOT on GlobalSubsystem. A single
         // global cross-contaminates between Scene + Game panels (huge motion vectors for static geometry).
@@ -149,6 +153,15 @@ namespace Luth
         if (vr) {
             ubo.prevViewProjection = vr->prevViewProj;
             vr->prevViewProj       = ubo.viewProjection;
+            // Sky reprojection for the TAA resolve: un-jittered pair so a static camera maps sky to
+            // itself exactly (matches the de-jittered raster motion convention). Per-view cached.
+            const Mat4 vpNoJitter    = projNoJitter * ubo.view;
+            m_CachedSkyReproj        = vr->prevViewProjNoJitter * Math::Inverse(vpNoJitter);
+            vr->prevViewProjNoJitter = vpNoJitter;
+            // Prev inverse-VP + camera pos for DI temporal BASIC (reproject the previous surface).
+            ubo.prevInvViewProjection = Math::Inverse(ubo.prevViewProjection);
+            ubo.prevCameraPos         = Vec4(vr->prevCameraPos, 0.0f);
+            vr->prevCameraPos         = camera.position;
             ubo.viewportSize       = Vec2(static_cast<float>(vr->width), static_cast<float>(vr->height));
             // Cross-frame near/far cache, read for the resolve pass's reprojection. Bootstrap to
             // current frame's values if uninitialized so frame 0's slice reconstruction is sane.
@@ -157,13 +170,16 @@ namespace Luth
             ubo.prevViewParams = Vec4(pNearZ, pFarZ, 0.0f, 0.0f);
             vr->prevNearZ      = camera.nearZ;
             vr->prevFarZ       = camera.farZ;
-            // Cache prev/curr jitter. ubo.prevJitter feeds slim_gbuffer.slang's source-side de-jitter;
-            // the resolve pass's push-constant jitterDelta still rides ViewResources::prevJitter directly.
+            // Cache prev/curr jitter. ubo.prevJitter feeds slim_gbuffer.slang's source-side de-jitter
+            // and the ReSTIR passes' prev-surface DejitterReconUV; the resolve carries no jitter PC.
             vr->prevJitter    = vr->currentJitter;
             vr->currentJitter = thisFrameJitter;
             ubo.prevJitter    = Vec4(vr->prevJitter, 0.0f, 0.0f);
         } else {
             ubo.prevViewProjection = ubo.viewProjection;  // no view yet -> zero motion
+            ubo.prevInvViewProjection = ubo.invViewProjection;
+            m_CachedSkyReproj      = Mat4(1.0f);
+            ubo.prevCameraPos      = Vec4(camera.position, 0.0f);
             ubo.viewportSize       = Vec2(0.0f);
             ubo.prevViewParams     = Vec4(camera.nearZ, camera.farZ, 0.0f, 0.0f);
             ubo.prevJitter         = Vec4(0.0f);

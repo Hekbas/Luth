@@ -34,9 +34,11 @@ namespace Luth
             i32  gbufferScale;   // 1 = full-res; 2 = half-res DI (G-buffer reads remap to full)
             i32  dispatchW;      // DI working (dispatch) resolution
             i32  dispatchH;
+            f32  diSpecClamp;    // fills the pre-pointer pad (offset 84); read only by the shade pass
             u64  geomTableBDA;   // cutout alpha-test material fetch; stays 8-aligned at offset 88
+            f32  confidenceNorm; // SVGF confidence normalizer at offset 96; read only by the shade pass
         };
-        static_assert(sizeof(RestirPC) == 96, "RestirPC must be 96 B (matches restir_initial.slang push_constant)");
+        static_assert(sizeof(RestirPC) == 104, "RestirPC must be 104 B (matches restir_shade.slang push_constant)");
 
         // Temporal-pass push constants. Same 80 B footprint + COMPUTE range as RestirPC, so the two
         // share the existing pcRange; the field meanings differ (M-cap + validation thresholds).
@@ -52,8 +54,8 @@ namespace Luth
         };
         static_assert(sizeof(RestirTemporalPC) == 92, "RestirTemporalPC must match restir_temporal.slang push_constant");
 
-        // Spatial-pass push constants. Same 80 B footprint + COMPUTE range as RestirPC, so all four
-        // pipelines share the existing pcRange; only the field meanings differ (neighbour disk + reject).
+        // Spatial-pass push constants. Shares the fixed COMPUTE pcRange with the other three pipelines;
+        // only the field meanings differ (neighbour disk + reject + final-visibility geometry table).
         struct RestirSpatialPC {
             Mat4 invViewProj;
             u32  neighbourCount;
@@ -63,8 +65,16 @@ namespace Luth
             i32  gbufferScale;
             i32  dispatchW;
             i32  dispatchH;
+            f32  normalThreshold;      // min dot(neighbourN, currN)
+            f32  roughnessThreshold;   // max |neighbourRough - rough| (spec reuse gate)
+            f32  boilingStrength;      // boiling-filter kill knob, 0 disables (fills the ex-pad; geomTable stays at 104)
+            u64  geomTableBDA;         // final-visibility alpha-test material fetch
         };
-        static_assert(sizeof(RestirSpatialPC) == 92, "RestirSpatialPC must match restir_spatial.slang push_constant");
+        static_assert(sizeof(RestirSpatialPC) == 112, "RestirSpatialPC must match restir_spatial.slang push_constant");
+
+        // Fixed push-constant range shared by the four DI pipelines; 128 B (Vulkan min) leaves headroom
+        // for the largest struct (spatial 100 B) plus later growth without touching the pipeline layout.
+        constexpr u32 k_RestirPCSize = 128;
 
         struct UpscalePC {
             i32 fullW;
@@ -103,10 +113,11 @@ namespace Luth
         sampCI.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         vkCreateSampler(device, &sampCI, nullptr, &m_Sampler);
 
-        // Set 2 (pass-local): b0 depth sampler, b1 slimNormal sampler, b2 reservoir CURR/temporal-out
-        // (r/w SSBO), b3 DI storage image, b4 reservoir PREV (read SSBO), b5 motion sampler, b6
-        // spatial-output reservoir (write SSBO). initial uses b0/b1/b2; temporal uses b0/b1/b2/b4/b5;
-        // spatial uses b0/b1/b2(read)/b6(write); shade uses b0/b1/b6(read)/b3. b2/b4 swap each frame.
+        // Set 2 (pass-local): b0 depth sampler, b1 slimNormal sampler, b2 reservoir SCRATCH
+        // (initial -> temporal in-place, r/w SSBO), b3 DI storage image, b4 reservoir HISTORY = the
+        // spatial buffer (read SSBO), b5 motion sampler, b6 spatial-output reservoir (write SSBO,
+        // same buffer as b4). initial uses b0/b1/b2; temporal uses b0/b1/b2/b4/b5; spatial uses
+        // b0/b1/b2(read)/b6(write); shade uses b0/b1/b6(read)/b3. All stable per-view.
         VkDescriptorSetLayoutBinding bindings[9]{};
         bindings[0].binding         = 0;
         bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -145,16 +156,15 @@ namespace Luth
         bindings[8].descriptorCount = 1;
         bindings[8].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
 
-        // b2/b4 (curr/prev reservoirs) are rewritten per-frame by WriteReservoirBindings while other
-        // cycled slots may still be pending on the GPU. UAB satisfies VUID-vkUpdateDescriptorSets-
-        // None-03047; mirrors LightingSubsystem's Set 3 b0-b2 UAB protocol. b0/b1/b3/b5/b6 are stable
-        // per-view, written once at WriteView time, so they stay flag-less (b6's buffer is per-view).
+        // b2/b4 are now stable per-view (written at WriteView time like the rest); the UAB flags stay
+        // so a resize-time rewrite while older cycled slots are still in flight remains legal
+        // (VUID-vkUpdateDescriptorSets-None-03047).
         VkDescriptorBindingFlags bindingFlags[9] = {
             0,                                            // b0 depth sampler
             0,                                            // b1 normal sampler
-            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,  // b2 reservoir curr / temporal out
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,  // b2 reservoir scratch
             0,                                            // b3 DI storage image
-            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,  // b4 reservoir prev
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,  // b4 reservoir history (spatial buffer)
             0,                                            // b5 motion sampler
             0,                                            // b6 spatial output reservoir
             0,                                            // b7 slimRoughness sampler
@@ -186,9 +196,9 @@ namespace Luth
             return;
         }
 
-        // Sets: 0 = global (UBO b0 + TLAS b6), 1 = light SSBO, 2 = pass-local. The initial pass adds
-        // Set 3 (Material SSBO) + Set 4 (bindless) for the cutout alpha-test (material_bindings_rt.slang); the
-        // temporal/spatial/shade passes trace no rays, so they keep the 3-set layout.
+        // Sets: 0 = global (UBO b0 + TLAS b6), 1 = light SSBO, 2 = pass-local. The initial AND spatial
+        // passes add Set 3 (Material SSBO) + Set 4 (bindless) for the cutout alpha-test on their
+        // visibility rays (material_bindings_rt.slang); temporal/shade trace no rays, 3-set layout.
         const std::vector<VkDescriptorSetLayout> layouts = {
             m_Pipeline->GetGlobal().GetSetLayout(),
             m_Pipeline->GetLighting().GetSetLayout(),
@@ -197,14 +207,14 @@ namespace Luth
         std::vector<VkDescriptorSetLayout> layoutsInitial = layouts;
         layoutsInitial.push_back(MaterialSystem::GetDescriptorSetLayout());
         layoutsInitial.push_back(VulkanContext::Get().GetBindlessSet().GetLayout());
-        VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RestirPC) };
+        VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, k_RestirPCSize };
 
         m_InitialPipeline = std::make_unique<VKComputePipeline>(
             m_InitialSpv, layoutsInitial, std::vector<VkPushConstantRange>{ pcRange });
         m_TemporalPipeline = std::make_unique<VKComputePipeline>(
             m_TemporalSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
         m_SpatialPipeline = std::make_unique<VKComputePipeline>(
-            m_SpatialSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
+            m_SpatialSpv, layoutsInitial, std::vector<VkPushConstantRange>{ pcRange });
         m_ShadePipeline = std::make_unique<VKComputePipeline>(
             m_ShadeSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
 
@@ -289,7 +299,7 @@ namespace Luth
         std::vector<VkDescriptorSetLayout> layoutsInitial = layouts;
         layoutsInitial.push_back(MaterialSystem::GetDescriptorSetLayout());
         layoutsInitial.push_back(VulkanContext::Get().GetBindlessSet().GetLayout());
-        VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RestirPC) };
+        VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, k_RestirPCSize };
 
         auto deferComp = [](std::unique_ptr<VKComputePipeline>& p) {
             if (auto* raw = p.release(); raw)
@@ -315,7 +325,7 @@ namespace Luth
             m_SpatialSpv = spv;
             deferComp(m_SpatialPipeline);
             m_SpatialPipeline = std::make_unique<VKComputePipeline>(
-                m_SpatialSpv, layouts, std::vector<VkPushConstantRange>{ pcRange });
+                m_SpatialSpv, layoutsInitial, std::vector<VkPushConstantRange>{ pcRange });
         }
         else
         {
@@ -333,7 +343,7 @@ namespace Luth
         if (vr.restirDescSet[0] == VK_NULL_HANDLE) return;
         if (!targets.GetSceneDepth() || !targets.GetSlimNormal() || !targets.GetSlimMotion()
             || !targets.GetSlimRoughness() || !vr.restirDI || !vr.restirDISpec) return;
-        if (!vr.restirSpatial.buffer) return;
+        if (!vr.restirSpatial.buffer || !vr.restirReservoir.buffer) return;
 
         VkDevice device = VulkanContext::Get().GetDevice();
 
@@ -372,13 +382,17 @@ namespace Luth
         specInfo.imageView   = specView;   // restirDISpec: GENERAL (storage write from shade)
         specInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-        // b6 spatial-output reservoir: single per-view buffer, stable like b0/b1/b3/b5.
+        // b2 scratch reservoir (initial -> temporal in-place, same-frame lifetime only) + b4 temporal
+        // history + b6 spatial output. b4 and b6 alias the SAME per-view buffer: temporal reads last
+        // frame's spatial result (b4) before spatial overwrites it (b6); the RG emits the WAR barrier.
+        VkDescriptorBufferInfo scratchInfo{
+            vr.restirReservoir.buffer, vr.restirReservoir.offset, vr.restirReservoir.size };
         VkDescriptorBufferInfo spatialInfo{
             vr.restirSpatial.buffer, vr.restirSpatial.offset, vr.restirSpatial.size };
 
-        // Stable per-view bindings only: b0 depth, b1 normal, b3 DI, b5 motion, b6 spatial out. b2/b4
-        // (reservoirs) swap each frame; WriteReservoirBindings owns them.
-        VkWriteDescriptorSet writes[7 * MAX_FRAMES_IN_FLIGHT]{};
+        // All Set 2 bindings are stable per-view now (b2/b4 stopped ping-ponging with the post-spatial
+        // history topology); rewritten only on view alloc/resize.
+        VkWriteDescriptorSet writes[9 * MAX_FRAMES_IN_FLIGHT]{};
         u32 n = 0;
         for (u32 slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot)
         {
@@ -391,6 +405,22 @@ namespace Luth
             writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             writes[n].descriptorCount = 1;
             writes[n].pImageInfo      = &depthInfo;
+            ++n;
+
+            writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[n].dstSet          = set;
+            writes[n].dstBinding      = 2;
+            writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            writes[n].descriptorCount = 1;
+            writes[n].pBufferInfo     = &scratchInfo;
+            ++n;
+
+            writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            writes[n].dstSet          = set;
+            writes[n].dstBinding      = 4;
+            writes[n].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            writes[n].descriptorCount = 1;
+            writes[n].pBufferInfo     = &spatialInfo;
             ++n;
 
             writes[n] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
@@ -444,41 +474,6 @@ namespace Luth
         vkUpdateDescriptorSets(device, n, writes, 0, nullptr);
     }
 
-    void RtRestirSubsystem::WriteReservoirBindings(ViewResources& vr)
-    {
-        LH_PROFILE_FUNCTION();
-        if (!vr.restirReservoir[0].buffer || !vr.restirReservoir[1].buffer) return;
-
-        const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
-        const u32 slot     = frameAbs % MAX_FRAMES_IN_FLIGHT;
-        if (vr.restirDescSet[slot] == VK_NULL_HANDLE) return;
-
-        // Parity picks curr; prev is the other. Frame N writes curr (initial+temporal) and reads
-        // prev (last frame's curr); N+1 swaps. Must match AddPasses' selection exactly.
-        const u32 currIdx = (frameAbs & 1u);
-        const u32 prevIdx = currIdx ^ 1u;
-
-        VkDescriptorBufferInfo currInfo{
-            vr.restirReservoir[currIdx].buffer, vr.restirReservoir[currIdx].offset, vr.restirReservoir[currIdx].size };
-        VkDescriptorBufferInfo prevInfo{
-            vr.restirReservoir[prevIdx].buffer, vr.restirReservoir[prevIdx].offset, vr.restirReservoir[prevIdx].size };
-
-        VkWriteDescriptorSet writes[2]{};
-        writes[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writes[0].dstSet          = vr.restirDescSet[slot];
-        writes[0].dstBinding      = 2;
-        writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writes[0].descriptorCount = 1;
-        writes[0].pBufferInfo     = &currInfo;
-        writes[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        writes[1].dstSet          = vr.restirDescSet[slot];
-        writes[1].dstBinding      = 4;
-        writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writes[1].descriptorCount = 1;
-        writes[1].pBufferInfo     = &prevInfo;
-        vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 2, writes, 0, nullptr);
-    }
-
     RtRestirSubsystem::Outputs RtRestirSubsystem::AddPasses(RG::RenderGraph& rg,
                                                     RG::ResourceHandle sceneDepth,
                                                     RG::ResourceHandle slimNormal,
@@ -491,25 +486,20 @@ namespace Luth
 
         ViewResources* preflightVr = m_Pipeline ? m_Pipeline->GetCurrentViewResources() : nullptr;
         if (!preflightVr || !preflightVr->restirDI
-            || !preflightVr->restirReservoir[0].buffer || !preflightVr->restirReservoir[1].buffer
+            || !preflightVr->restirReservoir.buffer
             || !preflightVr->restirSpatial.buffer) return {};
         if (m_Pipeline->GetRt().GetTlas() == VK_NULL_HANDLE) return {};
 
         const u32 frameAbs = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
-        // Bind the cycled slot's b2/b4 to this frame's curr/prev reservoirs (parity swap). Done here,
-        // before the passes record, so the dispatches see the right ping-pong halves.
-        WriteReservoirBindings(*preflightVr);
 
-        // Parity picks curr; prev is last frame's curr. Must match WriteReservoirBindings. The spatial
-        // output is a single per-view buffer (no ping-pong); fully overwritten + consumed each frame.
-        const u32 currIdx = (frameAbs & 1u);
-        const u32 prevIdx = currIdx ^ 1u;
-        const Memory::GPUSubRegion currRes    = preflightVr->restirReservoir[currIdx];
-        const Memory::GPUSubRegion prevRes    = preflightVr->restirReservoir[prevIdx];
+        // Post-spatial history topology: initial + temporal share the single SCRATCH reservoir (b2,
+        // same-frame lifetime); the SPATIAL buffer doubles as temporal history (read at b4) and
+        // spatial output (written at b6), persisting across frames. No ping-pong, no parity swap.
+        const Memory::GPUSubRegion scratchRes = preflightVr->restirReservoir;
         const Memory::GPUSubRegion spatialRes = preflightVr->restirSpatial;
 
         // Build invViewProj + frameSeed once; initial/shade share RestirPC, temporal + spatial each
-        // use their own PC (same 80 B footprint, different field meanings).
+        // use their own PC (all inside the shared fixed pcRange, different field meanings).
         const Mat4 invVP = Math::Inverse(m_Pipeline->GetGlobal().GetCachedViewProj());
 
         // DI working resolution (half when RestirSettings::halfResolution): derived from restirDI's extent,
@@ -522,6 +512,8 @@ namespace Luth
         RestirPC pc{};
         pc.invViewProj    = invVP;
         pc.candidateCount = settings.candidateCount;
+        pc.diSpecClamp    = settings.diSpecClamp;
+        pc.confidenceNorm = settings.confidenceNorm;
         pc.frameSeed      = frameAbs;
         pc.gbufferScale   = diScale;
         pc.dispatchW      = diW2;
@@ -544,14 +536,18 @@ namespace Luth
         spc.radius         = settings.spatialRadius;
         spc.frameSeed      = frameAbs;
         spc.depthThreshold = settings.spatialDepthThreshold;
+        spc.normalThreshold    = settings.spatialNormalThreshold;
+        spc.roughnessThreshold = settings.roughnessThreshold;
+        spc.boilingStrength    = settings.boilingStrength;
         spc.gbufferScale   = diScale;
         spc.dispatchW      = diW2;
         spc.dispatchH      = diH2;
+        spc.geomTableBDA   = m_Pipeline->GetRt().GetGeometryTableBDA();
 
-        // Initial pass: RIS over point lights + one visibility ray, writes the CURR reservoir.
-        // The curr buffer is imported ONCE here; its handle threads through temporal (read+write)
-        // and shade (read) so the RG chains the barriers across all three (re-importing would
-        // alias distinct nodes).
+        // Initial pass: RIS over point lights + one visibility ray, writes the SCRATCH reservoir.
+        // The scratch buffer is imported ONCE here; its handle threads through temporal (read+write)
+        // and spatial (read) so the RG chains the barriers across all three (re-importing would
+        // alias distinct nodes). Undefined import is correct: fully overwritten, no cross-frame read.
         struct RestirInitialData {
             RG::ResourceHandle depth;
             RG::ResourceHandle normal;
@@ -567,8 +563,8 @@ namespace Luth
                 if (slimNormal.IsValid())    data.normal = builder.ReadStorageImage(slimNormal);
                 if (slimRoughness.IsValid()) data.rough  = builder.ReadStorageImage(slimRoughness);
 
-                RG::BufferDesc bd{ "RestirReservoirCurr", currRes.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
-                data.reservoir  = rg.ImportBuffer(bd, (void*)currRes.buffer, RG::ResourceState::Undefined);
+                RG::BufferDesc bd{ "RestirReservoirScratch", scratchRes.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
+                data.reservoir  = rg.ImportBuffer(bd, (void*)scratchRes.buffer, RG::ResourceState::Undefined);
                 data.reservoir  = builder.WriteBuffer(data.reservoir);
                 reservoirHandle = data.reservoir;
             },
@@ -608,11 +604,13 @@ namespace Luth
                 vkCmdDispatch(cmd, groupX, groupY, 1);
             });
 
-        // Temporal pass: reprojects via motion + merges last frame's PREV reservoir into the CURR
-        // RIS candidate in-place. No AS barrier (traces no rays; visibility stays in initial). PREV
-        // is a SEPARATE read-only ImportBuffer (last frame's curr, no within-frame producer; same
-        // cross-frame shape as taaHistory). CURR threads through reservoirHandle as read+write so the
-        // RG inserts the initial->temporal RAW barrier on the same node.
+        // Temporal pass: reprojects via motion + merges last frame's SPATIAL output (the history) into
+        // the scratch RIS candidate in-place. No AS barrier (traces no rays). The history is the
+        // per-view spatial buffer, imported ONCE here in its true last-left state (StorageBufferWrite,
+        // NOT Undefined: Undefined -> srcAccess=0 -> no cross-frame availability -> stale temporal
+        // read; see arch/rendering-pipeline.md); its handle threads into spatial's WriteBuffer so the
+        // RG emits the temporal-read -> spatial-write WAR barrier on the same node. SCRATCH threads
+        // through reservoirHandle as read+write (initial->temporal RAW barrier).
         struct RestirTemporalData {
             RG::ResourceHandle depth;
             RG::ResourceHandle normal;
@@ -621,6 +619,7 @@ namespace Luth
             RG::BufferHandle   reservoirCurr;
             RG::BufferHandle   reservoirPrev;
         };
+        RG::BufferHandle spatialHandle{};
         rg.AddComputePass<RestirTemporalData>(
             "RestirTemporal",
             RG::QueueFamily::AsyncCompute,
@@ -630,11 +629,9 @@ namespace Luth
                 if (slimMotion.IsValid())    data.motion = builder.ReadStorageImage(slimMotion);
                 if (slimRoughness.IsValid()) data.rough  = builder.ReadStorageImage(slimRoughness);
 
-                RG::BufferDesc prevBd{ "RestirReservoirPrev", prevRes.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
-                // Import in its true last-left state (StorageBufferWrite), NOT Undefined: Undefined -> srcAccess=0
-                // -> no cross-frame availability -> stale temporal read (mirrors the GI prev import). see arch/rendering-pipeline.md
-                data.reservoirPrev = rg.ImportBuffer(prevBd, (void*)prevRes.buffer, RG::ResourceState::StorageBufferWrite);
-                data.reservoirPrev = builder.ReadBuffer(data.reservoirPrev);
+                RG::BufferDesc histBd{ "RestirReservoirSpatial", spatialRes.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
+                spatialHandle      = rg.ImportBuffer(histBd, (void*)spatialRes.buffer, RG::ResourceState::StorageBufferWrite);
+                data.reservoirPrev = builder.ReadBuffer(spatialHandle);
 
                 data.reservoirCurr = builder.ReadBuffer(reservoirHandle);
                 data.reservoirCurr = builder.WriteBuffer(data.reservoirCurr);
@@ -663,11 +660,13 @@ namespace Luth
             });
 
         // Spatial pass: merges each pixel's temporal-output reservoir (b2) with a few random disk
-        // neighbours, rejecting dissimilar geometry, into a SEPARATE single output (b6). Reads b2
-        // read-only (neighbour reads must see un-modified values; never in-place) and writes b6, so
-        // the temporal ping-pong stays intact as next frame's history. The curr handle ends here:
-        // ReadBuffer(reservoirHandle) is its last consumer (temporal->spatial RAW barrier). The spatial
-        // buffer is imported ONCE; its handle (spatialHandle) threads into shade's ReadBuffer.
+        // neighbours, rejecting dissimilar geometry, into the spatial/history buffer (b6), then traces
+        // one final-visibility ray on the selected sample (5-set layout: Material + Bindless for the
+        // alpha test; the initial pass's AS-build -> COMPUTE barrier covers this same-queue trace).
+        // Reads b2 read-only (neighbour reads must see un-modified values; never in-place). The scratch
+        // handle ends here: ReadBuffer(reservoirHandle) is its last consumer (temporal->spatial RAW
+        // barrier). WriteBuffer on the SAME node temporal read (spatialHandle) yields the WAR barrier;
+        // the result persists as next frame's history.
         struct RestirSpatialData {
             RG::ResourceHandle depth;
             RG::ResourceHandle normal;
@@ -675,7 +674,6 @@ namespace Luth
             RG::BufferHandle   reservoirIn;
             RG::BufferHandle   reservoirOut;
         };
-        RG::BufferHandle spatialHandle{};
         rg.AddComputePass<RestirSpatialData>(
             "RestirSpatial",
             RG::QueueFamily::AsyncCompute,
@@ -684,11 +682,8 @@ namespace Luth
                 if (slimNormal.IsValid())    data.normal = builder.ReadStorageImage(slimNormal);
                 if (slimRoughness.IsValid()) data.rough  = builder.ReadStorageImage(slimRoughness);
 
-                data.reservoirIn = builder.ReadBuffer(reservoirHandle);
-
-                RG::BufferDesc outBd{ "RestirReservoirSpatial", spatialRes.size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
-                data.reservoirOut = rg.ImportBuffer(outBd, (void*)spatialRes.buffer, RG::ResourceState::Undefined);
-                data.reservoirOut = builder.WriteBuffer(data.reservoirOut);
+                data.reservoirIn  = builder.ReadBuffer(reservoirHandle);
+                data.reservoirOut = builder.WriteBuffer(spatialHandle);
                 spatialHandle     = data.reservoirOut;
             },
             [this, spc](RestirSpatialData&, RG::RenderPassContext& ctx) {
@@ -698,13 +693,15 @@ namespace Luth
 
                 const u32 slot = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex()) % MAX_FRAMES_IN_FLIGHT;
                 m_SpatialPipeline->Bind(cmd);
-                VkDescriptorSet sets[3] = {
+                VkDescriptorSet sets[5] = {
                     vr->globalDescriptorSet[slot],
                     vr->lightDescSet[slot],
                     vr->restirDescSet[slot],
+                    MaterialSystem::GetDescriptorSet(slot),
+                    VulkanContext::Get().GetBindlessSet().GetSet(),
                 };
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                    m_SpatialPipeline->GetLayout(), 0, 3, sets, 0, nullptr);
+                    m_SpatialPipeline->GetLayout(), 0, 5, sets, 0, nullptr);
                 vkCmdPushConstants(cmd, m_SpatialPipeline->GetLayout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RestirSpatialPC), &spc);
 

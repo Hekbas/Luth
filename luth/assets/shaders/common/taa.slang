@@ -27,9 +27,34 @@ public float4 clip_aabb(float3 aabb_min, float3 aabb_max, float4 p, float4 q)
     return p;
 }
 
-// Blackman-Harris 3.3 weights (Karis reconstruction-filter slide). Sum ~= 1.0.
+// Blackman-Harris 3.3 (Karis slide) renormalized to sum 1: raw values sum 0.9956 = 0.4% steady-state darkening.
 public static const float k_BlackmanHarris3x3[9] = {
-    0.0094, 0.1145, 0.0094,
-    0.1145, 0.5000, 0.1145,
-    0.0094, 0.1145, 0.0094
+    0.009442, 0.115006, 0.009442,
+    0.115006, 0.502210, 0.115006,
+    0.009442, 0.115006, 0.009442
 };
+
+// Optimized 5-tap Catmull-Rom history resample (Jimenez 2016): drops the 4 corner taps, renormalized by the
+// kept weight sum so DC is preserved exactly. Bilinear-only resampling low-passes the EMA every frame; this
+// keeps accumulated detail sharp. Negative-lobe undershoot is left to the caller's output clamp.
+public float3 SampleHistoryCatmullRom(Sampler2D tex, float2 uv, float2 texelSize)
+{
+    float2 samplePos = uv / texelSize;
+    float2 tc1 = floor(samplePos - 0.5) + 0.5;
+    float2 f   = samplePos - tc1;
+    float2 w0  = f * (-0.5 + f * (1.0 - 0.5 * f));
+    float2 w1  = 1.0 + f * f * (-2.5 + 1.5 * f);
+    float2 w2  = f * (0.5 + f * (2.0 - 1.5 * f));
+    float2 w3  = f * f * (-0.5 + 0.5 * f);
+    float2 w12 = w1 + w2;
+    float2 tc0  = (tc1 - 1.0) * texelSize;
+    float2 tc3  = (tc1 + 2.0) * texelSize;
+    float2 tc12 = (tc1 + w2 / w12) * texelSize;
+    float3 c = tex.SampleLevel(float2(tc12.x, tc0.y),  0.0).rgb * (w12.x * w0.y)
+             + tex.SampleLevel(float2(tc0.x,  tc12.y), 0.0).rgb * (w0.x  * w12.y)
+             + tex.SampleLevel(float2(tc12.x, tc12.y), 0.0).rgb * (w12.x * w12.y)
+             + tex.SampleLevel(float2(tc3.x,  tc12.y), 0.0).rgb * (w3.x  * w12.y)
+             + tex.SampleLevel(float2(tc12.x, tc3.y),  0.0).rgb * (w12.x * w3.y);
+    float wSum = w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
+    return c / wSum;
+}
