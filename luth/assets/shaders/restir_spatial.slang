@@ -237,10 +237,10 @@ void main(uint3 tid : SV_DispatchThreadID, uint gtIdx : SV_GroupIndex)
     {
         // Self-carry this pixel's geometry (raw depth + oct normal) for next frame's temporal validation:
         // this buffer IS the history now, so the carry lives here, not in the temporal pass. Written on a
-        // boiling reset too (harmless: temporal gates history on M > 0 before reading the pads).
-        c._pad0 = depth;
-        c._pad1 = octN.x;
-        c._pad2 = octN.y;
+        // boiling reset too (harmless: temporal gates history on M > 0 before reading these). uvPacked is
+        // already the winner's (merge-carried), so it is left untouched here.
+        c.histDepth = depth;
+        c.histOctN  = PackOctN(octN);
         resOut[flatIdx] = c;
     }
     else if (inBounds)

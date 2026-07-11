@@ -89,8 +89,8 @@ void main(uint3 tid : SV_DispatchThreadID)
         // kept separate below: gate domain inclusion on confidence, not on the realized sample (RTXDI).
         float currLin = LinearizeDepth(depth);
         geomValid = pr.M > 0u
-                 && abs(currLin - LinearizeDepth(pr._pad0)) < pc.depthThreshold * currLin
-                 && dot(OctDecode(float2(pr._pad1, pr._pad2)), N) > pc.normalThreshold;
+                 && abs(currLin - LinearizeDepth(pr.histDepth)) < pc.depthThreshold * currLin
+                 && dot(OctDecode(UnpackOctN(pr.histOctN)), N) > pc.normalThreshold;
     }
     bool lightValid = geomValid && pr.lightIndex != RESTIR_NO_LIGHT;
 
@@ -116,8 +116,8 @@ void main(uint3 tid : SV_DispatchThreadID)
         // the reservoir stored at pPix.
         float2 pUv = (float2(pPix) + 0.5) / float2(size);
         float2 pUvR = DejitterReconUV(pUv, ubo.prevJitter.xy);   // prev-frame jitter for the prev surface
-        prevN   = OctDecode(float2(pr._pad1, pr._pad2));
-        float4 pWh = mul(ubo.prevInvViewProjection, float4(pUvR * 2.0 - 1.0, pr._pad0, 1.0));
+        prevN   = OctDecode(UnpackOctN(pr.histOctN));
+        float4 pWh = mul(ubo.prevInvViewProjection, float4(pUvR * 2.0 - 1.0, pr.histDepth, 1.0));
         prevPos = pWh.xyz / pWh.w;
         prevV   = normalize(ubo.prevCameraPos.xyz - prevPos);
         Mprev   = min(pr.M, pc.mCap * max(r.M, 1u));   // Bitterli relative history clamp

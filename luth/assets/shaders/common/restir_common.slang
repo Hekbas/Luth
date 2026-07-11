@@ -1,5 +1,5 @@
-// ReSTIR DI shared types + helpers (Bitterli 2020); twin of restir_common.glsl (the GLSL DI pipeline
-// still uses that). Reservoir layout mirrors the C++ GPUReservoir. see arch/rendering-pipeline.md
+// ReSTIR DI shared types + helpers (Bitterli 2020). Reservoir layout mirrors the C++ GPUReservoir
+// (RtRestirSubsystem). see arch/rendering-pipeline.md
 
 public struct DirectionalLightData
 {
@@ -30,15 +30,20 @@ public struct SpotLightData
     public float  _pad0, _pad1, _pad2;
 }
 
-// 32 B, std430. _pad slots reserve a future point-on-light / uv for area lights + ReSTIR GI.
+// 32 B, std430. lightIndex bit 31 selects the light TYPE (0 = points[] index, 1 = triangle index in the
+// low 31 bits); RESTIR_NO_LIGHT (all-ones) stays reserved. histDepth/histOctN self-carry the origin
+// pixel's geometry (written by the spatial pass, read by temporal validation). uvPacked = the sampled
+// triangle's barycentric uv (unorm16x2), re-instantiated at every reuse/shade site; 0 for point lights.
 public struct Reservoir
 {
-    public uint  lightIndex;   // index into points[]; RESTIR_NO_LIGHT when empty
+    public uint  lightIndex;   // bit31 = type; low 31 = points[]/triangle index; RESTIR_NO_LIGHT = empty
     public float W;            // unbiased contribution weight (Bitterli 2020)
     public float wSum;         // running sum of resampling weights
     public uint  M;            // sample count / confidence
     public float targetPdf;    // p-hat of the selected sample
-    public float _pad0, _pad1, _pad2;
+    public float histDepth;    // origin-pixel raw depth (temporal-validation self-carry)
+    public uint  histOctN;     // origin-pixel oct normal, f16x2 (packed; float round-trip loses denormals)
+    public uint  uvPacked;     // sampled triangle barycentric uv, unorm16x2; 0 for point lights
 }
 
 public static const uint RESTIR_NO_LIGHT = 0xFFFFFFFFu;
@@ -47,7 +52,7 @@ public void ReservoirReset(out Reservoir r)
 {
     r.lightIndex = RESTIR_NO_LIGHT;
     r.W = 0.0; r.wSum = 0.0; r.M = 0u; r.targetPdf = 0.0;
-    r._pad0 = 0.0; r._pad1 = 0.0; r._pad2 = 0.0;
+    r.histDepth = 0.0; r.histOctN = 0u; r.uvPacked = 0u;
 }
 
 // Stream one candidate into the reservoir (weighted reservoir sampling, Chao 1982).
@@ -104,6 +109,12 @@ public float3 OctDecode(float2 enc)
     n.y += (n.y >= 0.0) ? -t : t;
     return normalize(n);
 }
+
+// Pack/unpack an octahedral normal (RG16F-sourced, so f16 is lossless) into one uint for the reservoir
+// self-carry. Mirrors the GI visNormalPacked convention; the packed field MUST be a uint (a float
+// round-trip canonicalizes denormals). see arch/rendering-pipeline.md
+public uint   PackOctN(float2 o)  { return f32tof16(o.x) | (f32tof16(o.y) << 16u); }
+public float2 UnpackOctN(uint p)  { return float2(f16tof32(p), f16tof32(p >> 16u)); }
 
 // Incoming radiance from a point light at worldPos; matches the raster attenuation + rolloff.
 public float3 PointLightRadiance(PointLightData pl, float3 worldPos, out float3 L, out float dist)

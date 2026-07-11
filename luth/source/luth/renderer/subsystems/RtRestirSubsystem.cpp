@@ -16,16 +16,18 @@
 namespace Luth
 {
     namespace {
-        // Sizes the reservoir allocation only; the GPU layout lives in restir_common.glsl's
+        // Sizes the reservoir allocation only; the GPU layout lives in restir_common.slang's
         // Reservoir struct; any field change must update both. see arch/rendering-pipeline.md
         struct GPUReservoir {
-            u32 lightIndex;
+            u32 lightIndex;   // bit31 = light type (0 point / 1 triangle)
             f32 W, wSum;
             u32 M;
             f32 targetPdf;
-            f32 pad0, pad1, pad2;
+            f32 histDepth;    // temporal-validation self-carry (raw depth)
+            u32 histOctN;     // origin-pixel oct normal, f16x2
+            u32 uvPacked;     // triangle barycentric uv, unorm16x2
         };
-        static_assert(sizeof(GPUReservoir) == 32, "GPUReservoir must match restir_common.glsl Reservoir (32 B)");
+        static_assert(sizeof(GPUReservoir) == 32, "GPUReservoir must match restir_common.slang Reservoir (32 B)");
 
         struct RestirPC {
             Mat4 invViewProj;
