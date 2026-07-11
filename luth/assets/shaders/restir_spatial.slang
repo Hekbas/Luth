@@ -25,6 +25,8 @@ struct PC
     int      gbufferScale;
     int      dispatchW;
     int      dispatchH;
+    float    normalThreshold;     // min dot(neighbourN, currN)
+    float    roughnessThreshold;  // max |neighbourRough - rough| (spec reuse gate)
 };
 [[vk::push_constant]] PC pc;
 
@@ -47,9 +49,9 @@ int2 GbufCoord(int2 p)
     return clamp(int2(uv * float2(full)), int2(0), full - int2(1));
 }
 
-static const float k_NormalThreshold = 0.9;
-
 float LinearizeDepth(float d) { return (ubo.nearZ * ubo.farZ) / (ubo.farZ - d * (ubo.farZ - ubo.nearZ)); }
+
+static const uint DI_MAX_DOMAINS = 9u;   // canonical + up to 8 neighbours (BASIC denominator records)
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
@@ -60,9 +62,9 @@ void main(uint3 tid : SV_DispatchThreadID)
     if (pixel.x >= size.x || pixel.y >= size.y) return;
     uint flatIdx = uint(pixel.y) * uint(size.x) + uint(pixel.x);
 
-    Reservoir r     = resIn[flatIdx];
-    float     depth = u_Depth.Load(int3(GbufCoord(pixel), 0)).r;
-    if (depth >= 1.0) { resOut[flatIdx] = r; return; }   // sky; pass through
+    Reservoir canonical = resIn[flatIdx];
+    float     depth     = u_Depth.Load(int3(GbufCoord(pixel), 0)).r;
+    if (depth >= 1.0) { resOut[flatIdx] = canonical; return; }   // sky; pass through
 
     float3 N        = OctDecode(u_Normal.Load(int3(GbufCoord(pixel), 0)).rg);
     float2 uv       = (float2(pixel) + 0.5) / float2(size);
@@ -72,35 +74,92 @@ void main(uint3 tid : SV_DispatchThreadID)
     float3 V        = normalize(ubo.cameraPos - worldPos);
     float  rough    = u_SlimRoughness.Load(int3(GbufCoord(pixel), 0)).r;
 
+    const uint neighbours = min(pc.neighbourCount, DI_MAX_DOMAINS - 1u);
     uint seed = PcgHash(flatIdx ^ (pc.frameSeed * 2246822519u));
 
-    Reservoir c; ReservoirReset(c);
-    ReservoirMerge(c, r.lightIndex, r.targetPdf, r.W, r.M, RandFromSeed(seed));   // canonical (self)
+    // Per-domain surface records for the BASIC denominator (index 0 = canonical / this pixel).
+    float3 domPos[DI_MAX_DOMAINS];
+    float3 domN[DI_MAX_DOMAINS];
+    float  domRough[DI_MAX_DOMAINS];
+    uint   domM[DI_MAX_DOMAINS];
+    uint   domCount = 0u;
 
-    for (uint i = 0u; i < pc.neighbourCount; ++i)
+    Reservoir c; ReservoirReset(c);
+    int selDomain = -1;
+
+    // Canonical (this pixel): identity shift, no Jacobian. Records + seeds domain 0.
+    domPos[0] = worldPos; domN[0] = N; domRough[0] = rough; domM[0] = canonical.M;
+    if (ReservoirMergeSel(c, canonical.lightIndex, canonical.targetPdf, canonical.W, canonical.M, RandFromSeed(seed)))
+        selDomain = 0;
+    domCount = 1u;
+
+    // Low-discrepancy Vogel disk rotated per pixel+frame (IGN, Jimenez 2014): decorrelates the reuse set
+    // between adjacent pixels, so the spatial noise the denoiser sees is blue, not the clumpy white the RNG
+    // gave (the audited "structured spatial-reuse patterns").
+    uint   fo  = pc.frameSeed & 63u;
+    float2 pf  = float2(pixel + int2(int(fo) * 5, int(fo) * 7));
+    float  rot = frac(52.9829189 * frac(0.06711056 * pf.x + 0.00583715 * pf.y)) * 6.28318530718;
+
+    for (uint i = 0u; i < neighbours; ++i)
     {
-        float ang = RandFromSeed(seed) * 6.28318530718;
-        float rad = sqrt(RandFromSeed(seed)) * float(pc.radius);
+        float ang = rot + (float(i) + 0.5) * 2.39996322973;                              // golden-angle spiral
+        float rad = float(pc.radius) * sqrt((float(i) + 0.5) / float(max(neighbours, 1u)));
         int2  np  = pixel + int2(int(round(cos(ang) * rad)), int(round(sin(ang) * rad)));
         if (np.x < 0 || np.y < 0 || np.x >= size.x || np.y >= size.y || all(np == pixel)) continue;
 
         float nd = u_Depth.Load(int3(GbufCoord(np), 0)).r;
         if (nd >= 1.0) continue;
         float3 nN = OctDecode(u_Normal.Load(int3(GbufCoord(np), 0)).rg);
-        if (abs(currLin - LinearizeDepth(nd)) > pc.depthThreshold * currLin) continue;
-        if (dot(nN, N) < k_NormalThreshold) continue;
+        if (dot(nN, N) < pc.normalThreshold) continue;                                    // normal reject
+        if (abs(currLin - LinearizeDepth(nd)) > pc.depthThreshold * currLin) continue;    // depth reject
+        float nRough = u_SlimRoughness.Load(int3(GbufCoord(np), 0)).r;
+        if (abs(nRough - rough) > pc.roughnessThreshold) continue;                        // roughness reject (spec)
 
         Reservoir nr = resIn[uint(np.y) * uint(size.x) + uint(np.x)];
-        if (nr.lightIndex == RESTIR_NO_LIGHT || nr.M == 0u) continue;
+        if (nr.M == 0u) continue;   // gate on confidence only (RTXDI): a zero-W neighbour still owes M to piSum
 
-        // Re-evaluate the neighbour's selected light at THIS pixel (punctual -> no Jacobian).
-        PointLightData pl = LoadPoint(nr.lightIndex);
-        float3 L; float dist;
-        float3 Li   = PointLightRadiance(pl, worldPos, L, dist);
-        float  pHat = RestirTargetPdf(N, V, L, Li, rough);   // (combined target)
-        ReservoirMerge(c, nr.lightIndex, pHat, nr.W, nr.M, RandFromSeed(seed));
+        float2 nUv       = (float2(np) + 0.5) / float2(size);
+        float4 nWh       = mul(pc.invViewProj, float4(nUv * 2.0 - 1.0, nd, 1.0));
+        float3 nWorldPos = nWh.xyz / nWh.w;
+
+        // Streaming weight: neighbour's own light re-evaluated at THIS pixel (punctual -> no Jacobian). A
+        // NO_LIGHT (fully-occluded) neighbour streams w=0 but still records its domain for the denominator.
+        float pHat = 0.0;
+        if (nr.lightIndex != RESTIR_NO_LIGHT)
+        {
+            PointLightData pl = LoadPoint(nr.lightIndex);
+            float3 L; float dist;
+            float3 Li = PointLightRadiance(pl, worldPos, L, dist);
+            pHat = RestirTargetPdf(N, V, L, Li, rough);
+        }
+        domPos[domCount] = nWorldPos; domN[domCount] = nN; domRough[domCount] = nRough; domM[domCount] = nr.M;
+        if (ReservoirMergeSel(c, nr.lightIndex, pHat, nr.W, nr.M, RandFromSeed(seed))) selDomain = int(domCount);
+        domCount += 1u;
     }
 
-    ReservoirFinalize(c);
+    // RTXDI BASIC: W = wSum * selPi / (selTgt * piSum). piSum re-evaluates the WINNER's light at every
+    // contributing domain (x its M), so a domain whose target vanishes at the winner drops out of the
+    // denominator instead of darkening the estimate. No accepted neighbour -> passthrough (canonical.W).
+    float Wout = 0.0;
+    if (c.lightIndex != RESTIR_NO_LIGHT && c.M > 0u)
+    {
+        PointLightData sel = LoadPoint(c.lightIndex);
+        float3 Ls; float ds;
+        float3 Lis    = PointLightRadiance(sel, worldPos, Ls, ds);
+        float  selTgt = RestirTargetPdf(N, V, Ls, Lis, rough);
+        float  piSum  = 0.0;
+        float  selPi  = 0.0;
+        for (uint d = 0u; d < domCount; ++d)
+        {
+            float3 Ld; float dd;
+            float3 LiD = PointLightRadiance(sel, domPos[d], Ld, dd);
+            float3 Vd  = normalize(ubo.cameraPos - domPos[d]);
+            float  ps  = RestirTargetPdf(domN[d], Vd, Ld, LiD, domRough[d]);
+            piSum += ps * float(domM[d]);
+            if (int(d) == selDomain) selPi = ps;
+        }
+        Wout = (selTgt > 0.0 && piSum > 0.0) ? (c.wSum * selPi / (selTgt * piSum)) : 0.0;
+    }
+    c.W = Wout;
     resOut[flatIdx] = c;
 }

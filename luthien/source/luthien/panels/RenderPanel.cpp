@@ -188,6 +188,9 @@ namespace Luth
                     int spatialRadius = static_cast<int>(rs.spatialRadius);
                     if (UI::Property("Spatial Radius (px)", spatialRadius, 1, 64)) rs.spatialRadius = static_cast<u32>(spatialRadius);
                     UI::Property("Spatial Depth Threshold", rs.spatialDepthThreshold, 0.005f, 0.0f, 1.0f);
+                    UI::Property("Spatial Normal Threshold", rs.spatialNormalThreshold, 0.005f, 0.0f, 1.0f);
+                    UI::Property("Roughness Threshold", rs.roughnessThreshold, 0.005f, 0.0f, 1.0f);
+                    Tip("Spatial reuse rejects neighbours whose roughness differs by more than this.\nStops smooth metals importing diffuse-shaped reservoirs (spec fireflies).");
                     UI::EndProperties();
                 }
                 endSection();

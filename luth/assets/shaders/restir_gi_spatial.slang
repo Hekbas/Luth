@@ -62,6 +62,12 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     uint seed = PcgHash(flatIdx ^ (pc.frameSeed * 2654435761u));
 
+    // IGN-rotated Vogel disk (Jimenez 2014): blue-noise neighbour placement decorrelates the reuse set
+    // between adjacent pixels (matches the DI spatial pass).
+    uint   fo  = pc.frameSeed & 63u;
+    float2 pf  = float2(pixel + int2(int(fo) * 5, int(fo) * 7));
+    float  rot = frac(52.9829189 * frac(0.06711056 * pf.x + 0.00583715 * pf.y)) * 6.28318530718;
+
     // Per-domain surface records for the BASIC denominator (index 0 = canonical / this pixel).
     float3 domPos[GI_MAX_DOMAINS];
     float3 domN[GI_MAX_DOMAINS];
@@ -86,8 +92,8 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     for (uint i = 0u; i < neighbours; ++i)
     {
-        float ang = RandFromSeed(seed) * 6.28318530718;
-        float rad = sqrt(RandFromSeed(seed)) * radius;
+        float ang = rot + (float(i) + 0.5) * 2.39996322973;   // golden-angle spiral
+        float rad = radius * sqrt((float(i) + 0.5) / float(max(neighbours, 1u)));
         int2  q   = pixel + int2(int(round(cos(ang) * rad)), int(round(sin(ang) * rad)));
         if (q.x < 0 || q.y < 0 || q.x >= size.x || q.y >= size.y || (q.x == pixel.x && q.y == pixel.y)) continue;
 

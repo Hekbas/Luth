@@ -64,8 +64,14 @@ namespace Luth
             i32  gbufferScale;
             i32  dispatchW;
             i32  dispatchH;
+            f32  normalThreshold;      // min dot(neighbourN, currN)
+            f32  roughnessThreshold;   // max |neighbourRough - rough| (spec reuse gate)
         };
-        static_assert(sizeof(RestirSpatialPC) == 92, "RestirSpatialPC must match restir_spatial.slang push_constant");
+        static_assert(sizeof(RestirSpatialPC) == 100, "RestirSpatialPC must match restir_spatial.slang push_constant");
+
+        // Fixed push-constant range shared by the four DI pipelines; 128 B (Vulkan min) leaves headroom
+        // for the largest struct (spatial 100 B) plus later growth without touching the pipeline layout.
+        constexpr u32 k_RestirPCSize = 128;
 
         struct UpscalePC {
             i32 fullW;
@@ -198,7 +204,7 @@ namespace Luth
         std::vector<VkDescriptorSetLayout> layoutsInitial = layouts;
         layoutsInitial.push_back(MaterialSystem::GetDescriptorSetLayout());
         layoutsInitial.push_back(VulkanContext::Get().GetBindlessSet().GetLayout());
-        VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RestirPC) };
+        VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, k_RestirPCSize };
 
         m_InitialPipeline = std::make_unique<VKComputePipeline>(
             m_InitialSpv, layoutsInitial, std::vector<VkPushConstantRange>{ pcRange });
@@ -290,7 +296,7 @@ namespace Luth
         std::vector<VkDescriptorSetLayout> layoutsInitial = layouts;
         layoutsInitial.push_back(MaterialSystem::GetDescriptorSetLayout());
         layoutsInitial.push_back(VulkanContext::Get().GetBindlessSet().GetLayout());
-        VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RestirPC) };
+        VkPushConstantRange pcRange{ VK_SHADER_STAGE_COMPUTE_BIT, 0, k_RestirPCSize };
 
         auto deferComp = [](std::unique_ptr<VKComputePipeline>& p) {
             if (auto* raw = p.release(); raw)
@@ -546,6 +552,8 @@ namespace Luth
         spc.radius         = settings.spatialRadius;
         spc.frameSeed      = frameAbs;
         spc.depthThreshold = settings.spatialDepthThreshold;
+        spc.normalThreshold    = settings.spatialNormalThreshold;
+        spc.roughnessThreshold = settings.roughnessThreshold;
         spc.gbufferScale   = diScale;
         spc.dispatchW      = diW2;
         spc.dispatchH      = diH2;
