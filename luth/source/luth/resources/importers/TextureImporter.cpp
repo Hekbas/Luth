@@ -3,6 +3,9 @@
 #include "luth/resources/AssetSerializer.h"
 #include "luth/resources/Image.h"
 #include "luth/resources/MetaFile.h"
+#include "luth/resources/importers/TextureCompressor.h"
+
+#include <algorithm>
 
 namespace Luth
 {
@@ -29,12 +32,33 @@ namespace Luth
         }
     }
 
+    // .meta "compression" string -> target format. "none" keeps RGBA8; "auto" resolves per role.
+    static TextureFormat ResolveCompression(const std::string& mode, TextureRole role, bool& outNone)
+    {
+        outNone = (mode == "none");
+        if (outNone)        return TextureFormat::RGBA8;
+        if (mode == "bc1")  return TextureFormat::BC1_Unorm;
+        if (mode == "bc4")  return TextureFormat::BC4_Unorm;
+        if (mode == "bc5")  return TextureFormat::BC5_Unorm;
+        if (mode == "bc7")  return TextureFormat::BC7_Unorm;
+        return TextureCompressor::AutoFormatForRole(role); // "auto" / unknown
+    }
+
+    static bool HasSubOpaqueAlpha(const std::vector<u8>& rgba)
+    {
+        for (size_t i = 3; i < rgba.size(); i += 4)
+            if (rgba[i] < 255) return true;
+        return false;
+    }
+
     bool TextureImporter::Import(const std::filesystem::path& source, const std::filesystem::path& destination)
     {
         LH_PROFILE_FUNCTION();
 
-        // Read import settings from .meta file
+        // Read import settings from .meta file (legacy compression_format/srgb keys are ignored)
         TextureSettings settings;
+        std::string compMode = "auto";
+        int compQuality = 1;
         fs::path metaPath = source.string() + ".meta";
         MetaFile meta(UUID{});
         if (meta.Load(metaPath))
@@ -45,6 +69,8 @@ namespace Luth
             if (ts.contains("filter_min"))       settings.MinFilter = (TextureFilterMode)ts["filter_min"].get<int>();
             if (ts.contains("filter_mag"))       settings.MagFilter = (TextureFilterMode)ts["filter_mag"].get<int>();
             if (ts.contains("role"))             settings.Role = (TextureRole)ts["role"].get<int>();
+            if (ts.contains("compression"))         compMode = ts["compression"].get<std::string>();
+            if (ts.contains("compression_quality")) compQuality = ts["compression_quality"].get<int>();
         }
 
         Image::LoadResult8 img = Image::Load(source);
@@ -53,15 +79,35 @@ namespace Luth
             return false;
         }
 
-        // Canonicalize channels before serialize so the bindless artifact matches the shader's swizzles.
+        // Canonicalize channels before compress/serialize so the artifact matches the shader swizzles;
+        // the affine role ops commute with the box-downsample, so the mip chain stays correct.
         ApplyRoleTransform(settings.Role, img.pixels);
 
         TextureAssetData texData;
-        texData.Width    = static_cast<int>(img.width);
-        texData.Height   = static_cast<int>(img.height);
-        texData.Format   = TextureFormat::RGBA8;
+        texData.Width    = img.width;
+        texData.Height   = img.height;
         texData.Settings = settings;
-        texData.Pixels   = std::move(img.pixels);
+
+        bool none = false;
+        TextureFormat fmt = ResolveCompression(compMode, settings.Role, none);
+        if (none)
+        {
+            texData.Format    = TextureFormat::RGBA8;
+            texData.MipLevels = 1; // runtime blit-generates from GenerateMipmaps
+            texData.Pixels    = std::move(img.pixels);
+        }
+        else
+        {
+            if (fmt == TextureFormat::BC1_Unorm && HasSubOpaqueAlpha(img.pixels))
+                LH_LOG(Assets, warn, "TextureImporter: BC1 override drops alpha on {0}", source.string());
+
+            CompressionQuality q = (CompressionQuality)std::clamp(compQuality, 0, 2);
+            CompressedTexture ct = TextureCompressor::Compress(img.pixels.data(), img.width, img.height,
+                                                               fmt, settings.Role, q, settings.GenerateMipmaps);
+            texData.Format    = ct.format;
+            texData.MipLevels = ct.mipLevels;
+            texData.Pixels    = std::move(ct.data);
+        }
 
         return AssetSerializer::SerializeTexture(destination, texData);
     }
