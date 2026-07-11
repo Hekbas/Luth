@@ -87,6 +87,22 @@ namespace Luth
         outData.Pixels.resize(texHeader.SizeBytes);
         in.read((char*)outData.Pixels.data(), texHeader.SizeBytes);
 
+        // Reject corrupt compressed artifacts before they reach Vulkan (mipLevels 0 -> invalid image / 0
+        // copy regions; short payload -> OOB GPU read). Failing here triggers the loader force-reimport.
+        if (GetTextureFormatInfo(outData.Format).compressed)
+        {
+            u64 expect = 0;
+            u32 mw = outData.Width, mh = outData.Height;
+            for (u32 m = 0; m < outData.MipLevels; ++m)
+            {
+                expect += TextureLevelBytes(outData.Format, mw, mh);
+                mw = std::max(1u, mw >> 1);
+                mh = std::max(1u, mh >> 1);
+            }
+            if (outData.MipLevels == 0 || outData.MipLevels > 16 || outData.Pixels.size() != expect)
+                return false;
+        }
+
         return true;
     }
 

@@ -223,7 +223,9 @@ namespace Luth
         const bool isStorage  = (imageInfo.usage & VK_IMAGE_USAGE_STORAGE_BIT) != 0;
         const bool isSampledDepth = (imageInfo.usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0
                                  && (imageInfo.usage & VK_IMAGE_USAGE_SAMPLED_BIT) != 0;
-        if (isStorage || isSampledDepth)
+        // Compressed textures upload on the transfer queue then sample on graphics; CONCURRENT makes that
+        // cross-family access well-defined (free for BC -- no DCC to preserve).
+        if (isStorage || isSampledDepth || isCompressed)
             VulkanContext::Get().ApplyConcurrentSharing(imageInfo);
 
         m_Allocation = VulkanAllocator::AllocateImage(imageInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, m_Image);

@@ -345,6 +345,15 @@ namespace Luth
         std::lock_guard<std::mutex> lock(m_Lock);
         LH_PROFILE_FUNCTION();
 
+        // The whole chain stages in one allocation; an oversized payload would overrun the ring (the
+        // AllocateStaging assert is NDEBUG-compiled out in Release -> heap corruption). Skip rather than
+        // corrupt; a per-level split upload is the future path for single textures over the ring size.
+        if (size > STAGING_SIZE)
+        {
+            LH_LOG(Renderer, error, "UploadImageLevels: {} B chain exceeds the {} B staging ring; texture skipped (use BC1 / lower resolution)", size, (u64)STAGING_SIZE);
+            return 0;
+        }
+
         void* stagingPtr;
         VkBuffer stagingBuffer;
         u64 stagingOffset;
