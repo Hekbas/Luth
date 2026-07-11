@@ -391,6 +391,10 @@ namespace Luth
                             if (UI::Property(label, n.value.x, 0.02f)) valueEdit = true;
                             if (ImGui::IsItemHovered()) ImGui::SetTooltip("detail-normal strength");
                             break;
+                        case MatNodeType::Parallax:
+                            if (UI::Property(label, n.value.x, 0.002f)) valueEdit = true;
+                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("parallax height scale");
+                            break;
                         default: break;
                     }
                     ImGui::PopID();

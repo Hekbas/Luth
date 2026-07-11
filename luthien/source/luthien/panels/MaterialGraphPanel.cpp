@@ -74,6 +74,7 @@ namespace Luth
             { "Detail Normal",IM_COL32( 80,110,110,255), kIn_BaseDet, 2, kOut_1,     1 },  // DetailNormal
             { "Make Layer",   IM_COL32( 90,120, 90,255), kIn_Out,     6, kOut_Layer, 1 },  // MakeLayer
             { "Layer Blend",  IM_COL32( 90,120, 90,255), kIn_BTM,     3, kOut_Layer, 1 },  // LayerBlend
+            { "Parallax",     IM_COL32( 70,120,100,255), kIn_UV,      1, kOut_1,     1 },  // Parallax (UV pin optional)
         };
         constexpr size_t kTypeCount = sizeof(kTypes) / sizeof(kTypes[0]);
 
@@ -141,6 +142,7 @@ namespace Luth
                 case MatNodeType::Fresnel:    n.value = Vec4(5.0f, 0.0f, 0.0f, 0.0f); break;   // Schlick power
                 case MatNodeType::Triplanar:    n.value = Vec4(4.0f, 0.0f, 0.0f, 0.0f); break; // tiling
                 case MatNodeType::DetailNormal: n.value = Vec4(1.0f, 0.0f, 0.0f, 0.0f); break; // strength
+                case MatNodeType::Parallax:     n.value = Vec4(0.05f, 8.0f, 32.0f, 0.0f); break; // height, min/max steps
                 default:                      n.value = Vec4(0.0f); break;
             }
             return n;
@@ -278,6 +280,14 @@ namespace Luth
                 }
                 case MatNodeType::DetailNormal:
                     ImGui::DragFloat("Strength", &n.value.x, 0.02f, 0.0f, 4.0f);
+                    e.value |= ImGui::IsItemDeactivatedAfterEdit();
+                    break;
+                case MatNodeType::Parallax:
+                    ImGui::DragFloat("Height",    &n.value.x, 0.002f, 0.0f, 0.5f, "%.3f");
+                    e.value |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::DragFloat("Min Steps", &n.value.y, 0.5f, 1.0f, 64.0f, "%.0f");
+                    e.value |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::DragFloat("Max Steps", &n.value.z, 0.5f, 1.0f, 64.0f, "%.0f");
                     e.value |= ImGui::IsItemDeactivatedAfterEdit();
                     break;
                 default:
@@ -419,6 +429,7 @@ namespace Luth
                 break;
             }
             case MatNodeType::DetailNormal: snprintf(buf, sizeof(buf), "s%.2g", n.value.x); break;
+            case MatNodeType::Parallax:     snprintf(buf, sizeof(buf), "h%.3g", n.value.x); break;
             default: return;
         }
         drawList->AddText(ImVec2(rect.Min.x + 4.0f, rect.Min.y + 2.0f), IM_COL32(210, 210, 210, 255), buf);
