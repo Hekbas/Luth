@@ -7,6 +7,7 @@
 #include "luth/renderer/settings/PostProcessSettings.h"
 #include "luth/renderer/settings/RestirSettings.h"
 #include "luth/renderer/settings/RestirGiSettings.h"
+#include "luth/renderer/settings/EmissiveLightSettings.h"
 #include "luth/renderer/settings/SvgfSettings.h"
 #include "luthien/widgets/Icons.h"
 #include "luthien/widgets/Widgets.h"
@@ -270,6 +271,18 @@ namespace Luth
                     Tip("Per-ray radiance backstop, after the lobe floor + NEE clamp do the real work.");
                     UI::Property("Denoise", rf.denoise);
                     Tip("Run the specular denoiser. Off = raw 1-spp reflection (the A/B compare).");
+                    UI::EndProperties();
+                }
+                endSection();
+            }
+
+            if (beginSection(Tab_Lighting, "Emissive Lights")) {
+                auto& em = m_RS->GetEmissiveLightSettings();
+                if (UI::BeginProperties("EmissiveLightProps")) {
+                    UI::Property("Enabled", em.enabled);
+                    Tip("Emissive-material triangles as sampled area lights (ReSTIR DI/GI + reflections).\nRides with ReSTIR DI: DI off -> emitters keep self-glow only. Requires a TLAS (RT).");
+                    UI::Property("Min Power", em.minPowerLum, 0.0001f, 0.0f, 1.0f);
+                    Tip("Drop emissive triangles whose luminous power (2pi * area * luminance) is below this.\nCulls faint emitters from the light list.");
                     UI::EndProperties();
                 }
                 endSection();
