@@ -250,6 +250,14 @@ Umbrella issue: [#157](https://github.com/Hekbas/Luth/issues/157) (sub-effort is
 
 Agreed forward order (2026-06-14) — dependency-clean, **params as the keystone**: a tunable in an effect unit (M3) or shading model (M4) must be a *parameter*, not a baked constant, or it reintroduces the anti-pattern `graph-param-buffer` just removed, so M2 precedes M3/M4. M1–M3 close `slang-material` (#157); M4–M5 open follow-on series. `gpu-particles` ([#57](https://github.com/Hekbas/Luth/issues/57)) stays parallelizable throughout. One effort per conversation, plan-mode each.
 
+**Completion plan (2026-07-11): finish the whole remaining arc across conversations, in 3 shippable sub-arcs (Mode A, one branch + one MINOR each):**
+
+- **`surface-detail` (v3.11.0):** `parallax-occlusion` first (adds the `TangentViewDir` fetch getter, foundation), then `decals` (UV-space; blood/grime, Bhaal-thematic).
+- **`shading-models` (v3.12.0):** `clear-coat`+`anisotropy`, then `dielectric-transmission` (RT refraction, closes the transparent-as-opaque gap), `sheen-cloth`, `subsurface-skin`; each extends `MaterialInputs` + `brdf.slang`, raster==RT.
+- **`virtual-texturing` (v3.13.0):** separable XL capstone; may spin out as its own series.
+- **`hair` deferred out of arc** to the character vertical (asset-gated on hair geometry/cards).
+- **Fable5** drives the BRDF/BTDF derivation + raster==RT seam on each shading-model effort; normal model for surface-detail plumbing (Fable5 verify pass on POM's raymarch).
+
 | Arc | Effort | Size | Notes |
 |---|---|---|---|
 | M1 authoring | `transparent-graph` ✅ | M | Transparent/OIT raster decode routed through the variant registry (raster==RT), same path the RT hit uses — shipped v3.2.7. |
