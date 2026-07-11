@@ -108,11 +108,20 @@ public float3 ApplyTangentNormal(float3 tn, float3 T, float3 B, float3 N)
     return normalize(T * tn.x + B * tn.y + N * tn.z);
 }
 
+// Decode a tangent-space normal from a sampled texel: XY from the stored RG, Z reconstructed. Makes BC5
+// (RG only, B samples 0) and RGB normal maps decode identically -- valid for any unit-length map.
+public float3 DecodeTangentNormal(float3 sampled)
+{
+    float2 xy = sampled.xy * 2.0 - 1.0;
+    float z = sqrt(saturate(1.0 - dot(xy, xy)));
+    return float3(xy, z);
+}
+
 // Normal-map perturb (decode + basis); caller guards HAS_NORMAL + tangent.
 public float3 ApplyNormalMap<F : ITexFetch>(GPUMaterialData m, float2 uv0, float2 uv1,
                                             float3 T, float3 B, float3 N, F fetch)
 {
-    float3 tn = fetch.Sample(m.normalIndex, SelectUV(m.flags, UV_SHIFT_NORMAL, uv0, uv1)).rgb * 2.0 - 1.0;
+    float3 tn = DecodeTangentNormal(fetch.Sample(m.normalIndex, SelectUV(m.flags, UV_SHIFT_NORMAL, uv0, uv1)).rgb);
     return ApplyTangentNormal(tn, T, B, N);
 }
 
