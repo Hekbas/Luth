@@ -90,7 +90,8 @@ void main(uint3 tid : SV_DispatchThreadID)
     float2 octNv    = u_SlimNormal.Load(int3(GiGuide(pixel), 0)).rg;
     float3 Nv       = OctDecode(octNv);
     float2 uv       = (float2(pixel) + 0.5) / float2(size);
-    float4 worldH   = mul(pc.invViewProj, float4(uv * 2.0 - 1.0, depth, 1.0));
+    float2 uvR      = DejitterReconUV(uv, ubo.taaParams.zw);   // un-jittered recon; see globals
+    float4 worldH   = mul(pc.invViewProj, float4(uvR * 2.0 - 1.0, depth, 1.0));
     float3 worldPos = worldH.xyz / worldH.w;
 
     uint seed = PcgHash(flatIdx ^ (pc.frameSeed * 2654435761u));

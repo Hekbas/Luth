@@ -119,7 +119,8 @@ void main(uint3 tid : SV_DispatchThreadID, uint gtIdx : SV_GroupIndex)
         octN = u_Normal.Load(int3(GbufCoord(pixel), 0)).rg;
         float3 N        = OctDecode(octN);
         float2 uv       = (float2(pixel) + 0.5) / float2(size);
-        float4 worldH   = mul(pc.invViewProj, float4(uv * 2.0 - 1.0, depth, 1.0));
+        float2 uvR      = DejitterReconUV(uv, ubo.taaParams.zw);   // un-jittered recon; see globals
+        float4 worldH   = mul(pc.invViewProj, float4(uvR * 2.0 - 1.0, depth, 1.0));
         float3 worldPos = worldH.xyz / worldH.w;
         float  currLin  = LinearizeDepth(depth);
         float3 V        = normalize(ubo.cameraPos - worldPos);
@@ -169,7 +170,8 @@ void main(uint3 tid : SV_DispatchThreadID, uint gtIdx : SV_GroupIndex)
             if (nr.M == 0u) continue;   // gate on confidence only (RTXDI): a zero-W neighbour still owes M to piSum
 
             float2 nUv       = (float2(np) + 0.5) / float2(size);
-            float4 nWh       = mul(pc.invViewProj, float4(nUv * 2.0 - 1.0, nd, 1.0));
+            float2 nUvR      = DejitterReconUV(nUv, ubo.taaParams.zw);   // match the canonical de-jitter
+            float4 nWh       = mul(pc.invViewProj, float4(nUvR * 2.0 - 1.0, nd, 1.0));
             float3 nWorldPos = nWh.xyz / nWh.w;
 
             // Streaming weight: neighbour's own light re-evaluated at THIS pixel (punctual -> no Jacobian). A

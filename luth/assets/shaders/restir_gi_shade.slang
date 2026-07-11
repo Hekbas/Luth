@@ -54,7 +54,8 @@ void main(uint3 tid : SV_DispatchThreadID)
     if (depth < 1.0 && r.M > 0u && r.W > 0.0)
     {
         float2 uv       = (float2(pixel) + 0.5) / float2(size);
-        float4 worldH   = mul(pc.invViewProj, float4(uv * 2.0 - 1.0, depth, 1.0));
+        float2 uvR      = DejitterReconUV(uv, ubo.taaParams.zw);   // match reservoir recon; see globals
+        float4 worldH   = mul(pc.invViewProj, float4(uvR * 2.0 - 1.0, depth, 1.0));
         float3 worldPos = worldH.xyz / worldH.w;
         float3 Nv       = OctDecode(u_SlimNormal.Load(int3(GiGuide(pixel), 0)).rg);
 

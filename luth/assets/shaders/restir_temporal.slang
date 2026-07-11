@@ -67,7 +67,8 @@ void main(uint3 tid : SV_DispatchThreadID)
     float2 octN     = u_CurrNormal.Load(int3(GbufCoord(pixel), 0)).rg;
     float3 N        = OctDecode(octN);
     float2 uv       = (float2(pixel) + 0.5) / float2(size);
-    float4 worldH   = mul(pc.invViewProj, float4(uv * 2.0 - 1.0, depth, 1.0));
+    float2 uvR      = DejitterReconUV(uv, ubo.taaParams.zw);   // un-jittered recon; see globals
+    float4 worldH   = mul(pc.invViewProj, float4(uvR * 2.0 - 1.0, depth, 1.0));
     float3 worldPos = worldH.xyz / worldH.w;
     float3 V        = normalize(ubo.cameraPos - worldPos);
     float  rough    = u_SlimRoughness.Load(int3(GbufCoord(pixel), 0)).r;
@@ -114,8 +115,9 @@ void main(uint3 tid : SV_DispatchThreadID)
         // Reconstruct at the prev texel CENTRE (not the jittered prevUV) so the point matches the geometry
         // the reservoir stored at pPix.
         float2 pUv = (float2(pPix) + 0.5) / float2(size);
+        float2 pUvR = DejitterReconUV(pUv, ubo.prevJitter.xy);   // prev-frame jitter for the prev surface
         prevN   = OctDecode(float2(pr._pad1, pr._pad2));
-        float4 pWh = mul(ubo.prevInvViewProjection, float4(pUv * 2.0 - 1.0, pr._pad0, 1.0));
+        float4 pWh = mul(ubo.prevInvViewProjection, float4(pUvR * 2.0 - 1.0, pr._pad0, 1.0));
         prevPos = pWh.xyz / pWh.w;
         prevV   = normalize(ubo.prevCameraPos.xyz - prevPos);
         Mprev   = min(pr.M, pc.mCap * max(r.M, 1u));   // Bitterli relative history clamp

@@ -43,3 +43,14 @@ public struct GlobalUniforms
 }
 
 [[vk::binding(0, 0)]] public ConstantBuffer<GlobalUniforms> ubo;
+
+// Remove TAA sub-pixel jitter from a world-reconstruction UV: the jittered depth samples a wobbling
+// sub-pixel point each frame, and feeding that wobble into ReSTIR reservoir reuse + ray origins is what
+// flickers under TAA. Reconstructing on the un-jittered pixel centre makes a static scene map to the same
+// world point every frame. Raster stays jittered (edge AA); the RT lighting is low-frequency + denoised +
+// remodulated at the jittered shading point, so this costs no AA. jitterPx = ubo.taaParams.zw (current) or
+// ubo.prevJitter.xy (previous). Zero jitter (TAA off / PathTrace) -> passthrough. see arch/rendering-pipeline.md
+public float2 DejitterReconUV(float2 uv, float2 jitterPx)
+{
+    return (ubo.viewportSize.x > 0.0) ? (uv - jitterPx / ubo.viewportSize) : uv;
+}

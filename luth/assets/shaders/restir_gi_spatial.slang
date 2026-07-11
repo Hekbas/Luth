@@ -103,7 +103,8 @@ void main(uint3 tid : SV_DispatchThreadID, uint gtIdx : SV_GroupIndex)
         octN = u_SlimNormal.Load(int3(GiGuide(pixel), 0)).rg;
         float3 N        = OctDecode(octN);
         float2 uv       = (float2(pixel) + 0.5) / float2(size);
-        float4 worldH   = mul(pc.invViewProj, float4(uv * 2.0 - 1.0, depth, 1.0));
+        float2 uvR      = DejitterReconUV(uv, ubo.taaParams.zw);   // un-jittered recon; see globals
+        float4 worldH   = mul(pc.invViewProj, float4(uvR * 2.0 - 1.0, depth, 1.0));
         worldPos        = worldH.xyz / worldH.w;
         float  linDepth = LinearizeDepth(depth);
 
@@ -158,7 +159,8 @@ void main(uint3 tid : SV_DispatchThreadID, uint gtIdx : SV_GroupIndex)
             if (nr.M == 0u) continue;   // gate on confidence only (RTXDI): a zero-W neighbour still owes its M to piSum
 
             float2 qUv      = (float2(q) + 0.5) / float2(size);
-            float4 qWh      = mul(pc.invViewProj, float4(qUv * 2.0 - 1.0, qDepth, 1.0));
+            float2 qUvR     = DejitterReconUV(qUv, ubo.taaParams.zw);   // match the canonical de-jitter
+            float4 qWh      = mul(pc.invViewProj, float4(qUvR * 2.0 - 1.0, qDepth, 1.0));
             float3 qWorldPos = qWh.xyz / qWh.w;
 
             float3 nrSampleN = OctDecode(nr.sampleNormalOct);
