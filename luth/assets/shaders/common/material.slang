@@ -147,8 +147,12 @@ public struct GtGeomEntry
     public float* vbuf;
     public uint*  ibuf;
     public uint   materialSlot;
-    public uint   vertexStride;   // bytes
+    public uint   vertexStride;   // bytes; bit 31 = emissive-area-light flag (masked before the >>2 stride use)
 }
+
+// Bit 31 of vertexStride flags an emissive AREA LIGHT (set by TlasBuilder when the feature + ReSTIR DI are
+// on). ReSTIR DI owns such an emitter's direct lighting, so restir_gi_initial drops its on-hit emission seed.
+public bool GtIsEmissiveLight(GtGeomEntry ge) { return (ge.vertexStride & 0x80000000u) != 0u; }
 
 // Surface geometry at a rayQuery COMMITTED hit, pre-normal-map (the wrapper perturbs ns afterward).
 public struct HitGeometry
@@ -192,7 +196,7 @@ public HitGeometry GatherHitGeometry(GtGeomEntry* geomTable, uint customIndex, u
     HitGeometry g;
     GtGeomEntry ge = geomTable[customIndex];
     g.materialSlot = ge.materialSlot;
-    uint sF = ge.vertexStride >> 2u;     // stride in floats (72->18, 104->26)
+    uint sF = (ge.vertexStride & 0x7FFFFFFFu) >> 2u;   // mask bit 31 (emissive-light flag); floats (72->18, 104->26)
     uint i0 = ge.ibuf[primIndex * 3u + 0u];
     uint i1 = ge.ibuf[primIndex * 3u + 1u];
     uint i2 = ge.ibuf[primIndex * 3u + 2u];

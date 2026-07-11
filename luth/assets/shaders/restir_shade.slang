@@ -48,17 +48,6 @@ float DiSpecRho(float NoV, float rough)
     return ab.x + ab.y;
 }
 
-PointLightData LoadPoint(uint j)
-{
-    uint b = 48u + j * 32u;
-    PointLightData p;
-    p.position  = asfloat(g_Lights.Load3(b + 0u));
-    p.range     = asfloat(g_Lights.Load(b + 12u));
-    p.color     = asfloat(g_Lights.Load3(b + 16u));
-    p.intensity = asfloat(g_Lights.Load(b + 28u));
-    return p;
-}
-
 int2 GbufCoord(int2 p)
 {
     if (pc.gbufferScale == 1) return p;
@@ -89,9 +78,9 @@ void main(uint3 tid : SV_DispatchThreadID)
         float3 worldPos = worldH.xyz / worldH.w;
         float3 N        = OctDecode(u_SlimNormal.Load(int3(GbufCoord(pixel), 0)).rg);
 
-        PointLightData pl = LoadPoint(r.lightIndex);
-        float3 L; float dist;
-        float3 Li = PointLightRadiance(pl, worldPos, L, dist);
+        LightSample sl = ReSampleLight(g_Lights, r.lightIndex, r.uvPacked, worldPos);
+        float3 L  = sl.L;
+        float3 Li = sl.Li;
         E = Li * max(dot(N, L), 0.0) * r.W;
 
         // Demodulated specular: S = Li*D*G/(4*NoV)*W (F0-free; pbr.slang applies the per-pixel F0).
@@ -101,6 +90,13 @@ void main(uint3 tid : SV_DispatchThreadID)
         float3 H     = normalize(V + L);
         float  NoV   = max(dot(N, V), 1.0e-4);
         S = Li * (D_GGX(N, H, rough) * G_Smith(N, V, L, rough) / (4.0 * NoV)) * r.W;
+
+        // A2: emissive triangles are geometry, so RT reflections already trace their glossy image below the
+        // roughness cutoff. Route a triangle emitter's spec complementarily to the reflection composite
+        // (which weights by 1 - smoothstep) so the two never double-count on a glossy surface. Point lights
+        // are not geometry -> keep full spec; diffuse E carries no reflection overlap and is never scaled.
+        if ((r.lightIndex & LIGHT_TYPE_TRI) != 0u && ubo.reflParams.x > 0.5)
+            S *= smoothstep(ubo.reflParams.y, ubo.reflParams.z, rough);
 
         // The spec lobe's 1/(4*NoV) reaches ~2500x at grazing; cap its luminance before the denoiser
         // smears the spike. Diffuse E is left to the boiling filter + final visibility.

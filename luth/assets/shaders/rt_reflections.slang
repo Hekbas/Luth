@@ -56,17 +56,6 @@ DirectionalLightData LoadDirLight()
     d._pad      = 0.0;
     return d;
 }
-uint LoadPointCount() { return g_Lights.Load(32); }
-PointLightData LoadPoint(uint j)
-{
-    uint b = 48u + j * 32u;
-    PointLightData p;
-    p.position  = asfloat(g_Lights.Load3(b + 0u));
-    p.range     = asfloat(g_Lights.Load(b + 12u));
-    p.color     = asfloat(g_Lights.Load3(b + 16u));
-    p.intensity = asfloat(g_Lights.Load(b + 28u));
-    return p;
-}
 
 // Shadow ray: true iff `dir` is unoccluded from x up to maxDist (Wächter-Binder geometric-normal offset).
 bool Visible(float3 x, float3 offsetN, float3 dir, float maxDist)
@@ -88,19 +77,17 @@ float3 ShadeHit(float3 xs, HitSurface hs, inout uint seed)
     float3 diffAlb = hs.baseColor * (1.0 - hs.metalness);   // metals carry no Lambertian diffuse
     float3 Lo      = hs.emission;
 
-    uint lc = LoadPointCount();
-    if (lc > 0u)
+    if ((LightPointCount(g_Lights) + LightTriCount(g_Lights)) > 0u)
     {
-        uint j = min(uint(RandFromSeed(seed) * float(lc)), lc - 1u);
-        PointLightData pl = LoadPoint(j);
-        float3 Lw; float ld;
-        float3 Li  = PointLightRadiance(pl, xs, Lw, ld);
-        float  ndl = max(dot(ns, Lw), 0.0);
-        if (ndl > 0.0 && Visible(xs, hs.ng, Lw, ld - 2.0 * ubo.rtShadowParams.y))
+        uint lightIndex; uint uvPacked; float invSourcePdf;
+        DrawLightCandidate(g_Lights, seed, lightIndex, uvPacked, invSourcePdf);
+        LightSample s = ReSampleLight(g_Lights, lightIndex, uvPacked, xs);
+        float ndl = max(dot(ns, s.L), 0.0);
+        if (ndl > 0.0 && Visible(xs, hs.ng, s.L, ShadowTMax(lightIndex, s.dist, ubo.rtShadowParams.y, ubo.rtShadowParams.z)))
         {
-            // x count undoes the 1/count pick pdf; that single-light lottery is the NEE spike source, so
-            // clamp this term (not sun/emission/IBL) before it enters the 1-spp reflection.
-            float3 nee  = (diffAlb / GI_PI) * Li * ndl * float(lc);
+            // invSourcePdf undoes the alias/uniform pick pdf; that single-light lottery is the NEE spike
+            // source, so clamp this term (not sun/emission/IBL) before it enters the 1-spp reflection.
+            float3 nee  = (diffAlb / GI_PI) * s.Li * ndl * invSourcePdf;
             float  nlum = Luminance(nee);
             if (nlum > pc.neeClamp) nee *= pc.neeClamp / nlum;
             Lo += nee;

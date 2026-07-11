@@ -36,18 +36,6 @@ int2 GbufCoord(int2 p)
     return clamp(int2(uv * float2(full)), int2(0), full - int2(1));
 }
 
-uint LoadPointCount() { return g_Lights.Load(32); }
-PointLightData LoadPoint(uint j)
-{
-    uint b = 48u + j * 32u;
-    PointLightData p;
-    p.position  = asfloat(g_Lights.Load3(b + 0u));
-    p.range     = asfloat(g_Lights.Load(b + 12u));
-    p.color     = asfloat(g_Lights.Load3(b + 16u));
-    p.intensity = asfloat(g_Lights.Load(b + 28u));
-    return p;
-}
-
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void main(uint3 tid : SV_DispatchThreadID)
@@ -60,8 +48,9 @@ void main(uint3 tid : SV_DispatchThreadID)
     Reservoir r; ReservoirReset(r);
 
     float depth      = u_SceneDepth.Load(int3(GbufCoord(pixel), 0)).r;
-    uint  lightCount = LoadPointCount();
-    if (depth >= 1.0 || lightCount == 0u) { reservoirs[flatIdx] = r; return; }   // sky / no lights
+    uint  pointCount = LightPointCount(g_Lights);
+    uint  triCount   = LightTriCount(g_Lights);
+    if (depth >= 1.0 || (pointCount + triCount) == 0u) { reservoirs[flatIdx] = r; return; }   // sky / no lights
 
     float2 uv       = (float2(pixel) + 0.5) / float2(size);
     float2 uvR      = DejitterReconUV(uv, ubo.taaParams.zw);   // un-jittered recon; see globals
@@ -71,31 +60,56 @@ void main(uint3 tid : SV_DispatchThreadID)
     float3 V        = normalize(ubo.cameraPos - worldPos);
     float  rough    = u_SlimRoughness.Load(int3(GbufCoord(pixel), 0)).r;
 
-    uint  seed = PcgHash(flatIdx ^ pc.frameSeed);
-    uint  M    = max(pc.candidateCount, 1u);
-    float sourceScale = float(lightCount);   // uniform source pdf = 1/lightCount -> w = pHat x lightCount
+    uint seed = PcgHash(flatIdx ^ pc.frameSeed);
+    uint M    = max(pc.candidateCount, 1u);
 
+    // RIS candidates. With emissive triangles present, draw from the unified power-weighted alias table over
+    // [points | tris] (per-candidate invSourcePdf); else the legacy uniform point draw (zero regression on
+    // point-only scenes). Triangle candidates sample a point-on-light (barycentric uv quantized once).
     for (uint i = 0u; i < M; ++i)
     {
-        uint idx = min(uint(RandFromSeed(seed) * float(lightCount)), lightCount - 1u);
-        PointLightData pl = LoadPoint(idx);
-        float3 L; float dist;
-        float3 Li   = PointLightRadiance(pl, worldPos, L, dist);
-        float  pHat = RestirTargetPdf(N, V, L, Li, rough);   // unshadowed diffuse+spec (albedo-free)
-        ReservoirUpdate(r, idx, pHat, pHat * sourceScale, RandFromSeed(seed));
+        uint  lightIndex; uint uvPacked = 0u; float invSourcePdf;
+        if (triCount > 0u)
+        {
+            uint  numLights = pointCount + triCount;
+            uint  bucket    = min(uint(RandFromSeed(seed) * float(numLights)), numLights - 1u);
+            float u         = RandFromSeed(seed);
+            float pmf; uint sel = AliasSelect(g_Lights, bucket, u, pmf);
+            if (sel < pointCount)
+            {
+                lightIndex   = sel;                                    // point (bit31 = 0)
+                invSourcePdf = (pmf > 0.0) ? (1.0 / pmf) : 0.0;
+            }
+            else
+            {
+                uint  triLocal = sel - pointCount;
+                float su       = sqrt(RandFromSeed(seed));             // uniform-area barycentric warp
+                float u2       = RandFromSeed(seed);
+                uvPacked       = PackUV(float2(u2 * su, su * (1.0 - u2)));
+                lightIndex     = triLocal | LIGHT_TYPE_TRI;
+                invSourcePdf   = (pmf > 0.0) ? (LoadTriL(g_Lights, triLocal).area / pmf) : 0.0;   // area measure
+            }
+        }
+        else
+        {
+            lightIndex   = min(uint(RandFromSeed(seed) * float(pointCount)), pointCount - 1u);
+            invSourcePdf = float(pointCount);                          // uniform source pdf = 1/pointCount
+        }
+
+        LightSample s = ReSampleLight(g_Lights, lightIndex, uvPacked, worldPos);
+        float pHat    = RestirTargetPdf(N, V, s.L, s.Li, rough);       // unshadowed diffuse+spec (albedo-free)
+        ReservoirUpdate(r, lightIndex, uvPacked, pHat, pHat * invSourcePdf, RandFromSeed(seed));
     }
     ReservoirFinalize(r);
 
-    // Visibility of the selected sample: fold into the reservoir (occluded -> no contribution).
+    // Visibility of the selected sample (point or triangle point-on-light): fold into W (occluded -> 0).
     if (r.lightIndex != RESTIR_NO_LIGHT && r.W > 0.0)
     {
-        PointLightData pl = LoadPoint(r.lightIndex);
-        float3 toLight = pl.position - worldPos;
-        float  dist    = length(toLight);
-        float3 L       = toLight / max(dist, 1e-4);
-        float  tMin    = ubo.rtShadowParams.y;
-        float3 origin  = worldPos + N * (ubo.rtShadowParams.z * 0.5) + L * tMin;
-        RayDesc ray; ray.Origin = origin; ray.TMin = tMin; ray.Direction = L; ray.TMax = max(dist - 2.0 * tMin, tMin);
+        LightSample s = ReSampleLight(g_Lights, r.lightIndex, r.uvPacked, worldPos);
+        float  tMin   = ubo.rtShadowParams.y;
+        float3 origin = worldPos + N * (ubo.rtShadowParams.z * 0.5) + s.L * tMin;
+        RayDesc ray; ray.Origin = origin; ray.TMin = tMin; ray.Direction = s.L;
+        ray.TMax = ShadowTMax(r.lightIndex, s.dist, tMin, ubo.rtShadowParams.z);
         RayQuery<RAY_FLAG_NONE> rq;
         rq.TraceRayInline(topLevelAS, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, GT_VIS_SOLID, ray);
         RtConfirmAlphaCandidates(rq, pc.geomTable);

@@ -487,7 +487,8 @@ namespace Luth
         vkUpdateDescriptorSets(device, writeCount, writes, 0, nullptr);
     }
 
-    // Allocates LightSSBO from the tagged heap, copies the gathered header + point-light array.
+    // Allocates LightSSBO from the tagged heap, copies the header + point / spot / emissive-triangle
+    // arrays + the power-weighted alias table (emissive sections appended after spots[]).
     // Returns the region; the BuildGraph caller threads it through WriteSet3PerView, and
     // m_LastLightSSBORegion is cached for AddLightAssignPass's b0 binding.
     Memory::GPUSubRegion LightingSubsystem::UploadLightSSBO(const GatheredLights& lights)
@@ -502,21 +503,27 @@ namespace Luth
         auto& heap = Memory::GPUTaggedPageAllocator::Get();
         const u64 pointBytes = lights.points.size() * sizeof(PointLightData);
         const u64 spotBytes  = lights.spots.size()  * sizeof(SpotLightData);
-        const u64 ssboSize   = sizeof(LightSSBOHeader) + pointBytes + spotBytes;
+        const u64 triBytes   = lights.tris.size()   * sizeof(TriangleLightData);
+        const u64 aliasBytes = lights.alias.size()  * sizeof(LightAliasEntry);
+        const u64 ssboSize   = sizeof(LightSSBOHeader) + pointBytes + spotBytes + triBytes + aliasBytes;
         region = heap.Allocate(jobCtx->GpuCache, ssboSize, 16);
         if (!region.buffer) return {};
 
-        // Header at offset 0; points[] at offset 48; spots[] right after points (std430 alignment).
+        // Header at 0; points[]@48; spots[] after points; tris[] after spots; alias[] after tris. The
+        // emissive sections are appended so g_Lights readers that stop at spots[] see an unchanged prefix.
         auto* header = static_cast<LightSSBOHeader*>(region.mappedPtr);
         header->dirLight        = lights.dirLight;
         header->pointLightCount = static_cast<u32>(lights.points.size());
         header->spotLightCount  = static_cast<u32>(lights.spots.size());
-        header->_pad[0] = header->_pad[1] = 0;
+        // Publish triangles only with their alias table present; a count without the table would let DI
+        // draw an out-of-range light.
+        header->triLightCount   = lights.alias.empty() ? 0u : static_cast<u32>(lights.tris.size());
+        header->_pad            = 0;
         auto* base = static_cast<u8*>(region.mappedPtr) + sizeof(LightSSBOHeader);
-        if (!lights.points.empty())
-            std::memcpy(base, lights.points.data(), pointBytes);
-        if (!lights.spots.empty())
-            std::memcpy(base + pointBytes, lights.spots.data(), spotBytes);
+        if (!lights.points.empty()) std::memcpy(base, lights.points.data(), pointBytes);
+        if (!lights.spots.empty())  std::memcpy(base + pointBytes, lights.spots.data(), spotBytes);
+        if (!lights.tris.empty())   std::memcpy(base + pointBytes + spotBytes, lights.tris.data(), triBytes);
+        if (!lights.alias.empty())  std::memcpy(base + pointBytes + spotBytes + triBytes, lights.alias.data(), aliasBytes);
         heap.FlushRegion(region);
         m_LastLightSSBORegion = region;
         return region;

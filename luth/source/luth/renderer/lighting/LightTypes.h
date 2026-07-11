@@ -53,12 +53,39 @@ namespace Luth
         float     _pad[3];     // 52
     };  // 64 bytes
 
-    // CPU-side aggregate produced by LightGatherer each game stage. Held on LightingSystem;
-    // the light vectors reuse capacity across frames so steady-state allocations stay flat.
+    // Emissive triangle light in WORLD space. Sampled uniformly by area: a barycentric uv maps to
+    // x_L = v0 + b1*e1 + b2*e2 (sqrt-warp of uv); emitter normal = normalize(cross(e1,e2)), area =
+    // 0.5*length(cross(e1,e2)). avgLe = average emitted radiance (linear); textured emitters fold to
+    // the material factor in v1. see arch/rendering-pipeline.md
+    struct TriangleLightData {
+        Vec3  v0;      //  0  world vertex 0
+        float area;    // 12  world-space triangle area (CPU power weighting; shader derives from e1xe2)
+        Vec3  e1;      // 16  world edge v1-v0
+        float _pad0;   // 28
+        Vec3  e2;      // 32  world edge v2-v0
+        float _pad1;   // 44
+        Vec3  avgLe;   // 48  average emitted radiance, linear
+        float _pad2;   // 60
+    };  // 64 bytes
+
+    // Power-weighted alias-table entry over the UNIFIED [points | triangles] local-light list (Vose).
+    // Sample: pick i uniformly in [0,N); draw u in [0,1); take i when u < prob else `alias`. pmf is the
+    // selection probability of THIS entry's own light (power_i / totalPower) -> invSourcePdf = 1/pmf.
+    struct LightAliasEntry {
+        float prob;    //  0  Vose keep-probability
+        u32   alias;   //  4  fallback unified light index
+        float pmf;     //  8  selection pmf of this light (power_i / total)
+        float _pad;    // 12
+    };  // 16 bytes
+
+    // CPU-side aggregate produced by LightGatherer + EmissiveLightGatherer each frame. Held on
+    // LightingSystem; the light vectors reuse capacity across frames so steady-state allocations stay flat.
     struct GatheredLights {
-        DirectionalLightData        dirLight{};
-        std::vector<PointLightData> points;
-        std::vector<SpotLightData>  spots;
+        DirectionalLightData           dirLight{};
+        std::vector<PointLightData>    points;
+        std::vector<SpotLightData>     spots;
+        std::vector<TriangleLightData> tris;    // emissive triangle lights (world-space); empty when off
+        std::vector<LightAliasEntry>   alias;   // power table over [points | tris]; empty when no tris
     };
 
     // ---- Forward+ clustered lighting ----
@@ -73,19 +100,24 @@ namespace Luth
     inline constexpr u32 k_ClusterCount         = k_ClusterTilesX * k_ClusterTilesY * k_ClusterSlicesZ;  // 6912
     inline constexpr u32 k_MaxLightsPerCluster  = 128;
 
-    // Set 3 binding 0 layout: { LightSSBOHeader; PointLightData points[pointLightCount]; SpotLightData spots[spotLightCount]; }
-    // One contiguous tagged-heap region per frame: header at 0, points at 48, spots at 48 + pointCount*32.
-    // PointLightData / DirectionalLightData are already std430-compatible (vec3 + float pairs in 16B slots).
+    // Set 3 binding 0 layout: { LightSSBOHeader; PointLightData points[]; SpotLightData spots[];
+    //                           TriangleLightData tris[]; LightAliasEntry alias[pointCount+triCount]; }
+    // One contiguous tagged-heap region per frame: header at 0, points at 48, spots at 48 + pointCount*32,
+    // tris after spots, alias after tris. The emissive sections are APPENDED, so existing g_Lights readers
+    // (which stop at spots[]) see an unchanged prefix. std430: vec3 + float pairs fill 16B slots.
     struct LightSSBOHeader {
         DirectionalLightData dirLight;          // 32 B
         u32                  pointLightCount;   //  4 (offset 32)
         u32                  spotLightCount;    //  4 (offset 36)
-        u32                  _pad[2];           //  8 (std430 array boundary; points[] starts at offset 48)
+        u32                  triLightCount;     //  4 (offset 40) emissive triangle lights (0 = feature off)
+        u32                  _pad;              //  4 (offset 44; points[] starts at offset 48)
     };
     static_assert(sizeof(LightSSBOHeader) == 48, "LightSSBOHeader std430 layout");
     static_assert(sizeof(DirectionalLightData) == 32, "DirectionalLightData std430 layout");
     static_assert(sizeof(PointLightData)       == 32, "PointLightData std430 layout");
     static_assert(sizeof(SpotLightData)        == 64, "SpotLightData std430 layout");
+    static_assert(sizeof(TriangleLightData)    == 64, "TriangleLightData std430 layout");
+    static_assert(sizeof(LightAliasEntry)      == 16, "LightAliasEntry std430 layout");
 
     // Set 3 binding 1 element. uvec2 (offset, count) into the LightIndexSSBO range for one cluster.
     struct GPUCluster {

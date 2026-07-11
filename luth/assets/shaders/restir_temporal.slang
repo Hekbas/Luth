@@ -29,18 +29,6 @@ struct PC
 };
 [[vk::push_constant]] PC pc;
 
-// LightBuffer: header (DirLight 32 + count 4 + pad 12) then points[] (32 B each) at offset 48.
-PointLightData LoadPoint(uint j)
-{
-    uint b = 48u + j * 32u;
-    PointLightData p;
-    p.position  = asfloat(g_Lights.Load3(b + 0u));
-    p.range     = asfloat(g_Lights.Load(b + 12u));
-    p.color     = asfloat(g_Lights.Load3(b + 16u));
-    p.intensity = asfloat(g_Lights.Load(b + 28u));
-    return p;
-}
-
 int2 GbufCoord(int2 p)
 {
     if (pc.gbufferScale == 1) return p;
@@ -89,8 +77,8 @@ void main(uint3 tid : SV_DispatchThreadID)
         // kept separate below: gate domain inclusion on confidence, not on the realized sample (RTXDI).
         float currLin = LinearizeDepth(depth);
         geomValid = pr.M > 0u
-                 && abs(currLin - LinearizeDepth(pr._pad0)) < pc.depthThreshold * currLin
-                 && dot(OctDecode(float2(pr._pad1, pr._pad2)), N) > pc.normalThreshold;
+                 && abs(currLin - LinearizeDepth(pr.histDepth)) < pc.depthThreshold * currLin
+                 && dot(OctDecode(UnpackOctN(pr.histOctN)), N) > pc.normalThreshold;
     }
     bool lightValid = geomValid && pr.lightIndex != RESTIR_NO_LIGHT;
 
@@ -104,7 +92,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     // the current surface and psPrev == psCurr, collapsing BASIC back to 1/M.
     Reservoir c; ReservoirReset(c);
     int selDomain = -1;
-    if (ReservoirMergeSel(c, r.lightIndex, r.targetPdf, r.W, r.M, RandFromSeed(seed))) selDomain = 0;
+    if (ReservoirMergeSel(c, r.lightIndex, r.uvPacked, r.targetPdf, r.W, r.M, RandFromSeed(seed))) selDomain = 0;
 
     float3 prevPos = float3(0.0);
     float3 prevN   = float3(0.0);
@@ -116,8 +104,8 @@ void main(uint3 tid : SV_DispatchThreadID)
         // the reservoir stored at pPix.
         float2 pUv = (float2(pPix) + 0.5) / float2(size);
         float2 pUvR = DejitterReconUV(pUv, ubo.prevJitter.xy);   // prev-frame jitter for the prev surface
-        prevN   = OctDecode(float2(pr._pad1, pr._pad2));
-        float4 pWh = mul(ubo.prevInvViewProjection, float4(pUvR * 2.0 - 1.0, pr._pad0, 1.0));
+        prevN   = OctDecode(UnpackOctN(pr.histOctN));
+        float4 pWh = mul(ubo.prevInvViewProjection, float4(pUvR * 2.0 - 1.0, pr.histDepth, 1.0));
         prevPos = pWh.xyz / pWh.w;
         prevV   = normalize(ubo.prevCameraPos.xyz - prevPos);
         Mprev   = min(pr.M, pc.mCap * max(r.M, 1u));   // Bitterli relative history clamp
@@ -125,11 +113,9 @@ void main(uint3 tid : SV_DispatchThreadID)
         if (lightValid)
         {
             // Streaming weight: prev's light target at THIS (canonical) pixel.
-            PointLightData plp = LoadPoint(pr.lightIndex);
-            float3 Lp; float dp;
-            float3 Lip  = PointLightRadiance(plp, worldPos, Lp, dp);
-            float  pHat = RestirTargetPdf(N, V, Lp, Lip, rough);
-            if (ReservoirMergeSel(c, pr.lightIndex, pHat, pr.W, Mprev, RandFromSeed(seed))) selDomain = 1;
+            LightSample sp = ReSampleLight(g_Lights, pr.lightIndex, pr.uvPacked, worldPos);
+            float  pHat = RestirTargetPdf(N, V, sp.L, sp.Li, rough);
+            if (ReservoirMergeSel(c, pr.lightIndex, pr.uvPacked, pHat, pr.W, Mprev, RandFromSeed(seed))) selDomain = 1;
         }
         else
         {
@@ -142,17 +128,14 @@ void main(uint3 tid : SV_DispatchThreadID)
     float Wout = 0.0;
     if (c.lightIndex != RESTIR_NO_LIGHT && c.M > 0u)
     {
-        PointLightData sel = LoadPoint(c.lightIndex);
-        float3 Lc; float dc;
-        float3 Lic    = PointLightRadiance(sel, worldPos, Lc, dc);
-        float  psCurr = RestirTargetPdf(N, V, Lc, Lic, rough);   // selTgt (winner at canonical)
+        LightSample sc = ReSampleLight(g_Lights, c.lightIndex, c.uvPacked, worldPos);
+        float  psCurr  = RestirTargetPdf(N, V, sc.L, sc.Li, rough);   // selTgt (winner at canonical)
         float  piSum  = psCurr * float(r.M);
         float  selPi  = (selDomain == 0) ? psCurr : 0.0;
         if (geomValid)
         {
-            float3 Lp2; float dp2;
-            float3 Lip2   = PointLightRadiance(sel, prevPos, Lp2, dp2);
-            float  psPrev = RestirTargetPdf(prevN, prevV, Lp2, Lip2, rough);   // winner at prev surface
+            LightSample sp2 = ReSampleLight(g_Lights, c.lightIndex, c.uvPacked, prevPos);
+            float  psPrev   = RestirTargetPdf(prevN, prevV, sp2.L, sp2.Li, rough);   // winner at prev surface
             piSum += psPrev * float(Mprev);
             if (selDomain == 1) selPi = psPrev;
         }

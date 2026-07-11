@@ -502,9 +502,12 @@ namespace Luth
                 // TLAS build with hash-skip. When skip fires, prior TLAS + storage + geom table stay
                 // alive; PushDeletion only fires when an actual rebuild replaces them. The geom table
                 // shares the TLAS lifetime exactly (same retire schedule).
+                // Emissive area lights: mark emitter instances in the geometry table when the feature and
+                // ReSTIR DI are both on (DI then owns their direct lighting; GI drops the on-hit seed).
+                const bool markEmitters = rs->GetEmissiveLightSettings().enabled && rs->GetRestirSettings().enabled;
                 TlasBuildResult fresh = TlasBuilder::BuildTlas(
                     cmd, snapshot.meshes, static_cast<u32>(frameAbs), m_LastResult,
-                    m_Pipeline->GetMaterialSlotMap(), m_BlasReadyGeneration);
+                    m_Pipeline->GetMaterialSlotMap(), m_BlasReadyGeneration, markEmitters);
                 if (!fresh.reused && m_LastResult.tlas != VK_NULL_HANDLE)
                 {
                     auto old       = m_LastResult.tlas;

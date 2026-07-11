@@ -39,17 +39,6 @@ struct PC
 };
 [[vk::push_constant]] PC pc;
 
-PointLightData LoadPoint(uint j)
-{
-    uint b = 48u + j * 32u;
-    PointLightData p;
-    p.position  = asfloat(g_Lights.Load3(b + 0u));
-    p.range     = asfloat(g_Lights.Load(b + 12u));
-    p.color     = asfloat(g_Lights.Load3(b + 16u));
-    p.intensity = asfloat(g_Lights.Load(b + 28u));
-    return p;
-}
-
 int2 GbufCoord(int2 p)
 {
     if (pc.gbufferScale == 1) return p;
@@ -140,7 +129,7 @@ void main(uint3 tid : SV_DispatchThreadID, uint gtIdx : SV_GroupIndex)
 
         // Canonical (this pixel): identity shift, no Jacobian. Records + seeds domain 0.
         domPos[0] = worldPos; domN[0] = N; domRough[0] = rough; domM[0] = canonical.M;
-        if (ReservoirMergeSel(c, canonical.lightIndex, canonical.targetPdf, canonical.W, canonical.M, RandFromSeed(seed)))
+        if (ReservoirMergeSel(c, canonical.lightIndex, canonical.uvPacked, canonical.targetPdf, canonical.W, canonical.M, RandFromSeed(seed)))
             selDomain = 0;
         domCount = 1u;
 
@@ -179,13 +168,11 @@ void main(uint3 tid : SV_DispatchThreadID, uint gtIdx : SV_GroupIndex)
             float pHat = 0.0;
             if (nr.lightIndex != RESTIR_NO_LIGHT)
             {
-                PointLightData pl = LoadPoint(nr.lightIndex);
-                float3 L; float dist;
-                float3 Li = PointLightRadiance(pl, worldPos, L, dist);
-                pHat = RestirTargetPdf(N, V, L, Li, rough);
+                LightSample s = ReSampleLight(g_Lights, nr.lightIndex, nr.uvPacked, worldPos);
+                pHat = RestirTargetPdf(N, V, s.L, s.Li, rough);
             }
             domPos[domCount] = nWorldPos; domN[domCount] = nN; domRough[domCount] = nRough; domM[domCount] = nr.M;
-            if (ReservoirMergeSel(c, nr.lightIndex, pHat, nr.W, nr.M, RandFromSeed(seed))) selDomain = int(domCount);
+            if (ReservoirMergeSel(c, nr.lightIndex, nr.uvPacked, pHat, nr.W, nr.M, RandFromSeed(seed))) selDomain = int(domCount);
             domCount += 1u;
         }
 
@@ -195,18 +182,15 @@ void main(uint3 tid : SV_DispatchThreadID, uint gtIdx : SV_GroupIndex)
         float Wout = 0.0;
         if (c.lightIndex != RESTIR_NO_LIGHT && c.M > 0u)
         {
-            PointLightData sel = LoadPoint(c.lightIndex);
-            float3 Ls; float ds;
-            float3 Lis    = PointLightRadiance(sel, worldPos, Ls, ds);
-            float  selTgt = RestirTargetPdf(N, V, Ls, Lis, rough);
+            LightSample ss = ReSampleLight(g_Lights, c.lightIndex, c.uvPacked, worldPos);
+            float  selTgt  = RestirTargetPdf(N, V, ss.L, ss.Li, rough);
             float  piSum  = 0.0;
             float  selPi  = 0.0;
             for (uint d = 0u; d < domCount; ++d)
             {
-                float3 Ld; float dd;
-                float3 LiD = PointLightRadiance(sel, domPos[d], Ld, dd);
+                LightSample sd = ReSampleLight(g_Lights, c.lightIndex, c.uvPacked, domPos[d]);
                 float3 Vd  = normalize(ubo.cameraPos - domPos[d]);
-                float  ps  = RestirTargetPdf(domN[d], Vd, Ld, LiD, domRough[d]);
+                float  ps  = RestirTargetPdf(domN[d], Vd, sd.L, sd.Li, domRough[d]);
                 piSum += ps * float(domM[d]);
                 if (int(d) == selDomain) selPi = ps;
             }
@@ -215,12 +199,13 @@ void main(uint3 tid : SV_DispatchThreadID, uint gtIdx : SV_GroupIndex)
             // Final visibility of the selected sample, folded MULTIPLICATIVELY into W before this reservoir
             // becomes next frame's history (never into the BASIC denominator: that breaks the partition of
             // unity). M is kept: occlusion is information, not invalidation; history self-cleans next frame.
-            // Same ray recipe as restir_initial (Ls/ds from PointLightRadiance above).
+            // Same ray recipe as restir_initial (ss.L / ss.dist from ReSampleLight above).
             if (Wout > 0.0)
             {
                 float  tMin   = ubo.rtShadowParams.y;
-                float3 origin = worldPos + N * (ubo.rtShadowParams.z * 0.5) + Ls * tMin;
-                RayDesc ray; ray.Origin = origin; ray.TMin = tMin; ray.Direction = Ls; ray.TMax = max(ds - 2.0 * tMin, tMin);
+                float3 origin = worldPos + N * (ubo.rtShadowParams.z * 0.5) + ss.L * tMin;
+                RayDesc ray; ray.Origin = origin; ray.TMin = tMin; ray.Direction = ss.L;
+                ray.TMax = ShadowTMax(c.lightIndex, ss.dist, tMin, ubo.rtShadowParams.z);
                 RayQuery<RAY_FLAG_NONE> rq;
                 rq.TraceRayInline(topLevelAS, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, GT_VIS_SOLID, ray);
                 RtConfirmAlphaCandidates(rq, pc.geomTable);
@@ -237,10 +222,10 @@ void main(uint3 tid : SV_DispatchThreadID, uint gtIdx : SV_GroupIndex)
     {
         // Self-carry this pixel's geometry (raw depth + oct normal) for next frame's temporal validation:
         // this buffer IS the history now, so the carry lives here, not in the temporal pass. Written on a
-        // boiling reset too (harmless: temporal gates history on M > 0 before reading the pads).
-        c._pad0 = depth;
-        c._pad1 = octN.x;
-        c._pad2 = octN.y;
+        // boiling reset too (harmless: temporal gates history on M > 0 before reading these). uvPacked is
+        // already the winner's (merge-carried), so it is left untouched here.
+        c.histDepth = depth;
+        c.histOctN  = PackOctN(octN);
         resOut[flatIdx] = c;
     }
     else if (inBounds)

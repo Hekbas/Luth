@@ -40,7 +40,7 @@ int2 GiGuide(int2 p)
     return clamp(int2(uv * float2(full)), int2(0), full - int2(1));
 }
 
-// LightBuffer header = DirectionalLightData(32) + count(4) + pad[3](12); points[] (32 B each) at offset 48.
+// LightBuffer header: DirectionalLightData(32) at offset 0. Point/triangle lights load via restir_common.
 DirectionalLightData LoadDirLight()
 {
     DirectionalLightData d;
@@ -50,18 +50,6 @@ DirectionalLightData LoadDirLight()
     d._pad      = 0.0;
     return d;
 }
-uint LoadPointCount() { return g_Lights.Load(32); }
-PointLightData LoadPoint(uint j)
-{
-    uint b = 48u + j * 32u;
-    PointLightData p;
-    p.position  = asfloat(g_Lights.Load3(b + 0u));
-    p.range     = asfloat(g_Lights.Load(b + 12u));
-    p.color     = asfloat(g_Lights.Load3(b + 16u));
-    p.intensity = asfloat(g_Lights.Load(b + 28u));
-    return p;
-}
-
 // 1 = blocked. SOLID mask so glass never blocks light (geom-table contract); alpha-tested cutout holes.
 float TraceVisibility(float3 origin, float3 dir, float tMin, float tMax)
 {
@@ -83,8 +71,7 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     GIReservoir r; GIReservoirReset(r);
 
-    float depth      = u_SceneDepth.Load(int3(GiGuide(pixel), 0)).r;
-    uint  lightCount = LoadPointCount();
+    float depth = u_SceneDepth.Load(int3(GiGuide(pixel), 0)).r;
     if (depth >= 1.0) { reservoirs[flatIdx] = r; return; }   // sky -> empty sample
 
     float2 octNv    = u_SlimNormal.Load(int3(GiGuide(pixel), 0)).rg;
@@ -131,22 +118,25 @@ void main(uint3 tid : SV_DispatchThreadID)
         emission  = hs.emission;
     }
 
-    // L_o at x_s toward x_v = emission + single-light NEE (Lambertian secondary). One point light picked
-    // uniformly; x lightCount divides out the 1/lightCount source pdf.
-    float3 Lo = emission;
-    if (lightCount > 0u)
+    // L_o at x_s toward x_v. On-hit emission is DROPPED when x_s is a DI-owned emissive light (its geometry-
+    // table emitter bit is set): ReSTIR DI owns that emitter->x_v direct transport, so keeping it here would
+    // double-count (the MIS-free partition). Then single-light NEE over the unified [points | tris] list so
+    // emitters light the secondary surface (the 2nd-bounce emissive term). 1-bounce GI has no competing BSDF
+    // continuation at x_s, so this NEE needs no MIS. see arch/rendering-pipeline.md
+    bool   hitIsEmitter = GtIsEmissiveLight(pc.geomTable[rq.CommittedInstanceID()]);
+    float3 Lo = hitIsEmitter ? float3(0.0) : emission;
+    if ((LightPointCount(g_Lights) + LightTriCount(g_Lights)) > 0u)
     {
-        uint j = min(uint(RandFromSeed(seed) * float(lightCount)), lightCount - 1u);
-        PointLightData pl = LoadPoint(j);
-        float3 Lw; float ld;
-        float3 Li  = PointLightRadiance(pl, xs, Lw, ld);
-        float  ndl = max(dot(ns, Lw), 0.0);
+        uint lightIndex; uint uvPacked; float invSourcePdf;
+        DrawLightCandidate(g_Lights, seed, lightIndex, uvPacked, invSourcePdf);
+        LightSample ls = ReSampleLight(g_Lights, lightIndex, uvPacked, xs);
+        float ndl = max(dot(ns, ls.L), 0.0);
         if (ndl > 0.0)
         {
             float  sMin  = ubo.rtShadowParams.y;
-            float3 sOrig = xs + ns * (ubo.rtShadowParams.z * 0.5) + Lw * sMin;
-            float  vis   = TraceVisibility(sOrig, Lw, sMin, max(ld - 2.0 * sMin, sMin));
-            Lo += (baseColor / GI_PI) * Li * ndl * vis * float(lightCount);
+            float3 sOrig = xs + ns * (ubo.rtShadowParams.z * 0.5) + ls.L * sMin;
+            float  vis   = TraceVisibility(sOrig, ls.L, sMin, ShadowTMax(lightIndex, ls.dist, sMin, ubo.rtShadowParams.z));
+            Lo += (baseColor / GI_PI) * ls.Li * ndl * vis * invSourcePdf;
         }
     }
 

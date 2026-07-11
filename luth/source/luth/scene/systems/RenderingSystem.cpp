@@ -198,7 +198,7 @@ namespace Luth
         // LightGatherer + CSM fit. Set 3 is per-view now (cluster grid + light index differ per
         // view), so the LightSSBO upload + Set 3 binding writes happen inside BuildGraph per view.
         if (auto* lighting = SystemRegistry::GetSystem<LightingSystem>())
-            lighting->UpdateFor(snapshot, m_CameraParams);
+            lighting->UpdateFor(snapshot, m_CameraParams, m_EmissiveLightSettings, m_RestirSettings.enabled);
 
         // Primary view: always rendered, emits the per-frame ImGui pass.
         RenderView sceneView;
@@ -252,7 +252,8 @@ namespace Luth
         // UpdateFor here only needs the cascade rebuild for view.camera. (Re-gathering m_Lights from
         // the same snapshot is idempotent; left as a no-cost guard against future signature drift.)
         auto* lighting = SystemRegistry::GetSystem<LightingSystem>();
-        lighting->UpdateFor(Renderer::GetFrameData()->RenderFrame().Snapshot, view.camera);
+        lighting->UpdateFor(Renderer::GetFrameData()->RenderFrame().Snapshot, view.camera,
+                            m_EmissiveLightSettings, m_RestirSettings.enabled);
 
         // Must precede the per-view UBO writes below; they read m_CurrentViewResources, which PrepareForTargets sets.
         m_Pipeline->PrepareForTargets(*view.targets);
