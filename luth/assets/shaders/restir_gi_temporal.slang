@@ -104,7 +104,10 @@ void main(uint3 tid : SV_DispatchThreadID)
                 prevPos = pr.visPos; prevN = pN;
                 float w = (pHatPrev * jac) * pr.W * float(Mprev);
                 c.wSum += w; c.M += Mprev;
-                if (c.wSum > 0.0 && RandFromSeed(seed) * c.wSum <= w)
+                // Force-seed if nothing seeded yet (canonical missed, r.M==0): preserves the M>0 => samplePos
+                // valid invariant even when the prev streams w==0 (the visibility layer will trust samplePos).
+                float rnd = RandFromSeed(seed);
+                if (selDomain < 0 || (c.wSum > 0.0 && rnd * c.wSum <= w))
                 {
                     c.samplePos = pr.samplePos; c.sampleRadiance = pr.sampleRadiance;
                     c.sampleNormalOct = pr.sampleNormalOct; c.age = pr.age + 1u;

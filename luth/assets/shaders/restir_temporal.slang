@@ -75,17 +75,22 @@ void main(uint3 tid : SV_DispatchThreadID)
     float2 prevUV = uv - u_Motion.Load(int3(GbufCoord(pixel), 0)).rg * 0.5;
 
     Reservoir pr; ReservoirReset(pr);
-    bool valid = all(prevUV >= float2(0.0)) && all(prevUV <= float2(1.0));
-    if (valid)
+    int2 pPix   = int2(0, 0);
+    bool inBnds = all(prevUV >= float2(0.0)) && all(prevUV <= float2(1.0));
+    bool geomValid = false;
+    if (inBnds)
     {
-        int2 pPix = clamp(int2(prevUV * float2(size)), int2(0), size - int2(1));
-        pr = prevRes[uint(pPix.y) * uint(size.x) + uint(pPix.x)];
-        // Validate against the previous reservoir's stored geometry (pad0 = raw depth, pad1/2 = oct).
+        pPix = clamp(int2(prevUV * float2(size)), int2(0), size - int2(1));
+        pr   = prevRes[uint(pPix.y) * uint(size.x) + uint(pPix.x)];
+        // Validate against the previous reservoir's stored geometry (pad0 = raw depth, pad1/2 = oct). A
+        // NO_LIGHT prev is still a valid BASIC domain (it owes its M to piSum), so the light-index test is
+        // kept separate below: gate domain inclusion on confidence, not on the realized sample (RTXDI).
         float currLin = LinearizeDepth(depth);
-        valid = pr.lightIndex != RESTIR_NO_LIGHT && pr.M > 0u
-             && abs(currLin - LinearizeDepth(pr._pad0)) < pc.depthThreshold * currLin
-             && dot(OctDecode(float2(pr._pad1, pr._pad2)), N) > pc.normalThreshold;
+        geomValid = pr.M > 0u
+                 && abs(currLin - LinearizeDepth(pr._pad0)) < pc.depthThreshold * currLin
+                 && dot(OctDecode(float2(pr._pad1, pr._pad2)), N) > pc.normalThreshold;
     }
+    bool lightValid = geomValid && pr.lightIndex != RESTIR_NO_LIGHT;
 
     uint seed = PcgHash(flatIdx ^ (pc.frameSeed * 2654435761u));
 
@@ -103,20 +108,30 @@ void main(uint3 tid : SV_DispatchThreadID)
     float3 prevN   = float3(0.0);
     float3 prevV   = float3(0.0);
     uint   Mprev   = 0u;
-    if (valid)
+    if (geomValid)
     {
-        prevN = OctDecode(float2(pr._pad1, pr._pad2));
-        float4 pWh = mul(ubo.prevInvViewProjection, float4(prevUV * 2.0 - 1.0, pr._pad0, 1.0));
+        // Reconstruct at the prev texel CENTRE (not the jittered prevUV) so the point matches the geometry
+        // the reservoir stored at pPix.
+        float2 pUv = (float2(pPix) + 0.5) / float2(size);
+        prevN   = OctDecode(float2(pr._pad1, pr._pad2));
+        float4 pWh = mul(ubo.prevInvViewProjection, float4(pUv * 2.0 - 1.0, pr._pad0, 1.0));
         prevPos = pWh.xyz / pWh.w;
         prevV   = normalize(ubo.prevCameraPos.xyz - prevPos);
-        Mprev   = min(pr.M, pc.mCap * r.M);   // Bitterli relative history clamp
+        Mprev   = min(pr.M, pc.mCap * max(r.M, 1u));   // Bitterli relative history clamp
 
-        // Streaming weight: prev's light target at THIS (canonical) pixel.
-        PointLightData plp = LoadPoint(pr.lightIndex);
-        float3 Lp; float dp;
-        float3 Lip  = PointLightRadiance(plp, worldPos, Lp, dp);
-        float  pHat = RestirTargetPdf(N, V, Lp, Lip, rough);
-        if (ReservoirMergeSel(c, pr.lightIndex, pHat, pr.W, Mprev, RandFromSeed(seed))) selDomain = 1;
+        if (lightValid)
+        {
+            // Streaming weight: prev's light target at THIS (canonical) pixel.
+            PointLightData plp = LoadPoint(pr.lightIndex);
+            float3 Lp; float dp;
+            float3 Lip  = PointLightRadiance(plp, worldPos, Lp, dp);
+            float  pHat = RestirTargetPdf(N, V, Lp, Lip, rough);
+            if (ReservoirMergeSel(c, pr.lightIndex, pHat, pr.W, Mprev, RandFromSeed(seed))) selDomain = 1;
+        }
+        else
+        {
+            c.M += Mprev;   // confident-zero prev: count its M in the denominator, stream no sample
+        }
     }
 
     // BASIC finalize: piSum sums the winner's target at each domain; selTgt is the winner at the canonical
@@ -130,7 +145,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         float  psCurr = RestirTargetPdf(N, V, Lc, Lic, rough);   // selTgt (winner at canonical)
         float  piSum  = psCurr * float(r.M);
         float  selPi  = (selDomain == 0) ? psCurr : 0.0;
-        if (valid)
+        if (geomValid)
         {
             float3 Lp2; float dp2;
             float3 Lip2   = PointLightRadiance(sel, prevPos, Lp2, dp2);
