@@ -64,7 +64,10 @@ public float4 GraphParallax<F : ITexFetch>(F fetch, uint heightIndex, float2 bas
     // the hard bound. Heights saturate to [0,1], so a crossing bracket always exists before the cap.
     float numLayers  = clamp(lerp(p.z, p.y, saturate(absZ)), 1.0, float(MAX_MARCH_STEPS));
     float layerDepth = 1.0 / numLayers;
-    float2 deltaUV   = (tvd.xy / absZ) * (p.x * layerDepth);   // eye ray = -tvd, so UV walks opposite tvd.xy
+    // Luth's bitangent (cross(N,T)*sign, the normal-map basis) runs along -V in texture space, so the V
+    // component is flipped to march along the +V gradient (else vertical parallax inverts). Both tiers build
+    // B the same way, so the flip is identical (raster == RT).
+    float2 deltaUV   = (float2(tvd.x, -tvd.y) / absZ) * (p.x * layerDepth);   // eye ray = -tvd; UV walks opposite
 
     float2 curUV    = baseUV;
     float  curDepth = 0.0;
