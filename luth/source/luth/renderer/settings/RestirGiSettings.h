@@ -22,5 +22,6 @@ namespace Luth
         u32  spatialRadius = 32;
         f32  spatialDepthThreshold = 0.1f;
         f32  spatialNormalThreshold = 0.6f;
+        f32  boilingStrength = 0.2f;        // spatial-tail boiling filter on luminance(radiance)*W; 0 = off
     };
 }

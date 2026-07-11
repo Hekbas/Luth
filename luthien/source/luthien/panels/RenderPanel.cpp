@@ -191,6 +191,8 @@ namespace Luth
                     UI::Property("Spatial Normal Threshold", rs.spatialNormalThreshold, 0.005f, 0.0f, 1.0f);
                     UI::Property("Roughness Threshold", rs.roughnessThreshold, 0.005f, 0.0f, 1.0f);
                     Tip("Spatial reuse rejects neighbours whose roughness differs by more than this.\nStops smooth metals importing diffuse-shaped reservoirs (spec fireflies).");
+                    UI::Property("Boiling Filter", rs.boilingStrength, 0.005f, 0.0f, 1.0f);
+                    Tip("Resets reservoirs whose weight exceeds ~(10/strength - 9)x their 8x8 threadgroup's\naverage before they persist as history (0.2 = ~41x). Kills crawling bright blobs. 0 = off.");
                     UI::EndProperties();
                 }
                 endSection();
@@ -221,6 +223,8 @@ namespace Luth
                     if (UI::Property("Spatial Radius (px)", giRadius, 1, 64)) gi.spatialRadius = static_cast<u32>(giRadius);
                     UI::Property("Spatial Depth Threshold", gi.spatialDepthThreshold, 0.005f, 0.0f, 1.0f);
                     UI::Property("Spatial Normal Threshold", gi.spatialNormalThreshold, 0.005f, 0.0f, 1.0f);
+                    UI::Property("Boiling Filter", gi.boilingStrength, 0.005f, 0.0f, 1.0f);
+                    Tip("Resets reservoirs whose luminance * W exceeds ~(10/strength - 9)x their 8x8\nthreadgroup's average before they persist as history (0.2 = ~41x). Kills GI boiling. 0 = off.");
 
                     UI::Property("Secondary Albedo (scaffold)", gi.secondaryAlbedo, 0.01f, 0.0f, 1.0f);
                     Tip("Constant fallback albedo for the secondary hit - only used when the\nshader's GI_USE_SCAFFOLD_LO debug path is enabled (real material otherwise).");

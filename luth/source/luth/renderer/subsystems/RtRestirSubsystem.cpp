@@ -66,7 +66,7 @@ namespace Luth
             i32  dispatchH;
             f32  normalThreshold;      // min dot(neighbourN, currN)
             f32  roughnessThreshold;   // max |neighbourRough - rough| (spec reuse gate)
-            f32  _pad0;                // pointer-alignment pad (Slang places geomTable at offset 104)
+            f32  boilingStrength;      // boiling-filter kill knob, 0 disables (fills the ex-pad; geomTable stays at 104)
             u64  geomTableBDA;         // final-visibility alpha-test material fetch
         };
         static_assert(sizeof(RestirSpatialPC) == 112, "RestirSpatialPC must match restir_spatial.slang push_constant");
@@ -536,6 +536,7 @@ namespace Luth
         spc.depthThreshold = settings.spatialDepthThreshold;
         spc.normalThreshold    = settings.spatialNormalThreshold;
         spc.roughnessThreshold = settings.roughnessThreshold;
+        spc.boilingStrength    = settings.boilingStrength;
         spc.gbufferScale   = diScale;
         spc.dispatchW      = diW2;
         spc.dispatchH      = diH2;

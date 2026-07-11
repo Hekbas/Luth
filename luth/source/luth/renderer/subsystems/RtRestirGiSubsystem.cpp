@@ -63,7 +63,7 @@ namespace Luth
             i32  gbufferScale;
             i32  dispatchW;
             i32  dispatchH;
-            f32  _pad0;              // pointer-alignment pad (Slang places geomTable at offset 96)
+            f32  boilingStrength;    // boiling-filter kill knob, 0 disables (fills the ex-pad; geomTable stays at 96)
             u64  geomTableBDA;
         };
         static_assert(sizeof(GiSpatialPC) == 104, "GiSpatialPC must match restir_gi_spatial.slang push_constant");
@@ -555,6 +555,7 @@ namespace Luth
         spc.frameSeed        = frameAbs;
         spc.depthThreshold   = settings.spatialDepthThreshold;
         spc.normalThreshold  = settings.spatialNormalThreshold;
+        spc.boilingStrength  = settings.boilingStrength;
         spc.gbufferScale     = giScale;
         spc.dispatchW        = giW2;
         spc.dispatchH        = giH2;
