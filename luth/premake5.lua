@@ -49,7 +49,8 @@ project "Luth"
       IncludeDir["tracy"],
       IncludeDir["vulkan"],
       IncludeDir["spirv_cross"],
-      IncludeDir["jolt"]
+      IncludeDir["jolt"],
+      IncludeDir["bc7enc"]
    }
 
    libdirs
@@ -84,6 +85,7 @@ project "Luth"
       "slang-compiler",
       "spirv-cross",
       "Jolt",
+      "bc7enc",
       "ws2_32",
       "dbghelp"
    }

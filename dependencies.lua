@@ -9,6 +9,7 @@ IncludeDir["tracy"]     = "%{wks.location}/luth/extern/source/tracy/public"
 IncludeDir["vulkan"]    = "%{wks.location}/luth/extern/source/vulkan/include"
 IncludeDir["spirv_cross"] = "%{wks.location}/luth/extern/source/spirv-cross"
 IncludeDir["jolt"]      = "%{wks.location}/luth/extern/source/jolt"
+IncludeDir["bc7enc"]    = "%{wks.location}/luth/extern/source/bc7enc"
 
 LibraryDir = {}
 LibraryDir["vulkan"]    = "%{wks.location}/luth/extern/source/vulkan/lib"
