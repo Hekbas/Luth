@@ -35,8 +35,9 @@ namespace Luth
             i32  dispatchW;      // GI working (dispatch) resolution
             i32  dispatchH;
             u64  geomTableBDA;   // geometry-table BDA; stays 8-aligned at offset 88
+            f32  confidenceNorm; // SVGF confidence normalizer at offset 96; read only by the shade pass
         };
-        static_assert(sizeof(GiPC) == 96, "GiPC must match restir_gi_initial.slang push_constant (shade reads the 88 B prefix)");
+        static_assert(sizeof(GiPC) == 104, "GiPC must match restir_gi_shade.slang push_constant (initial reads the 96 B prefix)");
 
         // Temporal-pass push constants: same 80 B footprint as GiPC (one shared pcRange), different
         // fields. mCap + maxReservoirAge bit-packed so invViewProj + 4 scalars fit 80 B.
@@ -531,6 +532,7 @@ namespace Luth
         pc.frameSeed       = frameAbs;
         pc.secondaryAlbedo = settings.secondaryAlbedo;
         pc.maxIndirect     = settings.maxIndirect;
+        pc.confidenceNorm  = settings.confidenceNorm;
         pc.gbufferScale    = giScale;
         pc.dispatchW       = giW2;
         pc.dispatchH       = giH2;

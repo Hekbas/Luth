@@ -61,9 +61,9 @@ namespace Luth
 
         VkSampler             m_Sampler        = VK_NULL_HANDLE;
         VkDescriptorSetLayout m_PassLayout      = VK_NULL_HANDLE;  // passthrough set: b0 DI in, b1 out
-        VkDescriptorSetLayout m_ReprojectLayout = VK_NULL_HANDLE;  // reproject set: b0-b3 in, b4-b9 history
+        VkDescriptorSetLayout m_ReprojectLayout = VK_NULL_HANDLE;  // reproject set: b0-b3 in, b4-b9 history, b10 matID
         VkDescriptorSetLayout m_MomentsLayout   = VK_NULL_HANDLE;  // moments set: b0-b1 hist, b2-b3 samplers, b4 out
-        VkDescriptorSetLayout m_AtrousLayout    = VK_NULL_HANDLE;  // a-trous set: b0 in, b1-b2 samplers, b3 out, b4 denoised
+        VkDescriptorSetLayout m_AtrousLayout    = VK_NULL_HANDLE;  // a-trous set: b0 in, b1-b2 samplers, b3 out, b4 denoised, b5 rough
 
         std::vector<u32> m_PassthroughSpv;
         std::vector<u32> m_ReprojectSpv;

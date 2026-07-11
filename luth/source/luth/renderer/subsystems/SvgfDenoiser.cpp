@@ -15,7 +15,8 @@ namespace Luth
     namespace {
         // gbufferScale/dispatchW/dispatchH let a channel run at a working resolution below the full
         // G-buffer (half-res GI). scale==1 + dispatch==full is the identity path for full-res channels.
-        // Mirrors svgf_reproject.slang's push_constant (5 floats + 3 ints = 32 B).
+        // Mirrors svgf_reproject.slang's push_constant (7 floats + 3 ints = 40 B); the spec variant
+        // shares the layout (confidenceScale unused there - its input alpha is hitDist).
         struct SvgfReprojectPC {
             f32 alphaColor;
             f32 alphaMoments;
@@ -25,8 +26,10 @@ namespace Luth
             i32 gbufferScale;
             i32 dispatchW;
             i32 dispatchH;
+            f32 antiFireflySigma;   // 3x3 mean + k*sigma clamp on the incoming sample; 0 = off
+            f32 confidenceScale;    // reservoir-confidence history-cap shortening; 0 = off / spec variant
         };
-        static_assert(sizeof(SvgfReprojectPC) == 32, "SvgfReprojectPC must match svgf_reproject.slang push_constant");
+        static_assert(sizeof(SvgfReprojectPC) == 40, "SvgfReprojectPC must match svgf_reproject.slang push_constant");
 
         // Mirrors svgf_moments.slang's push_constant (2 floats + 3 ints = 20 B).
         struct SvgfMomentsPC {
@@ -38,7 +41,7 @@ namespace Luth
         };
         static_assert(sizeof(SvgfMomentsPC) == 20, "SvgfMomentsPC must match svgf_moments.slang push_constant");
 
-        // Mirrors svgf_atrous.slang's push_constant (2 ints + 3 floats + 3 ints = 32 B).
+        // Mirrors svgf_atrous.slang's push_constant (2 ints + 3 floats + 3 ints + 1 float = 36 B).
         struct SvgfAtrousPC {
             i32 stepSize;
             i32 writeFinal;
@@ -48,8 +51,9 @@ namespace Luth
             i32 gbufferScale;
             i32 dispatchW;
             i32 dispatchH;
+            f32 phiRough;   // roughness edge-stop; spec channels only, diffuse channels pass 0
         };
-        static_assert(sizeof(SvgfAtrousPC) == 32, "SvgfAtrousPC must match svgf_atrous.slang push_constant");
+        static_assert(sizeof(SvgfAtrousPC) == 36, "SvgfAtrousPC must match svgf_atrous.slang push_constant");
 
         // Channel-selected pointers into ViewResources: DI uses the svgf* fields, GI the svgfGi*
         // (flat parallel set, mirroring the S0 restirDI/restirGiDI split). All array fields are
@@ -165,21 +169,22 @@ namespace Luth
 
         // Reproject set (pass-local): b0-b3 current-frame samplers (DI, depth, normal, motion);
         // b4-b6 prev history storage (color+variance, moments+histLen, geom); b7-b9 curr history
-        // storage. History stays GENERAL (storage), so no UAB / per-frame rewrite; the two sets are
-        // pre-built per parity and bound by frameAbs & 1. The denoised output moved to the a-trous final
-        // level, so the reproject no longer binds it.
+        // storage; b10 slim matID sampler (motion variant's material history gate; the spec variant's
+        // shader leaves it undeclared). History stays GENERAL (storage), so no UAB / per-frame rewrite;
+        // the two sets are pre-built per parity and bound by frameAbs & 1. The denoised output moved to
+        // the a-trous final level, so the reproject no longer binds it.
         {
-            VkDescriptorSetLayoutBinding b[10]{};
-            for (u32 i = 0; i < 10; ++i)
+            VkDescriptorSetLayoutBinding b[11]{};
+            for (u32 i = 0; i < 11; ++i)
             {
                 b[i].binding         = i;
                 b[i].descriptorCount = 1;
                 b[i].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
-                b[i].descriptorType  = (i < 4) ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
-                                               : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                b[i].descriptorType  = (i < 4 || i == 10) ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+                                                          : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
             }
             VkDescriptorSetLayoutCreateInfo ci{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-            ci.bindingCount = 10; ci.pBindings = b;
+            ci.bindingCount = 11; ci.pBindings = b;
             vkCreateDescriptorSetLayout(device, &ci, nullptr, &m_ReprojectLayout);
         }
 
@@ -203,21 +208,23 @@ namespace Luth
         }
 
         // A-trous set (pass-local): b0 svgfAtrous[IN] storage, b1 depth sampler, b2 normal sampler,
-        // b3 svgfAtrous[OUT] storage, b4 svgfDenoised storage (final level). Two sets by iter parity.
+        // b3 svgfAtrous[OUT] storage, b4 svgfDenoised storage (final level), b5 slim roughness sampler
+        // (spec channels' edge-stop; diffuse channels disable via phiRough 0). Two sets by iter parity.
         {
-            VkDescriptorSetLayoutBinding b[5]{};
-            const VkDescriptorType types[5] = {
+            VkDescriptorSetLayoutBinding b[6]{};
+            const VkDescriptorType types[6] = {
                 VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                 VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             };
-            for (u32 i = 0; i < 5; ++i)
+            for (u32 i = 0; i < 6; ++i)
             {
                 b[i].binding = i; b[i].descriptorCount = 1; b[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
                 b[i].descriptorType = types[i];
             }
             VkDescriptorSetLayoutCreateInfo ci{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-            ci.bindingCount = 5; ci.pBindings = b;
+            ci.bindingCount = 6; ci.pBindings = b;
             vkCreateDescriptorSetLayout(device, &ci, nullptr, &m_AtrousLayout);
         }
 
@@ -443,45 +450,49 @@ namespace Luth
 
         // Reproject sets: pre-build both parities (set[p] reads prev = [p^1], writes curr = [p]).
         // Reproject b3: DI/GI bind slim MOTION; the specular variant binds slim ROUGHNESS (it computes
-        // the reflection's own motion internally via hit-distance virtual reprojection).
+        // the reflection's own motion internally via hit-distance virtual reprojection). b10 slim matID
+        // is written for every channel (layout parity); only the motion variant's shader reads it.
         const std::shared_ptr<Texture> b3Tex = (m_Channel == DenoiserChannel::Reflections)
             ? targets.GetSlimRoughness() : targets.GetSlimMotion();
         if (c.reprojectSet[0] != VK_NULL_HANDLE && *c.noisy
             && c.colorHist[0] && c.moments[0] && c.geom[0]
-            && targets.GetSceneDepth() && targets.GetSlimNormal() && b3Tex)
+            && targets.GetSceneDepth() && targets.GetSlimNormal() && b3Tex
+            && targets.GetSlimMaterialID())
         {
             const VkImageView depthV  = viewOf(targets.GetSceneDepth());
             const VkImageView normalV = viewOf(targets.GetSlimNormal());
             const VkImageView motionV = viewOf(b3Tex);
             const VkImageView diV     = viewOf(*c.noisy);
+            const VkImageView matIdV  = viewOf(targets.GetSlimMaterialID());
 
             for (u32 p = 0; p < 2; ++p)
             {
                 const u32 q = p ^ 1u;  // prev parity
-                VkDescriptorImageInfo info[10]{};
-                info[0] = { m_Sampler, diV,     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-                info[1] = { m_Sampler, depthV,  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-                info[2] = { m_Sampler, normalV, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-                info[3] = { m_Sampler, motionV, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-                info[4] = { VK_NULL_HANDLE, viewOf(c.colorHist[q]), VK_IMAGE_LAYOUT_GENERAL };
-                info[5] = { VK_NULL_HANDLE, viewOf(c.moments[q]),   VK_IMAGE_LAYOUT_GENERAL };
-                info[6] = { VK_NULL_HANDLE, viewOf(c.geom[q]),      VK_IMAGE_LAYOUT_GENERAL };
-                info[7] = { VK_NULL_HANDLE, viewOf(c.colorHist[p]), VK_IMAGE_LAYOUT_GENERAL };
-                info[8] = { VK_NULL_HANDLE, viewOf(c.moments[p]),   VK_IMAGE_LAYOUT_GENERAL };
-                info[9] = { VK_NULL_HANDLE, viewOf(c.geom[p]),      VK_IMAGE_LAYOUT_GENERAL };
+                VkDescriptorImageInfo info[11]{};
+                info[0]  = { m_Sampler, diV,     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+                info[1]  = { m_Sampler, depthV,  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+                info[2]  = { m_Sampler, normalV, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+                info[3]  = { m_Sampler, motionV, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+                info[4]  = { VK_NULL_HANDLE, viewOf(c.colorHist[q]), VK_IMAGE_LAYOUT_GENERAL };
+                info[5]  = { VK_NULL_HANDLE, viewOf(c.moments[q]),   VK_IMAGE_LAYOUT_GENERAL };
+                info[6]  = { VK_NULL_HANDLE, viewOf(c.geom[q]),      VK_IMAGE_LAYOUT_GENERAL };
+                info[7]  = { VK_NULL_HANDLE, viewOf(c.colorHist[p]), VK_IMAGE_LAYOUT_GENERAL };
+                info[8]  = { VK_NULL_HANDLE, viewOf(c.moments[p]),   VK_IMAGE_LAYOUT_GENERAL };
+                info[9]  = { VK_NULL_HANDLE, viewOf(c.geom[p]),      VK_IMAGE_LAYOUT_GENERAL };
+                info[10] = { m_Sampler, matIdV,  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 
-                VkWriteDescriptorSet w[10]{};
-                for (u32 i = 0; i < 10; ++i)
+                VkWriteDescriptorSet w[11]{};
+                for (u32 i = 0; i < 11; ++i)
                 {
                     w[i] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
                     w[i].dstSet          = c.reprojectSet[p];
                     w[i].dstBinding      = i;
-                    w[i].descriptorType  = (i < 4) ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
-                                                   : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                    w[i].descriptorType  = (i < 4 || i == 10) ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+                                                              : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
                     w[i].descriptorCount = 1;
                     w[i].pImageInfo      = &info[i];
                 }
-                vkUpdateDescriptorSets(device, 10, w, 0, nullptr);
+                vkUpdateDescriptorSets(device, 11, w, 0, nullptr);
             }
         }
 
@@ -521,38 +532,42 @@ namespace Luth
         }
 
         // A-trous sets: per iter parity ip, b0 = svgfAtrous[ip] (in), b3 = svgfAtrous[ip^1] (out),
-        // b1/b2 depth/normal samplers, b4 svgfDenoised (final-level output).
+        // b1/b2 depth/normal samplers, b4 svgfDenoised (final-level output), b5 slim roughness (spec
+        // channels' edge-stop; bound for every channel, diffuse ones disable via phiRough 0).
         if (c.atrousSet[0] != VK_NULL_HANDLE
             && c.atrous[0] && c.atrous[1] && *c.denoised
-            && targets.GetSceneDepth() && targets.GetSlimNormal())
+            && targets.GetSceneDepth() && targets.GetSlimNormal() && targets.GetSlimRoughness())
         {
             const VkImageView depthV  = viewOf(targets.GetSceneDepth());
             const VkImageView normalV = viewOf(targets.GetSlimNormal());
             const VkImageView denV    = viewOf(*c.denoised);
+            const VkImageView roughV  = viewOf(targets.GetSlimRoughness());
 
             for (u32 ip = 0; ip < 2; ++ip)
             {
                 const u32 op = ip ^ 1u;
-                VkDescriptorImageInfo info[5]{};
+                VkDescriptorImageInfo info[6]{};
                 info[0] = { VK_NULL_HANDLE, viewOf(c.atrous[ip]), VK_IMAGE_LAYOUT_GENERAL };
                 info[1] = { m_Sampler, depthV,  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
                 info[2] = { m_Sampler, normalV, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
                 info[3] = { VK_NULL_HANDLE, viewOf(c.atrous[op]), VK_IMAGE_LAYOUT_GENERAL };
                 info[4] = { VK_NULL_HANDLE, denV, VK_IMAGE_LAYOUT_GENERAL };
+                info[5] = { m_Sampler, roughV,  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 
-                const VkDescriptorType types[5] = {
+                const VkDescriptorType types[6] = {
                     VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                     VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                     VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                    VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 };
-                VkWriteDescriptorSet w[5]{};
-                for (u32 i = 0; i < 5; ++i)
+                VkWriteDescriptorSet w[6]{};
+                for (u32 i = 0; i < 6; ++i)
                 {
                     w[i] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
                     w[i].dstSet = c.atrousSet[ip]; w[i].dstBinding = i;
                     w[i].descriptorType = types[i]; w[i].descriptorCount = 1; w[i].pImageInfo = &info[i];
                 }
-                vkUpdateDescriptorSets(device, 5, w, 0, nullptr);
+                vkUpdateDescriptorSets(device, 6, w, 0, nullptr);
             }
         }
     }
@@ -604,15 +619,24 @@ namespace Luth
         }
         const i32 gbufScale = (vrTop && chW == vrTop->width && chH == vrTop->height) ? 1 : 2;
 
+        // Channel routing: confidence only for the MOTION-variant channels (Di / Gi / DiSpecular) -
+        // the spec variant's input alpha is hitDist, never confidence. Roughness edge-stop only for the
+        // specular channels (Reflections / DiSpecular); zeroing here is structural, not a UI convention.
+        const bool motionVariant = (m_Channel != DenoiserChannel::Reflections);
+        const bool specChannel   = (m_Channel == DenoiserChannel::Reflections
+                                 || m_Channel == DenoiserChannel::DiSpecular);
+
         SvgfReprojectPC rpc{};
-        rpc.alphaColor      = s.alphaColor;
-        rpc.alphaMoments    = s.alphaMoments;
-        rpc.historyCap      = static_cast<f32>(s.historyCap);
-        rpc.depthThreshold  = s.depthThreshold;
-        rpc.normalThreshold = s.normalThreshold;
-        rpc.gbufferScale    = gbufScale;
-        rpc.dispatchW       = static_cast<i32>(chW);
-        rpc.dispatchH       = static_cast<i32>(chH);
+        rpc.alphaColor       = s.alphaColor;
+        rpc.alphaMoments     = s.alphaMoments;
+        rpc.historyCap       = static_cast<f32>(s.historyCap);
+        rpc.depthThreshold   = s.depthThreshold;
+        rpc.normalThreshold  = s.normalThreshold;
+        rpc.gbufferScale     = gbufScale;
+        rpc.dispatchW        = static_cast<i32>(chW);
+        rpc.dispatchH        = static_cast<i32>(chH);
+        rpc.antiFireflySigma = s.antiFireflySigma;
+        rpc.confidenceScale  = motionVariant ? s.confidenceScale : 0.0f;
 
         SvgfMomentsPC mpc{};
         mpc.phiDepth     = s.phiDepth;
@@ -755,6 +779,7 @@ namespace Luth
             apc.gbufferScale = gbufScale;
             apc.dispatchW    = static_cast<i32>(chW);
             apc.dispatchH    = static_cast<i32>(chH);
+            apc.phiRough     = specChannel ? s.phiRough : 0.0f;
 
             struct AtrousData {
                 RG::ResourceHandle in, out, den;

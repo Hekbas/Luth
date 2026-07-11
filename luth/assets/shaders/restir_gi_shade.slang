@@ -3,8 +3,9 @@
 //
 // CONTRACT: stores DEMODULATED indirect irradiance  E = L_o * NdotL_v * W  (no primary albedo, no 1/PI).
 // pbr.slang remodulates:  Lo += E * (albedo * (1-metallic) / PI). SVGF denoises E before remodulation,
-// same contract as the DI path. L_o already contains the secondary surface's albedo + cosine; only the
-// PRIMARY-vertex cosine (NdotL_v) and W are applied here. Reads the spatial-reuse output at b6.
+// same contract as the DI path; ALPHA carries reservoir confidence saturate(M / confidenceNorm) for the
+// SVGF reproject. L_o already contains the secondary surface's albedo + cosine; only the PRIMARY-vertex
+// cosine (NdotL_v) and W are applied here. Reads the spatial-reuse output at b6.
 // see arch/rendering-pipeline.md
 import globals;
 import restir_common;        // OctDecode
@@ -24,6 +25,8 @@ struct PC
     int      gbufferScale;
     int      dispatchW;
     int      dispatchH;
+    uint2    _padGeomBDA;    // C++ GiPC.geomTableBDA (initial pass only); keeps confidenceNorm at 96
+    float    confidenceNorm; // reservoir M mapping to full denoiser confidence (output alpha)
 };
 [[vk::push_constant]] PC pc;
 
@@ -71,5 +74,8 @@ void main(uint3 tid : SV_DispatchThreadID)
     }
 
     if (any(isnan(E)) || any(isinf(E))) E = float3(0.0);   // never poison SVGF / remodulation
-    outIndirect[pixel] = float4(E, 1.0);
+
+    // Alpha carries reservoir confidence for the SVGF reproject's history-cap control.
+    float conf = saturate(float(r.M) / max(pc.confidenceNorm, 1.0));
+    outIndirect[pixel] = float4(E, conf);
 }

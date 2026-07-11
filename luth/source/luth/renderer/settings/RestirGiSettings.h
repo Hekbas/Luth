@@ -23,5 +23,6 @@ namespace Luth
         f32  spatialDepthThreshold = 0.1f;
         f32  spatialNormalThreshold = 0.6f;
         f32  boilingStrength = 0.2f;        // spatial-tail boiling filter on luminance(radiance)*W; 0 = off
+        f32  confidenceNorm = 16.0f;        // reservoir M mapping to full SVGF confidence (shade alpha = saturate(M/norm))
     };
 }

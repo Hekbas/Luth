@@ -30,6 +30,8 @@ struct PC
     int   gbufferScale;
     int   dispatchW;
     int   dispatchH;
+    float antiFireflySigma; // 3x3 neighbourhood mean + k*sigma clamp on the incoming sample; 0 = off
+    float confidenceScale;  // layout parity with svgf_reproject; UNUSED here (input alpha is hitDist)
 };
 [[vk::push_constant]] PC pc;
 
@@ -68,8 +70,28 @@ void main(uint3 tid : SV_DispatchThreadID)
         return;
     }
 
-    float3 di     = clamp(spec.rgb, 0.0, 65504.0);
-    float  curLum = min(SvgfLuminance(di), 255.0);
+    float3 di = clamp(spec.rgb, 0.0, 65504.0);
+
+    // In-loop anti-firefly (RT Gems ch. 25, spatial form): clamp the incoming radiance's luminance to
+    // its own frame's 3x3 short-mean + k*sigma before the EMA (center excluded). rgb only: the input
+    // alpha is hitDist, not signal.
+    if (pc.antiFireflySigma > 0.0)
+    {
+        float m1 = 0.0, m2 = 0.0;
+        for (int yy = -1; yy <= 1; ++yy)
+        for (int xx = -1; xx <= 1; ++xx)
+        {
+            if (xx == 0 && yy == 0) continue;
+            int2  q = clamp(pixel + int2(xx, yy), int2(0), size - int2(1));
+            float l = min(SvgfLuminance(u_SpecIn.Load(int3(q, 0)).rgb), 65504.0);
+            m1 += l; m2 += l * l;
+        }
+        m1 *= 1.0 / 8.0; m2 *= 1.0 / 8.0;
+        float cap = m1 + pc.antiFireflySigma * sqrt(max(m2 - m1 * m1, 0.0)) + 1.0e-3;
+        float lum = SvgfLuminance(di);
+        if (lum > cap) di *= cap / lum;
+    }
+    float curLum = min(SvgfLuminance(di), 255.0);
 
     // Hit-distance virtual reprojection.
     float2 uv       = (float2(pixel) + 0.5) / float2(size);

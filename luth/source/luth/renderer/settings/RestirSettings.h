@@ -25,5 +25,6 @@ namespace Luth
         bool specular = true;            // demodulated specular DI (metals/specular from point lights)
         f32  specularIntensity = 1.0f;   // composite scale, baked into restirParams.z (pbr.frag remod)
         f32  diSpecClamp = 64.0f;        // luminance cap on the demodulated spec lobe (grazing 1/(4*NoV) spike)
+        f32  confidenceNorm = 512.0f;    // reservoir M mapping to full SVGF confidence (shade alpha = saturate(M/norm))
     };
 }

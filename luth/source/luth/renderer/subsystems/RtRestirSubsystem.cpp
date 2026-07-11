@@ -36,8 +36,9 @@ namespace Luth
             i32  dispatchH;
             f32  diSpecClamp;    // fills the pre-pointer pad (offset 84); read only by the shade pass
             u64  geomTableBDA;   // cutout alpha-test material fetch; stays 8-aligned at offset 88
+            f32  confidenceNorm; // SVGF confidence normalizer at offset 96; read only by the shade pass
         };
-        static_assert(sizeof(RestirPC) == 96, "RestirPC must be 96 B (matches restir_initial.slang push_constant)");
+        static_assert(sizeof(RestirPC) == 104, "RestirPC must be 104 B (matches restir_shade.slang push_constant)");
 
         // Temporal-pass push constants. Same 80 B footprint + COMPUTE range as RestirPC, so the two
         // share the existing pcRange; the field meanings differ (M-cap + validation thresholds).
@@ -512,6 +513,7 @@ namespace Luth
         pc.invViewProj    = invVP;
         pc.candidateCount = settings.candidateCount;
         pc.diSpecClamp    = settings.diSpecClamp;
+        pc.confidenceNorm = settings.confidenceNorm;
         pc.frameSeed      = frameAbs;
         pc.gbufferScale   = diScale;
         pc.dispatchW      = diW2;

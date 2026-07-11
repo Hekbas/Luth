@@ -35,7 +35,10 @@ namespace Luth
         }
 
         // SVGF tunables shared by all four denoiser instances (DI / GI / Specular / DI-Spec).
-        void DrawSvgfControls(SvgfSettings& sv, const char* id)
+        // specRough: roughness edge-stop row (Specular + DI-Spec, where the a-trous consumes phiRough).
+        // confidence: history-cap confidence row (motion-variant channels; the Specular channel's
+        // hit-distance reproject carries hitDist in the alpha and never reads confidence).
+        void DrawSvgfControls(SvgfSettings& sv, const char* id, bool specRough, bool confidence)
         {
             if (UI::BeginProperties(id)) {
                 UI::Property("Enabled", sv.enabled);
@@ -48,6 +51,12 @@ namespace Luth
                 Tip("Relative linear-depth tolerance for accepting reprojected history.");
                 UI::Property("Normal Threshold", sv.normalThreshold, 0.005f, 0.0f, 1.0f);
                 Tip("Min dot(prevN, currN) to accept reprojected history (1 = identical normals).");
+                UI::Property("Anti-Firefly Sigma", sv.antiFireflySigma, 0.1f, 0.0f, 32.0f);
+                Tip("Clamps each incoming sample to its 3x3 neighbourhood mean + k*sigma before temporal\naccumulation, so one hot pixel cannot seed a history-long streak. 0 = off.");
+                if (confidence) {
+                    UI::Property("Confidence Scale", sv.confidenceScale, 0.01f, 0.0f, 2.0f);
+                    Tip("How strongly low reservoir confidence (sample count, shade-written alpha) shortens\nthe history cap, so fresh / post-boil reservoirs re-converge in a few frames. 0 = off.");
+                }
 
                 int atrous = static_cast<int>(sv.atrousIterations);
                 if (UI::Property("A-trous Iterations", atrous, 0, 8)) sv.atrousIterations = static_cast<u32>(atrous);
@@ -63,6 +72,10 @@ namespace Luth
                 Tip("Normal edge-stopping exponent (higher = sharper normal edges).");
                 UI::Property("Depth Sigma", sv.phiDepth, 0.05f, 0.0f, 8.0f);
                 Tip("Depth edge-stopping scale (fwidth-normalized).");
+                if (specRough) {
+                    UI::Property("Roughness Sigma", sv.phiRough, 0.005f, 0.0f, 1.0f);
+                    Tip("Roughness edge-stop for the a-trous filter: stops specular radiance smearing across\nmaterials of different roughness (mirror vs rough panel). 0 = off.");
+                }
                 UI::EndProperties();
             }
         }
@@ -193,6 +206,8 @@ namespace Luth
                     Tip("Spatial reuse rejects neighbours whose roughness differs by more than this.\nStops smooth metals importing diffuse-shaped reservoirs (spec fireflies).");
                     UI::Property("Boiling Filter", rs.boilingStrength, 0.005f, 0.0f, 1.0f);
                     Tip("Resets reservoirs whose weight exceeds ~(10/strength - 9)x their 8x8 threadgroup's\naverage before they persist as history (0.2 = ~41x). Kills crawling bright blobs. 0 = off.");
+                    UI::Property("Denoiser Confidence Norm", rs.confidenceNorm, 1.0f, 1.0f, 4096.0f);
+                    Tip("Reservoir sample count (M) that maps to full denoiser confidence; the shade pass\nwrites saturate(M / norm) into the signal's alpha for SVGF history-cap control.");
                     UI::EndProperties();
                 }
                 endSection();
@@ -225,6 +240,8 @@ namespace Luth
                     UI::Property("Spatial Normal Threshold", gi.spatialNormalThreshold, 0.005f, 0.0f, 1.0f);
                     UI::Property("Boiling Filter", gi.boilingStrength, 0.005f, 0.0f, 1.0f);
                     Tip("Resets reservoirs whose luminance * W exceeds ~(10/strength - 9)x their 8x8\nthreadgroup's average before they persist as history (0.2 = ~41x). Kills GI boiling. 0 = off.");
+                    UI::Property("Denoiser Confidence Norm", gi.confidenceNorm, 0.5f, 1.0f, 256.0f);
+                    Tip("Reservoir sample count (M) that maps to full denoiser confidence; the shade pass\nwrites saturate(M / norm) into the signal's alpha for SVGF history-cap control.");
 
                     UI::Property("Secondary Albedo (scaffold)", gi.secondaryAlbedo, 0.01f, 0.0f, 1.0f);
                     Tip("Constant fallback albedo for the secondary hit - only used when the\nshader's GI_USE_SCAFFOLD_LO debug path is enabled (real material otherwise).");
@@ -267,10 +284,10 @@ namespace Luth
                     settings.renderDenoiserTab = dt;
                 ImGui::Spacing();
                 switch (dt) {
-                    case 0:  DrawSvgfControls(m_RS->GetSvgfSettings(),       "SvgfDI");     break;
-                    case 1:  DrawSvgfControls(m_RS->GetSvgfGiSettings(),     "SvgfGI");     break;
-                    case 2:  DrawSvgfControls(m_RS->GetSvgfSpecSettings(),   "SvgfSpec");   break;
-                    default: DrawSvgfControls(m_RS->GetSvgfDiSpecSettings(), "SvgfDiSpec"); break;
+                    case 0:  DrawSvgfControls(m_RS->GetSvgfSettings(),       "SvgfDI",     false, true);  break;
+                    case 1:  DrawSvgfControls(m_RS->GetSvgfGiSettings(),     "SvgfGI",     false, true);  break;
+                    case 2:  DrawSvgfControls(m_RS->GetSvgfSpecSettings(),   "SvgfSpec",   true,  false); break;
+                    default: DrawSvgfControls(m_RS->GetSvgfDiSpecSettings(), "SvgfDiSpec", true,  true);  break;
                 }
                 endSection();
             }
