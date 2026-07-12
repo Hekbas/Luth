@@ -225,7 +225,8 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
         // Shared BRDF surface (base + clear-coat + anisotropy) from the hit; bitangent from tangent x tSign.
         SurfaceBRDF surf = MakeSurfaceBRDF(s.ns, s.T, cross(s.ns, s.T) * s.tSign, s.hasTangent,
                                            s.baseColor, s.metalness, s.roughness,
-                                           s.clearcoat, s.clearcoatRoughness, s.anisotropy, s.anisotropyRotation);
+                                           s.clearcoat, s.clearcoatRoughness, s.anisotropy, s.anisotropyRotation,
+                                           0.0, 1.5, true);
         float3 contrib = throughput * (s.emission + DirectLighting(x, V, s, surf, seed));
         // Firefly clamp INDIRECT contributions only (primary direct/emission stays unbiased).
         if (bounce > 0u)

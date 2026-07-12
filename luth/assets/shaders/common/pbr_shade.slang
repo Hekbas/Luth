@@ -148,7 +148,8 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
 
     // Shared BRDF surface (base + clear-coat + anisotropy); T/B from the interpolated tangent frame.
     SurfaceBRDF surf = MakeSurfaceBRDF(N, i.T, i.B, true, albedo.rgb, metallic, roughness,
-                                       mi.clearcoat, ccRough, mi.anisotropy, mi.anisotropyRotation);
+                                       mi.clearcoat, ccRough, mi.anisotropy, mi.anisotropyRotation,
+                                       0.0, 1.5, true);
 
     // Directional light + shadow (cascade PCF or RT mask).
     ShadowResult sr = ComputeShadow(i.worldPos, N, screenUv);

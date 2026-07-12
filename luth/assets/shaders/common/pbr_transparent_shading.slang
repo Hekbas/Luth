@@ -86,7 +86,8 @@ public float4 EvalTransparentSurfaceColor(uint materialIndex, uint shadeMode, fl
 
     // Shared BRDF surface (base + clear-coat + anisotropy); transparent skips the opaque spec-AA pass.
     SurfaceBRDF surf = MakeSurfaceBRDF(nrm, T, B, true, mi.baseColor.rgb, mi.metallic, mi.roughness,
-                                       mi.clearcoat, mi.clearcoatRoughness, mi.anisotropy, mi.anisotropyRotation);
+                                       mi.clearcoat, mi.clearcoatRoughness, mi.anisotropy, mi.anisotropyRotation,
+                                       0.0, 1.5, true);
 
     float sunVis = (ubo.rtShadowParams.x > 0.5) ? TraceSunShadow(worldPos, nrm)
                                                 : ComputeShadowCSM(worldPos, nrm).shadow;

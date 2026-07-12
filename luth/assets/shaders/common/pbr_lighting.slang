@@ -212,6 +212,7 @@ public IblResult EvalIblAmbient(SurfaceBRDF s, float3 V, float ao, float iblInte
     float3 F0  = lerp(float3(0.04), s.albedo, s.metallic);
     float3 F   = FresnelSchlickRoughness(NoV, F0, s.roughness);
     float3 kD  = (1.0 - F) * (1.0 - s.metallic);
+    if (s.transmission > 0.0) kD *= (1.0 - s.transmission * (1.0 - s.metallic));  // glass: diffuse IBL -> transmission
 
     float3 diffuseIBL = u_IrradianceMap.Sample(s.N).rgb * s.albedo;
 

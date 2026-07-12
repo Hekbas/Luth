@@ -27,6 +27,20 @@ public float3 F_Schlick(float cosT, float3 F0)
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosT, 0.0, 1.0), 5.0);
 }
 
+// Exact unpolarized dielectric Fresnel. cosI = cosine on the incident side (clamped >0); eta = n_i/n_t
+// (relative IOR along the incident side: entering = 1/ior, exiting = ior). Returns 1 beyond the critical
+// angle (total internal reflection) -- the branch that keeps interior bounces energy-correct.
+public float F_Dielectric(float cosI, float eta)
+{
+    cosI = clamp(cosI, 0.0, 1.0);
+    float s2 = eta * eta * (1.0 - cosI * cosI);   // sin^2(theta_t) via Snell
+    if (s2 >= 1.0) return 1.0;                     // total internal reflection
+    float cosT = sqrt(1.0 - s2);
+    float rs = (eta * cosI - cosT) / (eta * cosI + cosT);
+    float rp = (cosI - eta * cosT) / (cosI + eta * cosT);
+    return 0.5 * (rs * rs + rp * rp);
+}
+
 // Anisotropic GGX NDF (Heitz). at/ab = roughness^2 along the tangent/bitangent; reduces to D_GGX at at==ab.
 public float D_GGX_Aniso(float ToH, float BoH, float NoH, float at, float ab)
 {
@@ -77,17 +91,22 @@ public struct SurfaceBRDF
     public float  metallic, roughness;
     public float  clearcoat, clearcoatRoughness;
     public float  anisotropy;   // 0 (or tangentless mesh) -> isotropic fast path
+    public float  transmission; // dielectric transmission weight [0,1]; 0 = legacy fast paths
+    public float  relEta;       // n_incident/n_transmitted on V's side (entering 1/ior, exiting ior)
 }
 
 // Build the shading frame once: Gram-Schmidt the tangent vs the (perturbed) N, restore the mesh handedness
 // from the passed bitangent, rotate in the T/B plane. Zeroes anisotropy when no usable tangent exists.
 public SurfaceBRDF MakeSurfaceBRDF(float3 N, float3 T, float3 B, bool hasTangent, float3 albedo,
                                    float metallic, float roughness, float clearcoat,
-                                   float clearcoatRoughness, float anisotropy, float anisotropyRotation)
+                                   float clearcoatRoughness, float anisotropy, float anisotropyRotation,
+                                   float transmission, float ior, bool frontFace)
 {
     SurfaceBRDF s;
     s.N = N; s.albedo = albedo; s.metallic = metallic; s.roughness = roughness;
     s.clearcoat = clearcoat; s.clearcoatRoughness = clearcoatRoughness;
+    s.transmission = transmission;
+    s.relEta = frontFace ? (1.0 / max(ior, 1.0)) : max(ior, 1.0);   // enter: 1/ior, exit: ior
 
     float3 To = T - dot(T, N) * N;                       // project the tangent onto the surface plane
     bool   ok = hasTangent && dot(To, To) > 1.0e-8;
@@ -107,7 +126,8 @@ public SurfaceBRDF MakeSurfaceBRDF(float3 N, float3 T, float3 B, bool hasTangent
 public float3 EvalSurfBRDFTimesNdotL(float3 L, float3 radiance, float3 V, SurfaceBRDF s)
 {
     bool anisoActive = abs(s.anisotropy) > 1.0e-3;
-    if (!anisoActive && s.clearcoat <= 0.0)
+    bool glassActive = s.transmission > 0.0;
+    if (!anisoActive && s.clearcoat <= 0.0 && !glassActive)
         return EvalBRDFTimesNdotL(L, radiance, V, s.N, s.albedo, s.metallic, s.roughness);
 
     float NdotL = dot(s.N, L);
@@ -120,6 +140,14 @@ public float3 EvalSurfBRDFTimesNdotL(float3 L, float3 radiance, float3 V, Surfac
     float  HoV = max(dot(H, V), 0.0);
     float3 F0  = lerp(float3(0.04), s.albedo, s.metallic);
     float3 F   = F_Schlick(HoV, F0);
+    float  tw  = 0.0;
+    if (glassActive)
+    {
+        // Interface reflection: blend the Schlick F toward the exact dielectric Fresnel by the transmission
+        // weight, so a glass interface reflects with the correct IOR-driven Fresnel (incl. the TIR ceiling).
+        tw = s.transmission * (1.0 - s.metallic);
+        F  = lerp(F, float3(F_Dielectric(HoV, s.relEta)), tw);
+    }
 
     float3 spec;
     if (anisoActive)
@@ -140,7 +168,9 @@ public float3 EvalSurfBRDFTimesNdotL(float3 L, float3 radiance, float3 V, Surfac
     }
 
     float3 kD   = (float3(1.0) - F) * (1.0 - s.metallic);
-    float3 base = kD * s.albedo / kPi + spec;
+    float3 diff = kD * s.albedo / kPi;
+    if (glassActive) diff *= (1.0 - tw);   // diffuse energy re-routed into the transmission lobe (sampled, not evaluated here)
+    float3 base = diff + spec;
 
     if (s.clearcoat > 0.0)
     {
@@ -158,6 +188,50 @@ public float G1_GGX(float NdotX, float alpha)
 {
     float a2 = alpha * alpha;
     return 2.0 * NdotX / max(NdotX + sqrt(a2 + (1.0 - a2) * NdotX * NdotX), 1.0e-6);
+}
+
+// ---- Dielectric transmission (Walter 2007 rough-refraction GGX BTDF) ----
+// Refraction half-vector, normalized into N's hemisphere. relEta = n_i/n_t on V's side; at L = -V
+// (straight through) it collapses to N. A valid transmission config has VoH > 0, LoH < 0.
+public float3 GlassHalfVector(float3 V, float3 L, float relEta, float3 N)
+{
+    float3 h = normalize(relEta * V + L);
+    return (dot(h, N) < 0.0) ? -h : h;
+}
+
+// VNDF transmission pdf (reuses G1_GGX + D_GGX). d = relEta*VoH + LoH; transmission Jacobian |LoH|/d^2.
+// Zero unless the sidedness is a valid refraction, so it composes into the PT mixture pdf cleanly.
+public float PdfGlassBTDF(float3 N, float3 V, float3 L, float roughness, float relEta)
+{
+    float3 h   = GlassHalfVector(V, L, relEta, N);
+    float  VoH = dot(V, h), LoH = dot(L, h);
+    if (VoH <= 0.0 || LoH >= 0.0) return 0.0;
+    float NoV = max(dot(N, V), 1.0e-4);
+    float a   = roughness * roughness;
+    float d   = relEta * VoH + LoH;
+    float Dv  = G1_GGX(NoV, a) * VoH * D_GGX(N, h, roughness) / NoV;   // VNDF density
+    return Dv * abs(LoH) / max(d * d, 1.0e-6);
+}
+
+// CONTRACT: symmetric BTDF -- the (eta_o/eta_i)^2 radiance-compression factor is intentionally omitted; a
+// camera path through a closed interface enters AND exits so it cancels, and the raster refraction seam
+// carries no such factor. PdfGlassBTDF + path_trace's mixture weight assume this convention. Separable
+// Smith G2 = G1(V)*G1(L) keeps eval/pdf mutually consistent. see arch/rendering-pipeline.md
+public float3 EvalGlassBTDFTimesNdotL(float3 L, float3 V, SurfaceBRDF s)
+{
+    float tw = s.transmission * (1.0 - s.metallic);
+    if (tw <= 0.0) return float3(0.0);
+    float3 h   = GlassHalfVector(V, L, s.relEta, s.N);
+    float  VoH = dot(V, h), LoH = dot(L, h);
+    if (VoH <= 0.0 || LoH >= 0.0) return float3(0.0);
+    float NoV = max(dot(s.N, V), 1.0e-4);
+    float NoL = abs(dot(s.N, L));
+    float a   = s.roughness * s.roughness;
+    float F   = F_Dielectric(VoH, s.relEta);
+    float d   = s.relEta * VoH + LoH;
+    float ft  = D_GGX(s.N, h, s.roughness) * G1_GGX(NoV, a) * G1_GGX(NoL, a)
+              * VoH * (-LoH) / max(NoV * d * d, 1.0e-6);   // f_t * |NoL|, the |NoL| denom cancelled
+    return s.albedo * (tw * (1.0 - F) * ft);               // baseColor = interface tint (glTF semantics)
 }
 
 // Sample a VNDF half-vector (Heitz 2018) given the tangent-space view Ve (N = +Z). Natively anisotropic:
