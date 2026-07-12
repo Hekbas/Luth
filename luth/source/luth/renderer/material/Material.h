@@ -25,10 +25,12 @@ namespace Luth
         Normal      = 2,
         Metalness   = 3,
         Roughness   = 4,
-        Specular    = 5,
+        Specular    = 5,   // legacy spec-gloss (baked to metal-rough at import, unsampled); kept for .mat back-compat
         Occlusion   = 6,
         Emissive    = 7,
-        Thickness   = 8
+        Thickness   = 8,
+        Height      = 9,   // parallax-occlusion displacement -> GPUMaterialData::heightIndex
+        Decal       = 10   // UV-space decal RGBA -> GPUMaterialData::decalIndex
     };
 
     struct MapInfo {
@@ -46,7 +48,7 @@ namespace Luth
     //
     // flags layout (u32):
     //   bits 0-7   : HAS_* per map (NORMAL=0, METALROUGH=1, OCCLUSION=2, DIFFUSE=3,
-    //                EMISSIVE=4, ALPHA=5, SPECULAR=6, THICKNESS=7)
+    //                EMISSIVE=4, ALPHA=5, HEIGHT=6, THICKNESS=7)
     //   bits 8-15  : node-graph eval variant (0 = stock decode; RT megakernel dispatch)
     //   bits 16-23 : UV index per map (2 bits each: DIFFUSE@16, NORMAL@18,
     //                METALROUGH@20, OCCLUSION@22)
@@ -62,8 +64,8 @@ namespace Luth
         u32 occlusionIndex = 0;
         u32 emissiveIndex = 0;
         u32 alphaIndex = 0;      // reserved; written by UpdateGPUData, unsampled by any shader
-        u32 specularIndex = 0;   // (no dedicated-opacity / spec-gloss / thickness-SSS path yet)
-        u32 thicknessIndex = 0;
+        u32 heightIndex = 0;     // parallax displacement map (repurposed the dead specular slot); sampled by GraphParallax
+        u32 thicknessIndex = 0;  // reserved; written by UpdateGPUData, unsampled by any shader
 
         // Factors
         f32 metalness = 0.0f;
@@ -74,10 +76,15 @@ namespace Luth
         // Emissive: rgb = factor (linear), a = HDR strength. Emission = rgb * a, modulated by the
         // emissive texture when FLAG_HAS_EMISSIVE is set. Byte 64, std430 vec4-aligned (no padding).
         Vec4 emissive = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+        // Decal RGBA (rgb color, a coverage); sampled by GraphDecal. decalIndex@80; the trailing 12 B
+        // are the std430 vec4-alignment tail (struct rounds to 96), reserved as spare map slots.
+        u32 decalIndex = 0;
+        u32 reserved0 = 0, reserved1 = 0, reserved2 = 0;
     };
     // std430 layout must stay byte-identical to material.slang's GPUMaterialData; MaterialLayoutGuard
     // cross-checks the field offsets at init; a desync silently corrupts every material index > 0.
-    static_assert(sizeof(GPUMaterialData) == 80, "GPUMaterialData std430 layout must stay 80 B");
+    static_assert(sizeof(GPUMaterialData) == 96, "GPUMaterialData std430 layout must stay 96 B");
 
     // Per-material graph-constant stride (float4 slots/material). invariant: matches material.slang MAT_GRAPH_STRIDE;
     // shader paramBase = materialIndex * MAT_GRAPH_STRIDE indexes gMatParams; drift cross-corrupts. Bounds value nodes.

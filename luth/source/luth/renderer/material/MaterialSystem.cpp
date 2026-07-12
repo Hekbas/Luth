@@ -37,13 +37,14 @@ namespace Luth
             { "occlusionIndex",  offsetof(GPUMaterialData, occlusionIndex) },
             { "emissiveIndex",   offsetof(GPUMaterialData, emissiveIndex) },
             { "alphaIndex",      offsetof(GPUMaterialData, alphaIndex) },
-            { "specularIndex",   offsetof(GPUMaterialData, specularIndex) },
+            { "heightIndex",     offsetof(GPUMaterialData, heightIndex) },
             { "thicknessIndex",  offsetof(GPUMaterialData, thicknessIndex) },
             { "metalness",       offsetof(GPUMaterialData, metalness) },
             { "roughness",       offsetof(GPUMaterialData, roughness) },
             { "alphaCutoff",     offsetof(GPUMaterialData, alphaCutoff) },
             { "flags",           offsetof(GPUMaterialData, flags) },
             { "emissive",        offsetof(GPUMaterialData, emissive) },
+            { "decalIndex",      offsetof(GPUMaterialData, decalIndex) },
         };
         MaterialLayoutGuard::Validate(FileSystem::EngineAssetsPath("shaders/common/material.slang"),
                                       "GPUMaterialData", kFields, sizeof(GPUMaterialData));

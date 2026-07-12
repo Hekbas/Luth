@@ -35,7 +35,7 @@ namespace Luth
                 case MapType::Occlusion: return "fetch.Sample(m.occlusionIndex, SelectUV(m.flags, UV_SHIFT_OCCLUSION, uv0, uv1))";
                 case MapType::Emissive:  return "fetch.Sample(m.emissiveIndex, uv0)";
                 case MapType::Alpha:     return "fetch.Sample(m.alphaIndex, uv0)";
-                case MapType::Specular:  return "fetch.Sample(m.specularIndex, uv0)";
+                case MapType::Height:    return "fetch.Sample(m.heightIndex, uv0)";
                 case MapType::Thickness: return "fetch.Sample(m.thicknessIndex, uv0)";
                 default:                 return "float4(0.0)";
             }
@@ -54,7 +54,7 @@ namespace Luth
                 case MapType::Occlusion: idx = "m.occlusionIndex";  break;
                 case MapType::Emissive:  idx = "m.emissiveIndex";   break;
                 case MapType::Alpha:     idx = "m.alphaIndex";      break;
-                case MapType::Specular:  idx = "m.specularIndex";   break;
+                case MapType::Height:    idx = "m.heightIndex";     break;
                 case MapType::Thickness: idx = "m.thicknessIndex";  break;
                 default:                 return "float4(0.0)";
             }
@@ -74,7 +74,7 @@ namespace Luth
                 case MapType::Occlusion: return "m.occlusionIndex";
                 case MapType::Emissive:  return "m.emissiveIndex";
                 case MapType::Alpha:     return "m.alphaIndex";
-                case MapType::Specular:  return "m.specularIndex";
+                case MapType::Height:    return "m.heightIndex";
                 case MapType::Thickness: return "m.thicknessIndex";
                 default:                 return "m.diffuseIndex";
             }
@@ -84,7 +84,8 @@ namespace Luth
         {
             return t == MatNodeType::ConstFloat || t == MatNodeType::ConstColor || t == MatNodeType::Remap
                 || t == MatNodeType::Noise      || t == MatNodeType::Fresnel
-                || t == MatNodeType::Triplanar  || t == MatNodeType::DetailNormal;
+                || t == MatNodeType::Triplanar  || t == MatNodeType::DetailNormal
+                || t == MatNodeType::Parallax   || t == MatNodeType::Decal;
         }
 
         u8 InputCount(MatNodeType t)
@@ -100,7 +101,7 @@ namespace Luth
                 case MatNodeType::Multiply: case MatNodeType::Add: case MatNodeType::StaticSwitch:
                 case MatNodeType::Subtract: case MatNodeType::Divide: case MatNodeType::Power:
                 case MatNodeType::Min: case MatNodeType::Max: case MatNodeType::Dot:
-                case MatNodeType::DetailNormal:
+                case MatNodeType::DetailNormal: case MatNodeType::Decal:
                     return 2;
                 default:
                     return 1;   // Remap / Split / Noise / TextureSample UV pin (value + context nodes leave slot 0 unlinked)
@@ -286,6 +287,24 @@ namespace Luth
                     case MatNodeType::Triplanar:     return "GraphTriplanar<F>(fetch, " + std::string(TexSampleIndexToken(n.tex)) + ", fetch.WorldPos(), fetch.WorldNormal(), fetch.Param(" + std::to_string(paramSlot.at(n.id)) + ").x)";
                     case MatNodeType::DetailNormal:  return "GraphDetailNormal(" + Input(n, 0) + ", " + Input(n, 1) + ", fetch.Param(" + std::to_string(paramSlot.at(n.id)) + ").x)";
                     case MatNodeType::LayerBlend:    return "GraphLayerBlend(" + InputLayer(n, 0) + ", " + InputLayer(n, 1) + ", (" + Input(n, 2) + ").x)";
+                    case MatNodeType::Parallax:
+                    {
+                        // Optional UV input (slot 0) defaults to uv0; always marches the material's height map.
+                        std::string uv = "float4(uv0, 0.0, 0.0)";
+                        if (const MatLink* l = Incoming(g, n.id, 0))
+                            if (seq.count(l->fromNode)) uv = SourceExpr(*byId.at(l->fromNode), l->fromSlot);
+                        return "GraphParallax<F>(fetch, m.heightIndex, (" + uv
+                             + ").xy, fetch.TangentViewDir(), fetch.Param(" + std::to_string(paramSlot.at(n.id)) + "))";
+                    }
+                    case MatNodeType::Decal:
+                    {
+                        // Base layer (slot 0, stock fallback via InputLayer); optional UV (slot 1) defaults uv0.
+                        std::string uv = "float4(uv0, 0.0, 0.0)";
+                        if (const MatLink* l = Incoming(g, n.id, 1))
+                            if (seq.count(l->fromNode)) uv = SourceExpr(*byId.at(l->fromNode), l->fromSlot);
+                        return "GraphDecal<F>(fetch, m.decalIndex, " + InputLayer(n, 0) + ", (" + uv
+                             + ").xy, fetch.Param(" + std::to_string(paramSlot.at(n.id)) + "))";
+                    }
                     default:                         return "float4(0.0)";
                 }
             }
@@ -324,7 +343,8 @@ namespace Luth
                 for (u32 id : order)
                 {
                     const MatNodeType t = byId.at(id)->type;
-                    if (t == MatNodeType::Triplanar || t == MatNodeType::DetailNormal || IsLayerNode(t))
+                    if (t == MatNodeType::Triplanar || t == MatNodeType::DetailNormal || IsLayerNode(t)
+                        || t == MatNodeType::Parallax)
                     { ss << "import effects;\n"; break; }
                 }
                 ss << "\n";
@@ -385,6 +405,7 @@ namespace Luth
             ss << "    rf.time      = ubo.time;\n";
             ss << "    rf.ndotv     = saturate(dot(normalize(i.normal), rf.viewDir));\n";
             ss << "    rf.worldNormal = normalize(i.normal);\n";
+            ss << "    rf.tangentViewDir = float3(dot(rf.viewDir, i.T), dot(rf.viewDir, i.B), dot(rf.viewDir, i.N));\n";
             ss << "    MaterialInputs mi = " << fnName << "<RasterFetch>(m, i.uv0, i.uv1, rf);\n";
             ss << "    return PbrShadeSurface(mi, m, i, frontFacing, fragCoord);\n";
             ss << "}\n";

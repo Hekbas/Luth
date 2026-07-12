@@ -297,7 +297,7 @@ namespace Luth
                     }
                 });
 
-                DrawSurfaceInput(MapType::Specular, "Specular", nullptr);
+                DrawSurfaceInput(MapType::Height, "Height", nullptr);
                 DrawSurfaceInput(MapType::Occlusion, "Occlusion", nullptr);
                 DrawSurfaceInput(MapType::Emissive, "Emissive", [&]() {
                     // Direct GPUData accessors (like Albedo); the u_* uniform channel never reached
@@ -317,6 +317,7 @@ namespace Luth
                 });
 
                 DrawSurfaceInput(MapType::Thickness, "Thickness", nullptr);
+                DrawSurfaceInput(MapType::Decal, "Decal", nullptr);
 
                 ImGui::EndTable();
             }
@@ -390,6 +391,14 @@ namespace Luth
                         case MatNodeType::DetailNormal:
                             if (UI::Property(label, n.value.x, 0.02f)) valueEdit = true;
                             if (ImGui::IsItemHovered()) ImGui::SetTooltip("detail-normal strength");
+                            break;
+                        case MatNodeType::Parallax:
+                            if (UI::Property(label, n.value.x, 0.002f)) valueEdit = true;
+                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("parallax height scale");
+                            break;
+                        case MatNodeType::Decal:
+                            if (UI::Property(label, n.value, 0.005f)) valueEdit = true;
+                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("(offset x, offset y, scale, rotation rad)");
                             break;
                         default: break;
                     }

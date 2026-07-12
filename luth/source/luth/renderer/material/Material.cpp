@@ -27,8 +27,9 @@ namespace Luth
         m_GPUData.occlusionIndex   = GetIndex(MapType::Occlusion);
         m_GPUData.emissiveIndex    = GetIndex(MapType::Emissive);
         m_GPUData.alphaIndex       = GetIndex(MapType::Alpha);
-        m_GPUData.specularIndex    = GetIndex(MapType::Specular);
+        m_GPUData.heightIndex      = GetIndex(MapType::Height);
         m_GPUData.thicknessIndex   = GetIndex(MapType::Thickness);
+        m_GPUData.decalIndex       = GetIndex(MapType::Decal);
 
         // metalness/roughness are direct GPUData fields (set via accessors / deserialize); the legacy
         // u_* uniform channel never reached the GPU (no Set-1 block in pbr). alphaCutoff stays derived.
@@ -47,7 +48,7 @@ namespace Luth
         SetHas(MapType::Diffuse,   3);
         SetHas(MapType::Emissive,  4);
         SetHas(MapType::Alpha,     5);
-        SetHas(MapType::Specular,  6);
+        SetHas(MapType::Height,    6);
         SetHas(MapType::Thickness, 7);
 
         auto PackUV = [&](MapType type, u32 bitOffset) {
@@ -361,6 +362,8 @@ namespace Luth
             case MapType::Roughness: return "Roughness";
             case MapType::Specular:  return "Specular";
             case MapType::Occlusion:  return "Occlusion";
+            case MapType::Height:    return "Height";
+            case MapType::Decal:     return "Decal";
             default: return "Unknown";
         }
     }

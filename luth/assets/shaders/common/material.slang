@@ -4,15 +4,17 @@
 // Resource-agnostic: bindings (raster set 1/2 vs RT set 4/3) + the ITexFetch impls live in
 // material_bindings_{raster,rt}.slang so one decode serves both set layouts. see arch/rendering-pipeline.md
 
-// 80 B std430, field-identical to C++ Material.h GPUMaterialData (MaterialLayoutGuard cross-checks).
+// 96 B std430, field-identical to C++ Material.h GPUMaterialData (MaterialLayoutGuard cross-checks).
 public struct GPUMaterialData
 {
     public float4 color;
     public uint   diffuseIndex, normalIndex, metalRoughIndex, occlusionIndex;
-    public uint   emissiveIndex, alphaIndex, specularIndex, thicknessIndex;  // alpha/spec/thickness reserved, unsampled
+    public uint   emissiveIndex, alphaIndex, heightIndex, thicknessIndex;  // alpha/thickness reserved; height feeds parallax
     public float  metalness, roughness, alphaCutoff;
     public uint   flags;          // bits 0-7 = HAS_* per map; bits 16-23 = per-map UV index (2 bits each)
     public float4 emissive;       // rgb = factor (linear), a = HDR strength
+    public uint   decalIndex;     // decal RGBA (rgb color, a coverage); sampled by GraphDecal
+    public uint   reserved0, reserved1, reserved2;  // std430 vec4-align tail; spare map slots
 }
 
 public static const uint FLAG_HAS_NORMAL     = (1u << 0);
@@ -64,6 +66,12 @@ public interface ITexFetch
     float  Time();
     float  NdotV();     // vertex/smooth normal (pre-normal-map) . ViewDir; graphed normals never feed back
     float3 WorldNormal();   // world-space smooth normal, pre-perturb; Triplanar blend weights
+    // Tangent-space view dir (toward camera); parallax marches in this frame. Filled per tier from the
+    // local TBN at each graph-hosting decode site; __init straight-on (0,0,1) = zero parallax.
+    float3 TangentViewDir();
+    // Explicit-LOD sample. The parallax raymarch taps the height map at a fixed LOD in BOTH tiers: raster
+    // .Sample's implicit gradient is undefined under the divergent march loop, and RT has none at a hit.
+    float4 SampleLod(uint index, float2 uv, float lod);
 }
 
 // Channel decode: bit-identical between tiers modulo the Sample-vs-SampleLevel inside F. Leaves .normal

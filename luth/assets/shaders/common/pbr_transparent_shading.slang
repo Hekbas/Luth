@@ -59,6 +59,7 @@ public float4 EvalTransparentSurfaceColor(uint materialIndex, uint shadeMode, fl
     rf.time      = ubo.time;
     rf.ndotv     = saturate(dot(normalize(N), rf.viewDir));
     rf.worldNormal = normalize(N);
+    rf.tangentViewDir = float3(dot(rf.viewDir, T), dot(rf.viewDir, B), dot(rf.viewDir, N));
     MaterialInputs mi = EvalGraphVariant<RasterFetch>(GraphVariant(m.flags), m, uv0, uv1, rf);
     mi.baseColor *= vertexColor;   // per-vertex color modulates albedo (matches the opaque path); white = no-op
     if (mi.baseColor.a < m.alphaCutoff) discard;

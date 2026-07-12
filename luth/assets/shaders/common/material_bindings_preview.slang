@@ -26,14 +26,17 @@ public struct PreviewFetch : ITexFetch
     public float  time;
     public float  ndotv;
     public float3 worldNormal;   // canned like worldPos; Triplanar previews flat (stable), same as WorldPos nodes
-    public __init() { paramBase = 0; worldPos = float3(0.0); viewDir = float3(0.0, 0.0, 1.0); time = 0.0; ndotv = 1.0; worldNormal = float3(0.0, 0.0, 1.0); }
+    public float3 tangentViewDir; // canned straight-on; parallax previews flat, same as Triplanar/WorldPos nodes
+    public __init() { paramBase = 0; worldPos = float3(0.0); viewDir = float3(0.0, 0.0, 1.0); time = 0.0; ndotv = 1.0; worldNormal = float3(0.0, 0.0, 1.0); tangentViewDir = float3(0.0, 0.0, 1.0); }
     public float4 Sample(uint index, float2 uv) { return gTextures[NonUniformResourceIndex(index)].Sample(uv); }
+    public float4 SampleLod(uint index, float2 uv, float lod) { return gTextures[NonUniformResourceIndex(index)].SampleLevel(uv, lod); }
     public float4 Param(uint slot) { return gPreview.params[slot]; }
     public float3 WorldPos() { return worldPos; }
     public float3 ViewDir()  { return viewDir; }
     public float  Time()     { return time; }
     public float  NdotV()    { return ndotv; }
     public float3 WorldNormal() { return worldNormal; }
+    public float3 TangentViewDir() { return tangentViewDir; }
 }
 
 // Vertex->fragment varyings the generated thumbnail_graph consumer reads (matches thumbnail_graph.vert).
