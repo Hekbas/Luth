@@ -182,6 +182,25 @@
 > `KHR_materials_sheen` import. **Deferred:** sheen texture maps, the EK terminator-softening tweak,
 > Kulla-Conty multiscatter.
 
+> **Subsurface scattering (`shading-models`, v3.12.0).** Skin / wax / marble SSS. `MaterialInputs` +
+> `brdf.slang` gain `subsurfaceColor` (diffusion surface albedo A) + `scatterRadius` (mean-free-path);
+> `GPUMaterialData` 144 -> 160 B (`MaterialLayoutGuard` cross-checked). SSS is a diffusion / multi-scatter
+> phenomenon, so raster and the path tracer are **different techniques converging on the same look** (the
+> dielectric-effort pattern; research-backed + user-confirmed). **Raster / analytic: a LOCAL diffusion model
+> in the shared `SurfaceBRDF`** -- a curvature-free Burley-profile wrapped diffuse (softened + per-RGB-reddened
+> terminator via `s(A) = 1.85 - A + 7|A-0.8|^3`, monotone so a scalar radius auto-gives red-widest scatter) +
+> a Frostbite thickness translucency term, both added past the `NdotL <= 0` horizon; no screen-space pass
+> (the forward+ pass has no diffuse/spec separation, and UE itself restricts separable SSSS to deferred/PT).
+> **PathTrace: a random-walk oracle** -- the `SampleBSDF` diffuse lobe enters a scattering interior (Chiang
+> albedo -> sigma), a free-flight collision walk (per-channel scatter albedo, isotropic phase) reusing the
+> glass medium machinery. raster==RT through the one `SurfaceBRDF` seam (analytic sun/spot/cluster + PT NEE);
+> **screen-space DI/reflections stay SSS-free (Option A)**. invariant: at `subsurfaceColor == 0` every
+> consumer -- including the PT `RandFromSeed` stream (`sigmaS == 0` skips the walk) -- is bit-identical.
+> Authoring: subsurface + thickness texture maps (emissive pattern; the dead `alphaIndex` slot repurposed to
+> `subsurfaceIndex`, 160 B held) + graph pins (Output/MakeLayer slots 18/19). **Deferred:** in-medium NEE +
+> spectral free-flight MIS (direct-lit SSS rides the local model; the walk carries env/indirect non-local
+> transport), tuning of `kSssWrap`/`kSssDistort`/`kSssPower`, screen-space separable SSSS (forward+ deviation).
+
 ## Current RenderGraph Pass Order
 
 ```
