@@ -326,7 +326,7 @@ namespace Luth
 
         ImGui::Dummy({ 0, 4 });
 
-        // Clear-coat / anisotropy / transmission / sheen shading-model factors (uber path; live per-frame data).
+        // Clear-coat / anisotropy / transmission / sheen / subsurface shading-model factors (uber path; live data).
         if (UI::BeginCollapsingHeader("Shading Model", true))
         {
             if (UI::BeginProperties("ShadingModelProps"))
@@ -358,6 +358,12 @@ namespace Luth
                 if (UI::PropertyColor("Sheen Color", sc)) { material.SetSheenColor(Vec3(sc)); material.MarkDirty(); }
                 float shr = material.GetSheenRoughness();
                 if (UI::Property("Sheen Roughness", shr, 0.01f, 0.0f, 1.0f)) { material.SetSheenRoughness(shr); material.MarkDirty(); }
+
+                // Subsurface (skin/wax/marble): a non-black color enables the diffusion; radius = scatter mfp.
+                Vec4 ssc(material.GetSubsurfaceColor(), 1.0f);
+                if (UI::PropertyColor("Subsurface Color", ssc)) { material.SetSubsurfaceColor(Vec3(ssc)); material.MarkDirty(); }
+                float ssr = material.GetScatterRadius();
+                if (UI::Property("Scatter Radius", ssr, 0.01f, 0.0f, 10.0f)) { material.SetScatterRadius(ssr); material.MarkDirty(); }
                 UI::EndProperties();
             }
             UI::EndCollapsingHeader();

@@ -50,6 +50,8 @@ public MaterialInputs GraphLayerBlend(MaterialInputs a, MaterialInputs b, float 
     o.anisotropyRotation = lerp(a.anisotropyRotation, b.anisotropyRotation, t);
     o.sheenColor         = lerp(a.sheenColor, b.sheenColor, t);
     o.sheenRoughness     = clamp(lerp(a.sheenRoughness, b.sheenRoughness, t), 0.04, 1.0);
+    o.subsurfaceColor    = lerp(a.subsurfaceColor, b.subsurfaceColor, t);
+    o.scatterRadius      = lerp(a.scatterRadius, b.scatterRadius, t);
     float3 n = lerp(a.normal, b.normal, t);
     o.normal = (dot(n, n) > 1e-8) ? normalize(n) : float3(0.0, 0.0, 1.0);
     return o;
