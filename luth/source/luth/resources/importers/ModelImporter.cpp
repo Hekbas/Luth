@@ -45,6 +45,7 @@ namespace Luth
         ModelImportSettings s;
         s.ImportNormals                = j.value("import_normals", true);
         s.ImportTangents               = j.value("import_tangents", false);
+        s.RecalculateNormals           = j.value("recalculate_normals", false);
         s.OptimizeMesh                 = j.value("optimize_mesh", true);
         s.MarkDeformable               = j.value("mark_deformable", false);
         s.ScaleFactor                  = j.value("scale_factor", 1.0f);
@@ -66,6 +67,7 @@ namespace Luth
         return {
             { "import_normals",                  ImportNormals },
             { "import_tangents",                 ImportTangents },
+            { "recalculate_normals",             RecalculateNormals },
             { "optimize_mesh",                   OptimizeMesh },
             { "mark_deformable",                 MarkDeformable },
             { "scale_factor",                    ScaleFactor },
@@ -1209,7 +1211,18 @@ namespace Luth
         // Build Assimp post-process flags from settings
         u32 flags = aiProcess_Triangulate | aiProcess_FlipUVs
             | aiProcess_JoinIdenticalVertices | aiProcess_LimitBoneWeights;
-        if (settings.ImportNormals)  flags |= aiProcess_GenSmoothNormals;
+        if (settings.RecalculateNormals)
+        {
+            // Force smooth regeneration: Gen*Normals / CalcTangentSpace both SKIP meshes that already carry the
+            // attribute, so strip the source's baked normals AND tangents first. GenSmoothNormals then averages
+            // face normals by position (not shared index, so split meshes smooth), keeping edges above the angle
+            // hard; CalcTangentSpace (added below) rebuilds tangents from the fresh smooth normals.
+            importer.SetPropertyInteger(AI_CONFIG_PP_RVC_FLAGS,
+                                        aiComponent_NORMALS | aiComponent_TANGENTS_AND_BITANGENTS);
+            importer.SetPropertyFloat(AI_CONFIG_PP_GSN_MAX_SMOOTHING_ANGLE, 60.0f);
+            flags |= aiProcess_RemoveComponent | aiProcess_GenSmoothNormals;
+        }
+        else if (settings.ImportNormals) flags |= aiProcess_GenSmoothNormals;
         flags |= aiProcess_CalcTangentSpace;   // always: the vertex format now carries tangent.w (handedness sign)
         if (settings.OptimizeMesh)   flags |= aiProcess_OptimizeMeshes;
 

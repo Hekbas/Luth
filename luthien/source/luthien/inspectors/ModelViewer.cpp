@@ -81,6 +81,10 @@ namespace Luth
                     m_Settings.UpAxis = upAxisUI - 1;
 
                 UI::Property("Import Normals", m_Settings.ImportNormals);
+                UI::Property("Recalculate Normals", m_Settings.RecalculateNormals);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Discard the source's baked normals and regenerate smooth ones\n"
+                                      "(edges above 60 deg stay hard). Fixes faceted round meshes. Needs Apply (reimport).");
                 UI::Property("Import Tangents", m_Settings.ImportTangents);
                 UI::Property("Optimize Mesh", m_Settings.OptimizeMesh);
                 UI::Property("Mark Deformable", m_Settings.MarkDeformable);

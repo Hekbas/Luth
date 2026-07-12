@@ -19,6 +19,9 @@ namespace Luth
         // Geometry
         bool ImportNormals    = true;
         bool ImportTangents   = false;
+        // Discard the source's baked normals and regenerate smooth ones (edges sharper than ~60 deg stay
+        // hard). Fixes DCC exports that shipped faceted/hard normals on round meshes; tangents recalc after.
+        bool RecalculateNormals = false;
         bool OptimizeMesh     = true;
         // Wind-deformable: route this model's STATIC meshes through the GPU deform seam (per-frame
         // deform compute + refittable BLAS) so global wind bends them, RT-correct. Ignored for skinned.
