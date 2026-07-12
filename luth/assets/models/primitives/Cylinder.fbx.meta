@@ -3,6 +3,7 @@
     "type_settings": {
         "bake_axis_conversion": true,
         "import_normals": true,
+        "recalculate_normals": true,
         "import_tangents": false,
         "optimize_mesh": true,
         "scale_factor": 1.0,
