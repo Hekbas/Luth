@@ -162,6 +162,26 @@
 > refracted NEE / colored shadows (shadow rays keep the SOLID mask so glass casts no colored shadow),
 > anisotropic glass lobe, nested media, Kulla-Conty multiscatter.
 
+> **Production sheen (`shading-models`, v3.12.0).** Estevez-Kulla 2017 cloth sheen (fabric / velvet /
+> banners / robes): `MaterialInputs` + `brdf.slang` gain `sheenColor` + `sheenRoughness` (`GPUMaterialData`
+> 128 -> 144 B, `MaterialLayoutGuard` cross-checked). `brdf.slang` adds the "Charlie" NDF (`D_Charlie`,
+> `alpha = sheenRoughness^2`), the paper's fitted **soft** shadowing (`V_Charlie` -- height-uncorrelated
+> Smith Lambda, NOT the cheaper Neubelt/Ashikhmin), and a bespoke analytic sheen directional albedo
+> (`E_Sheen`, ~2% fit, no split-sum LUT touched -- published fits target the Neubelt lobe). The lobe is
+> Fresnel-free (`sheenColor` is the reflectance) and layers **under** the coat in `EvalSurfBRDFTimesNdotL`,
+> energy-compensated so the base attenuates by `1 - max(sheenColor) * E_Sheen(NoV)` (Filament view-side
+> model). raster==RT through the one `SurfaceBRDF` seam: analytic sun/spot/cluster, IBL (a sheen env lobe
+> folded into `envBRDF`/`specularIBL` so the RT-reflection swap stays correct), the PT NEE, and the PT
+> `SampleBSDF` `fCos` -- sheen rides the existing diffuse cosine lobe (broad retroreflective, hemisphere
+> support), so `SampleBSDF` gains no lobe and no RNG draw; it only folds `wSheen` into the diffuse-side
+> selection weight. invariant: at `sheenColor == 0` the eval takes the fast path and `wSheen` folds to
+> `+0.0`, so every consumer (incl. the PT random stream) is bit-identical. **Documented deviation (Option
+> A):** the slim G-buffer carries no sheen channel, so screen-space ReSTIR DI point lights + RT
+> reflections/GI secondary hits (diffuse-only reconnection) stay sheen-free; the analytic path and the
+> PathTrace reference are the sheened refs. Graph pins (Output/MakeLayer slots 16/17, append-only) + glTF
+> `KHR_materials_sheen` import. **Deferred:** sheen texture maps, the EK terminator-softening tweak,
+> Kulla-Conty multiscatter.
+
 ## Current RenderGraph Pass Order
 
 ```
