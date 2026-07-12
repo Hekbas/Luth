@@ -26,7 +26,7 @@ namespace Luth
         m_GPUData.metalRoughIndex  = GetIndex(MapType::Metalness);
         m_GPUData.occlusionIndex   = GetIndex(MapType::Occlusion);
         m_GPUData.emissiveIndex    = GetIndex(MapType::Emissive);
-        m_GPUData.alphaIndex       = GetIndex(MapType::Alpha);
+        m_GPUData.subsurfaceIndex  = GetIndex(MapType::Subsurface);
         m_GPUData.heightIndex      = GetIndex(MapType::Height);
         m_GPUData.thicknessIndex   = GetIndex(MapType::Thickness);
         m_GPUData.decalIndex       = GetIndex(MapType::Decal);
@@ -42,14 +42,14 @@ namespace Luth
             if (GetTextureByType(type) && IsUseMapEnabled(type))
                 m_GPUData.flags |= (1u << bit);
         };
-        SetHas(MapType::Normal,    0);
-        SetHas(MapType::Metalness, 1);
-        SetHas(MapType::Occlusion, 2);
-        SetHas(MapType::Diffuse,   3);
-        SetHas(MapType::Emissive,  4);
-        SetHas(MapType::Alpha,     5);
-        SetHas(MapType::Height,    6);
-        SetHas(MapType::Thickness, 7);
+        SetHas(MapType::Normal,     0);
+        SetHas(MapType::Metalness,  1);
+        SetHas(MapType::Occlusion,  2);
+        SetHas(MapType::Diffuse,    3);
+        SetHas(MapType::Emissive,   4);
+        SetHas(MapType::Subsurface, 5);
+        SetHas(MapType::Height,     6);
+        SetHas(MapType::Thickness,  7);
 
         auto PackUV = [&](MapType type, u32 bitOffset) {
             auto idx = GetUVIndex(type);
@@ -108,6 +108,38 @@ namespace Luth
         // Metalness/roughness: direct GPUData fields (the u_* uniform channel is dead).
         json["metalness"] = m_GPUData.metalness;
         json["roughness"] = m_GPUData.roughness;
+
+        // Shading-model factors: written only when non-default, so materials that use neither stay byte-stable.
+        if (m_GPUData.clearcoat != 0.0f)          json["clearcoat"] = m_GPUData.clearcoat;
+        if (m_GPUData.clearcoatRoughness != 0.0f) json["clearcoat_roughness"] = m_GPUData.clearcoatRoughness;
+        if (m_GPUData.anisotropy != 0.0f)         json["anisotropy"] = m_GPUData.anisotropy;
+        if (m_GPUData.anisotropyRotation != 0.0f) json["anisotropy_rotation"] = m_GPUData.anisotropyRotation;
+
+        // Dielectric transmission: written only when non-default (glass materials), pre-feature .mat stays byte-stable.
+        if (m_GPUData.ior != 1.5f)                json["ior"] = m_GPUData.ior;
+        if (m_GPUData.transmission != 0.0f)       json["transmission"] = m_GPUData.transmission;
+        if (m_GPUData.thickness != 0.0f)          json["thickness"] = m_GPUData.thickness;
+        const Vec4& att = m_GPUData.attenuation;
+        if (att.x != 1.0f || att.y != 1.0f || att.z != 1.0f || att.w != 0.0f)
+            json["attenuation"] = { att.x, att.y, att.z, att.w };
+
+        // Sheen: written only when a non-black color is set (roughness rides along), so sheen-free
+        // materials stay byte-stable. A black sheenColor takes the BRDF fast path, so roughness is moot.
+        const Vec4& sh = m_GPUData.sheen;
+        if (sh.x != 0.0f || sh.y != 0.0f || sh.z != 0.0f)
+        {
+            json["sheenColor"]     = { sh.x, sh.y, sh.z };
+            json["sheenRoughness"] = sh.w;
+        }
+
+        // Subsurface: written only when a non-black color is set (radius rides along), so SSS-free
+        // materials stay byte-stable (black subsurfaceColor takes the BRDF fast path).
+        const Vec4& ss = m_GPUData.subsurface;
+        if (ss.x != 0.0f || ss.y != 0.0f || ss.z != 0.0f)
+        {
+            json["subsurfaceColor"] = { ss.x, ss.y, ss.z };
+            json["scatterRadius"]   = ss.w;
+        }
 
         // Serialize Uniforms
         nlohmann::json uniformsJson;
@@ -226,6 +258,37 @@ namespace Luth
         }
         m_GPUData.metalness = json.value("metalness", legacyMetal);
         m_GPUData.roughness = json.value("roughness", legacyRough);
+
+        // Shading-model factors (0-default; absent key => inert, so pre-feature .mat files are unchanged).
+        m_GPUData.clearcoat          = json.value("clearcoat", 0.0f);
+        m_GPUData.clearcoatRoughness = json.value("clearcoat_roughness", 0.0f);
+        m_GPUData.anisotropy         = json.value("anisotropy", 0.0f);
+        m_GPUData.anisotropyRotation = json.value("anisotropy_rotation", 0.0f);
+
+        // Dielectric transmission (defaults keep glass inert; absent keys reset explicitly so a reused
+        // Material can't inherit a prior load's glass factors).
+        m_GPUData.ior          = json.value("ior", 1.5f);
+        m_GPUData.transmission = json.value("transmission", 0.0f);
+        m_GPUData.thickness    = json.value("thickness", 0.0f);
+        if (json.contains("attenuation") && json["attenuation"].is_array() && json["attenuation"].size() == 4)
+            m_GPUData.attenuation = Vec4(json["attenuation"][0], json["attenuation"][1],
+                                         json["attenuation"][2], json["attenuation"][3]);
+        else
+            m_GPUData.attenuation = Vec4(1.0f, 1.0f, 1.0f, 0.0f);
+
+        // Sheen (absent keys => inert black/0, reset explicitly so a reused Material can't inherit prior sheen).
+        if (json.contains("sheenColor") && json["sheenColor"].is_array() && json["sheenColor"].size() == 3)
+            m_GPUData.sheen = Vec4(json["sheenColor"][0], json["sheenColor"][1], json["sheenColor"][2],
+                                   json.value("sheenRoughness", 0.0f));
+        else
+            m_GPUData.sheen = Vec4(0.0f, 0.0f, 0.0f, json.value("sheenRoughness", 0.0f));
+
+        // Subsurface (absent keys => inert black/0, reset explicitly so a reused Material can't inherit prior SSS).
+        if (json.contains("subsurfaceColor") && json["subsurfaceColor"].is_array() && json["subsurfaceColor"].size() == 3)
+            m_GPUData.subsurface = Vec4(json["subsurfaceColor"][0], json["subsurfaceColor"][1], json["subsurfaceColor"][2],
+                                        json.value("scatterRadius", 0.0f));
+        else
+            m_GPUData.subsurface = Vec4(0.0f, 0.0f, 0.0f, json.value("scatterRadius", 0.0f));
 
         m_Maps.clear();
         for (const auto& texJson : json["textures"]) {
@@ -364,6 +427,7 @@ namespace Luth
             case MapType::Occlusion:  return "Occlusion";
             case MapType::Height:    return "Height";
             case MapType::Decal:     return "Decal";
+            case MapType::Subsurface: return "Subsurface";
             default: return "Unknown";
         }
     }

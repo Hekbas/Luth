@@ -30,7 +30,7 @@
 
 > **ReSTIR GI indirect diffuse (`rt-renderer.C.3`).** Ouyang 2021 — 1-bounce indirect-diffuse via per-pixel *path* reservoirs, four `AsyncCompute` passes after the TLAS build, sibling to C.1: `GiInitial` (cosine-hemisphere bounce → rayQuery **commit-hit** → secondary-hit `L_o` → 64 B `GIReservoir`) → `GiTemporal` → `GiSpatial` → `GiShade` (demodulated `E = L_o·NdotL·W`). Reuse carries a **reconnection Jacobian** (Ouyang Eq. 11; crossed cos/dist² ratios, both cosines at the sample point, reject [1/10,10] → clamp [1/3,3]) — the piece C.1 skipped (light-index reservoirs → identity shift). Spatial uses **RTXDI BASIC** `pi/piSum` bias correction. Device-local Garlic reservoir ping-pong + spatial buffer, reserved tags from `0xFFFF8000` (disjoint from DI's `0xFFFF0000`); the reservoir self-carries receiver pos+packed-normal (the packed normal MUST be a `uint` SSBO field via `packHalf2x16` — a `float` round-trip canonicalizes denormals). **Cross-frame reservoir reads import `prev` as `StorageBufferWrite`, not `Undefined`** — else the read barrier carries `srcAccess=0`, no availability op, and temporal never accumulates (the async-compute queue is chained frame-to-frame). **Real secondary-hit material (S3):** `instanceCustomIndex` is repurposed (was the unused entity id) to index a per-frame **geometry table** built in `TlasBuilder` in lockstep with the packed instances (`{vertexBDA, indexBDA, materialSlot, vertexStride}`, 24 B); `restir_gi_initial.slang` deref's the hit triangle via `GL_EXT_buffer_reference2` → barycentric UV + world-space geometric normal → bindless Material SSBO (set 3) + textures (set 4). The table's BDA rides the `GiPC` push constant, read at preflight from the same `m_LastResult` that binds Set 0 b6, so the table can never desync from the bound TLAS; `materialUUID` is folded into the TLAS rebuild hash so a runtime material swap on a static mesh forces a rebuild. **Denoise (S4):** a second channel-parameterized `SvgfDenoiser` instance (`DenoiserChannel::Gi`) over the C.2 chain, driving flat-parallel `svgfGi*` ViewResources history + a separate `SvgfGiSettings`; `pbr.slang` Set 3 **b6** binds `svgfGiDenoised` (the GI denoiser owns the slot, mirroring DI's b5) and adds `E·albedo·(1-metallic)/π` under `restirParams.y`. Tuning via `RestirGiSettings` + `SvgfGiSettings` (RenderPanel). GTAO modulates only the IBL ambient term, never the RT GI (no double-darken).
 
-> **Path-traced reference mode (`rt-renderer.C.5`).** A top-level `RenderMode::PathTrace` toggle (distinct from the `ShadeMode` debug-blit enum) swaps the raster + ReSTIR chain for a single rayQuery-in-compute **megakernel** (`path_trace.slang`, `PathTraceSubsystem`, AsyncCompute after the TLAS build). It traces its OWN jittered primary camera rays (no G-buffer dependency → free progressive AA), walks a multi-bounce NEE path — full Cook-Torrance BRDF matching `pbr.slang` (D/G/F + kD), point+sun NEE, emission, IBL prefiltered-env on miss — with cosine-diffuse + GGX VNDF specular sampling under **one-sample lobe MIS**, and Russian-roulette termination. The reference accumulates an fp32 running mean (`ptAccum`, **in-place RMW**, cross-frame RAW via the `ComputeWrite` import + `ReadStorageImageGeneral`/`WriteStorageImage` — the GI-reservoir cross-frame pattern) reset on a per-view FNV hash of camera VP + scene instances + lights + exposure + settings + a manual salt. The fp16 display copy (`ptColor`) replaces `sceneColor` ahead of bloom/tonemap via the `UpdateBloomCompositeInput` PT branch; the raster chain dead-pass-culls. **TAA + scene overlays gated off** in PT (the projection jitter is held static so the accumulation doesn't restart every frame). `common/material.slang` shares the hit-surface deref — smooth `s.ns` (barycentric vertex normals, matches raster `v_Normal`) for shading, geometric `s.ng` for ray-origin offsets — with `restir_gi_initial.slang` (which keeps `s.ng`). MIS is degenerate across the engine's disjoint light pathways (punctual NEE / emissive-on-hit / env-on-miss) — the genuine MIS is the diffuse↔specular lobe pdf; the BRDF deliberately matches `pbr.slang`'s approximate Smith-G (A/B isolates light transport) while the VNDF pdf uses the analytic Smith G1 (unbiased). The whole RT path is opaque-only (cutout/transparent treated opaque — `gl_RayFlagsOpaqueEXT` everywhere). Tuning + convergence readout via `PathTraceSettings` (RenderPanel).
+> **Path-traced reference mode (`rt-renderer.C.5`).** A top-level `RenderMode::PathTrace` toggle (distinct from the `ShadeMode` debug-blit enum) swaps the raster + ReSTIR chain for a single rayQuery-in-compute **megakernel** (`path_trace.slang`, `PathTraceSubsystem`, AsyncCompute after the TLAS build). It traces its OWN jittered primary camera rays (no G-buffer dependency → free progressive AA), walks a multi-bounce NEE path — full Cook-Torrance BRDF matching `pbr.slang` (D/G/F + kD), point+sun NEE, emission, IBL prefiltered-env on miss — with cosine-diffuse + GGX VNDF specular sampling under **one-sample lobe MIS**, and Russian-roulette termination. The reference accumulates an fp32 running mean (`ptAccum`, **in-place RMW**, cross-frame RAW via the `ComputeWrite` import + `ReadStorageImageGeneral`/`WriteStorageImage` — the GI-reservoir cross-frame pattern) reset on a per-view FNV hash of camera VP + scene instances + lights + exposure + settings + a manual salt. The fp16 display copy (`ptColor`) replaces `sceneColor` ahead of bloom/tonemap via the `UpdateBloomCompositeInput` PT branch; the raster chain dead-pass-culls. **TAA + scene overlays gated off** in PT (the projection jitter is held static so the accumulation doesn't restart every frame). `common/material.slang` shares the hit-surface deref — smooth `s.ns` (barycentric vertex normals, matches raster `v_Normal`) for shading, geometric `s.ng` for ray-origin offsets — with `restir_gi_initial.slang` (which keeps `s.ng`). MIS is degenerate across the engine's disjoint light pathways (punctual NEE / emissive-on-hit / env-on-miss) — the genuine MIS is the diffuse↔specular lobe pdf; the BRDF deliberately matches `pbr.slang`'s approximate Smith-G (A/B isolates light transport) while the VNDF pdf uses the analytic Smith G1 (unbiased). The RT path was opaque-only until `dielectric-transmission` (v3.12.0) gave the megakernel a glass BSDF (transmission refracts / absorbs / TIRs); cutout still commits as opaque (the `gl_RayFlagsOpaqueEXT` phrasing was always stale GLSL; opacity is C++-side FORCE_OPAQUE). Tuning + convergence readout via `PathTraceSettings` (RenderPanel).
 
 > **GPU perf pass + PathTrace gating (`engine-optimization`, v3.5.0).** ReSTIR DI/GI and RT reflections each trace + denoise at **half resolution** behind a default-off `halfResolution` toggle, then a shared `bilateral_upscale.comp` (depth/normal joint-bilateral) resolves back to full. The SVGF chain is scale-aware — it detects half-res from the channel's history-texture extent vs the full denoised image and remaps G-buffer reads via a `gbufferScale` + `dispatchW/H` push constant; the trace shaders carry the matching `GbufCoord`/`SvgfGuide` remap. DiSpecular rides the DI toggle. **Feature/mode gating happens at pass *registration*, not via dead-cull** — this corrects the PT note above ("the raster chain dead-pass-culls" is false): `CullDeadPasses` keeps any pass alive that has attachments **or writes an external (imported) resource**, and every ReSTIR/SVGF/GI/reflections/volumetric pass imports + writes its persistent reservoirs/history/atlases, so the cull can never drop them. So `BuildGraph` skips *registering* the realtime chain when PT is active (`ptEnabled` folds a TLAS-ready check so it implies `ptActive`; a cold boot renders one realtime frame to warm the TLAS); only Deform + cluster/light-assign + TLAS + PathTrace + post run in PT. The same rule gates DiSpec SVGF (on `RestirSettings::specular`) and the GTAO + bloom chains when off — safe with no layout bootstrap because the `VKTexture` ctor leaves un-written color targets in `SHADER_READ_ONLY`, so the consumer binding stays valid and ignores the stale content via its flag (`gtao.enabled`, `bloomStrength`); the bloom add is `bloomStrength`-guarded in `postprocess.frag` for NaN-safety.
 
@@ -118,6 +118,88 @@
 > apart at authoring via the editor's `AddLink` type guard (the vendored `AllowedLink` lacks slot indices).
 > invariant: Output slot-6 + the effects import are emitted append-only, so a pre-slot-6 graph's canonical
 > source is byte-identical and its structure hash / RT variant never churn.
+
+> **Clear-coat + anisotropy (`shading-models`, v3.12.0).** `MaterialInputs` + `brdf.slang` gain a clear-coat
+> second lobe (fixed IOR 1.5 -> F0 = 0.04, own roughness) and anisotropic GGX (Filament `alpha_t/alpha_b` from a
+> `[-1,1]` param over the mesh tangent, rotatable). All shading routes through one `SurfaceBRDF` built by
+> `MakeSurfaceBRDF` (Gram-Schmidt tangent vs the perturbed N, handedness from raster `tangent.w` / RT `tSign`),
+> so the raster fragment path and the `path_trace.slang` reference shade identically (raster==RT): analytic
+> sun/spot/cluster lights, IBL (a coat env lobe + an anisotropic bent-reflection vector, base attenuated by
+> `1 - Fc` so the RT-reflection composite stays correct), and the PT NEE + a 3-lobe one-sample-MIS BSDF sampler
+> (coat + anisotropic-VNDF base + diffuse). The RT hit tangent (`HitGeometry.T`/`tSign`, already reconstructed)
+> now threads through `HitSurface`. `GPUMaterialData` grew 96 -> 112 B (four factors, `MaterialLayoutGuard`
+> cross-checked). invariant: at `clearcoat == 0 && anisotropy == 0` the eval calls `EvalBRDFTimesNdotL`
+> verbatim -- bit-identical including the PT random-stream consumption order -- so existing materials are
+> unchanged. **Documented deviation (Option A):** the slim G-buffer carries no tangent, so the screen-space
+> ReSTIR DI-specular (point lights) + RT reflections keep the PRIMARY surface isotropic; the analytic
+> sun/spot/cluster path and the PathTrace reference are fully anisotropic, so DI-off and PathTrace are the
+> correct references. A slim-G-buffer tangent would close it (deferred). Coat/aniso texture maps + Kulla-Conty
+> multiscatter compensation deferred. `path_trace.slang` also gained an indirect env-miss firefly clamp -- a
+> sharp coat lobe mirroring a bright env light blew out at the grazing Fresnel rim because the env-on-miss
+> bypassed the existing indirect clamp.
+
+> **Dielectric transmission (`shading-models`, v3.12.0).** Glass refraction extends `MaterialInputs` +
+> `brdf.slang`: `ior` / `transmission` / `thickness` / `attenuationColor` + `attenuationDistance` (glTF
+> KHR_materials_transmission + _volume), `GPUMaterialData` 112 -> 128 B (`MaterialLayoutGuard` cross-checked).
+> `brdf.slang` gains an exact IOR dielectric Fresnel (`F_Dielectric`, TIR ceiling) + a Walter-2007 rough GGX
+> BTDF (`GlassHalfVector` / `EvalGlassBTDFTimesNdotL` / `PdfGlassBTDF`, reusing `D_GGX` + `G1_GGX`); `SurfaceBRDF`
+> gains `transmission` + `relEta` (from `ior` + `frontFace`), and `EvalSurfBRDFTimesNdotL` blends the interface
+> reflection to the dielectric Fresnel + re-routes `(1 - tw)` of the diffuse. The **PathTrace reference is the
+> oracle**: `SampleBSDF` gains a 4th glass lobe (a Fresnel reflect/refract split that renormalizes the
+> lobe-select draw, so it stays exactly 3 RNG draws), and `SamplePath` tracks one medium (enter/exit via the
+> un-faced `HitSurface.frontFace`) applying Beer-Lambert `exp(-sigma_a * t)` over interior segments
+> (`sigma_a = -ln(attenuationColor) / attenuationDistance`). invariant: at `transmission == 0` `pTrans` folds
+> to `+0.0` (glass branch unreachable, medium never engages), so legacy PT paths stay bit-identical (RNG stream
+> + arithmetic). **Corrected gap** (the ROADMAP's `gl_RayFlagsOpaqueEXT` note was stale GLSL): opacity is forced
+> C++-side in `TlasBuilder` (transparent = GLASS mask + FORCE_OPAQUE), so world-class rays already hit + commit
+> glass -- only the BSDF was missing, no TLAS change. **Transmission tint = the volume absorption
+> (`attenuationColor`), NOT baseColor** -- an achromatic clear interface in both tiers, so raster==RT holds and
+> a clear glass stays clear at any albedo. **Documented deviation (Option A, screen-space raster refraction):**
+> the realtime transparent pass samples a per-view pre-transparent scene snapshot (`RefractionBackdrop`, an RG
+> copy after the fog composite, Set 6 b3) along the refracted view ray, roughness-blurred (Vogel disk) +
+> Beer-Lambert tinted -- single-layer, parallax-approximate, no internal scatter, so PT is the oracle for
+> heavily-frosted glass; rt-reflections gets a bounded Fresnel + env glass tap (no sub-ray). **Deferred:**
+> refracted NEE / colored shadows (shadow rays keep the SOLID mask so glass casts no colored shadow),
+> anisotropic glass lobe, nested media, Kulla-Conty multiscatter.
+
+> **Production sheen (`shading-models`, v3.12.0).** Estevez-Kulla 2017 cloth sheen (fabric / velvet /
+> banners / robes): `MaterialInputs` + `brdf.slang` gain `sheenColor` + `sheenRoughness` (`GPUMaterialData`
+> 128 -> 144 B, `MaterialLayoutGuard` cross-checked). `brdf.slang` adds the "Charlie" NDF (`D_Charlie`,
+> `alpha = sheenRoughness^2`), the paper's fitted **soft** shadowing (`V_Charlie` -- height-uncorrelated
+> Smith Lambda, NOT the cheaper Neubelt/Ashikhmin), and a bespoke analytic sheen directional albedo
+> (`E_Sheen`, ~2% fit, no split-sum LUT touched -- published fits target the Neubelt lobe). The lobe is
+> Fresnel-free (`sheenColor` is the reflectance) and layers **under** the coat in `EvalSurfBRDFTimesNdotL`,
+> energy-compensated so the base attenuates by `1 - max(sheenColor) * E_Sheen(NoV)` (Filament view-side
+> model). raster==RT through the one `SurfaceBRDF` seam: analytic sun/spot/cluster, IBL (a sheen env lobe
+> folded into `envBRDF`/`specularIBL` so the RT-reflection swap stays correct), the PT NEE, and the PT
+> `SampleBSDF` `fCos` -- sheen rides the existing diffuse cosine lobe (broad retroreflective, hemisphere
+> support), so `SampleBSDF` gains no lobe and no RNG draw; it only folds `wSheen` into the diffuse-side
+> selection weight. invariant: at `sheenColor == 0` the eval takes the fast path and `wSheen` folds to
+> `+0.0`, so every consumer (incl. the PT random stream) is bit-identical. **Documented deviation (Option
+> A):** the slim G-buffer carries no sheen channel, so screen-space ReSTIR DI point lights + RT
+> reflections/GI secondary hits (diffuse-only reconnection) stay sheen-free; the analytic path and the
+> PathTrace reference are the sheened refs. Graph pins (Output/MakeLayer slots 16/17, append-only) + glTF
+> `KHR_materials_sheen` import. **Deferred:** sheen texture maps, the EK terminator-softening tweak,
+> Kulla-Conty multiscatter.
+
+> **Subsurface scattering (`shading-models`, v3.12.0).** Skin / wax / marble SSS. `MaterialInputs` +
+> `brdf.slang` gain `subsurfaceColor` (diffusion surface albedo A) + `scatterRadius` (mean-free-path);
+> `GPUMaterialData` 144 -> 160 B (`MaterialLayoutGuard` cross-checked). SSS is a diffusion / multi-scatter
+> phenomenon, so raster and the path tracer are **different techniques converging on the same look** (the
+> dielectric-effort pattern; research-backed + user-confirmed). **Raster / analytic: a LOCAL diffusion model
+> in the shared `SurfaceBRDF`** -- a curvature-free Burley-profile wrapped diffuse (softened + per-RGB-reddened
+> terminator via `s(A) = 1.85 - A + 7|A-0.8|^3`, monotone so a scalar radius auto-gives red-widest scatter) +
+> a Frostbite thickness translucency term, both added past the `NdotL <= 0` horizon; no screen-space pass
+> (the forward+ pass has no diffuse/spec separation, and UE itself restricts separable SSSS to deferred/PT).
+> **PathTrace: a random-walk oracle** -- the `SampleBSDF` diffuse lobe enters a scattering interior (Chiang
+> albedo -> sigma), a free-flight collision walk (per-channel scatter albedo, isotropic phase) reusing the
+> glass medium machinery. raster==RT through the one `SurfaceBRDF` seam (analytic sun/spot/cluster + PT NEE);
+> **screen-space DI/reflections stay SSS-free (Option A)**. invariant: at `subsurfaceColor == 0` every
+> consumer -- including the PT `RandFromSeed` stream (`sigmaS == 0` skips the walk) -- is bit-identical.
+> Authoring: subsurface + thickness texture maps (emissive pattern; the dead `alphaIndex` slot repurposed to
+> `subsurfaceIndex`, 160 B held) + graph pins (Output/MakeLayer slots 18/19). **Deferred:** in-medium NEE +
+> spectral free-flight MIS (direct-lit SSS rides the local model; the walk carries env/indirect non-local
+> transport), tuning of `kSssWrap`/`kSssDistort`/`kSssPower`, screen-space separable SSSS (forward+ deviation).
 
 ## Current RenderGraph Pass Order
 
@@ -286,7 +368,8 @@ Four RG patterns surfaced during recent renderer work — worth knowing before a
 > FORCE_OPAQUE — shadow-class rays (sun/light visibility, fog shadows) cull to SOLID so glass never
 > blocks light, while world-class rays (GI bounce / reflections / PT) trace ALL and commit glass as
 > an unblended surface (emissive glass feeds the GI bounce, glass shows in reflections). Glass is
-> also dropped from the CSM shadow batches. Blended/refractive RT transparency = future follow-up.
+> also dropped from the CSM shadow batches. Refractive RT transparency shipped in `dielectric-transmission`
+> (v3.12.0, glass BSDF + Beer-Lambert); colored/absorptive shadows stay a follow-up (shadow rays keep SOLID).
 > **New RG states:** `FragmentStorageRead/Write` (GENERAL + FRAGMENT stage; write carries
 > SHADER_READ for RMW atomics) — the `Compute*` states emit COMPUTE-stage barriers and would
 > under-synchronize fragment-stage storage producers/consumers. **Cross-frame import rule:** the

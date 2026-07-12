@@ -512,6 +512,43 @@ namespace Luth
             RG::ResourceHandle fogColor = (volumetricEnabled && m_CurrentViewResources)
                                           ? m_Volumetric.AddCompositePass(rg, skyboxColor, prepassDepth, volResolvedHandle)
                                           : skyboxColor;
+            // Snapshot the pre-transparent scene (opaque + fog) into the per-view refraction backdrop so glass
+            // can sample the refracted background. RG orders the copy after the composite (reads fogColor as
+            // TransferSrc) and before the transparent pass's Set 6 b3 sample (declared Read there). Skipped
+            // when the transparent bucket is empty (matches AddPasses' own early-out).
+            RG::ResourceHandle backdropHandle{};
+            if (m_CurrentViewResources && m_CurrentViewResources->refractionBackdrop &&
+                !m_System.GetDrawList().transparent.empty())
+            {
+                auto vkBackdrop = std::static_pointer_cast<VKTexture>(m_CurrentViewResources->refractionBackdrop);
+                RG::TextureDesc bdDesc;
+                bdDesc.name   = "RefractionBackdrop";
+                bdDesc.width  = vkBackdrop->GetWidth();
+                bdDesc.height = vkBackdrop->GetHeight();
+                bdDesc.format = RG::TextureFormat::RGBA16_Float;
+                RG::ResourceHandle bdImport = rg.ImportResource(bdDesc, (void*)vkBackdrop->GetImage(),
+                    (void*)vkBackdrop->GetImageView(), RG::ResourceState::ShaderResource);
+                struct BackdropCopyData { RG::ResourceHandle src, dst; };
+                rg.AddComputePass<BackdropCopyData>("RefractionBackdropCopy",
+                    [&](BackdropCopyData& data, RG::RenderPassBuilder& builder)
+                    {
+                        data.src = builder.ReadTransfer(fogColor);
+                        data.dst = builder.WriteTransfer(bdImport);
+                        backdropHandle = data.dst;
+                    },
+                    [](BackdropCopyData& data, RG::RenderPassContext& ctx)
+                    {
+                        auto* src = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.src);
+                        auto* dst = (RG::RenderGraph::ResourceNode*)ctx.GetResource(data.dst);
+                        VkImageCopy region{};
+                        region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+                        region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+                        region.extent = { src->desc.width, src->desc.height, 1 };
+                        vkCmdCopyImage(ctx.commandBuffer,
+                            src->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                            dst->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+                    });
+            }
             // Transparent tier: after the fog composite so glass blends over the fogged background (its own
             // fog is per-fragment at the glass depth, sampled from the resolved atlas inside pbr_transparent.frag).
             RG::ResourceHandle transparentColor = fogColor;
@@ -520,7 +557,7 @@ namespace Luth
                 const u32 frameAbsT = static_cast<u32>(Renderer::GetFrameData()->GetRenderFrameIndex());
                 m_Transparency.WritePerFrame(*m_CurrentViewResources, frameAbsT);
                 transparentColor = m_Transparency.AddPasses(rg, fogColor, geoOutput.entityID, geoOutput.depth,
-                    volumetricEnabled ? volResolvedHandle : RG::ResourceHandle{}, hIndirectBuf);
+                    volumetricEnabled ? volResolvedHandle : RG::ResourceHandle{}, backdropHandle, hIndirectBuf);
             }
             // TAA Resolve: Karis14 YCoCg-clip, HDR-domain, after the fog composite + before bloom/grid.
             // WriteTaaResolvePerFrame rebinds the parity-picked history-prev; the resolve writes history-curr.

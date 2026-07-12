@@ -898,6 +898,14 @@ namespace Luth
         if (aiMat->Get(AI_MATKEY_METALLIC_FACTOR, floatVal) == AI_SUCCESS)  matJson["metalness"] = floatVal;
         if (aiMat->Get(AI_MATKEY_ROUGHNESS_FACTOR, floatVal) == AI_SUCCESS) matJson["roughness"] = floatVal;
 
+        // glTF KHR_materials_sheen (Assimp surfaces sheenColorFactor / sheenRoughnessFactor). Keys match
+        // Material::Deserialize; absent => inert, so a non-sheen model imports with the lobe off.
+        aiColor3D sheenColor;
+        if (aiMat->Get(AI_MATKEY_SHEEN_COLOR_FACTOR, sheenColor) == AI_SUCCESS)
+            matJson["sheenColor"] = { sheenColor.r, sheenColor.g, sheenColor.b };
+        if (aiMat->Get(AI_MATKEY_SHEEN_ROUGHNESS_FACTOR, floatVal) == AI_SUCCESS)
+            matJson["sheenRoughness"] = floatVal;
+
         // Textures: resolve each Assimp slot to a UUID + source path, classify a TextureRole, then route
         // into the bounded material slots. Packed layouts (ORM alias, separate metal+rough bake) land here
         // so material.slang's fixed-swizzle decode always reads canonical channels with no shader change.

@@ -64,6 +64,17 @@ public HitSurface FetchHitSurface(GtGeomEntry* geomTable, uint customIndex, uint
     s.metalness = mi.metallic;
     s.roughness = mi.roughness;
     s.ao        = mi.occlusion;
+    // Tangent the RT tier already reconstructed (dropped until now); re-orthonormalized vs N in MakeSurfaceBRDF.
+    s.T = g.T;  s.tSign = g.tSign;  s.hasTangent = g.hasTangent;
+    s.clearcoat = mi.clearcoat;  s.clearcoatRoughness = mi.clearcoatRoughness;
+    s.anisotropy = mi.anisotropy;  s.anisotropyRotation = mi.anisotropyRotation;
+    s.transmission = mi.transmission;  s.ior = mi.ior;  s.thickness = mi.thickness;
+    s.attenuationColor = mi.attenuationColor;  s.attenuationDistance = mi.attenuationDistance;
+    s.sheenColor = mi.sheenColor;  s.sheenRoughness = mi.sheenRoughness;
+    s.subsurfaceColor = mi.subsurfaceColor;  s.scatterRadius = mi.scatterRadius;
+    // Un-faced geometric smooth normal (g.ns keeps its outward orientation; s.ns above was faced against the
+    // ray): dot < 0 means the ray hit the outward side = entering the medium. Feeds the PT enter/exit + IOR ratio.
+    s.frontFace = dot(g.ns, rayDir) < 0.0;
     return s;
 }
 

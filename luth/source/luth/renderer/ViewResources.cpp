@@ -26,7 +26,7 @@ namespace Luth
     static constexpr u32 k_ViewPoolUniformBufferCount   = 48;
     static constexpr u32 k_ViewPoolStorageImageCount    = 248;  // + DiSpecular SVGF + restir Set 2 b8 + GI upscale b3 + DI upscale x2 + refl upscale b3 + bloom pyramid mips
     static constexpr u32 k_ViewPoolStorageBufferCount   = 126;  // + Transparency b2 OIT nodes x3
-    static constexpr u32 k_ViewPoolCombinedSamplerCount = 314;  // + DiSpecular SVGF + restir Set 2 b7 + GI upscale b0-b2 + DI upscale x2 b0-b2 + refl upscale b0-b2 + SVGF reproject b10 / atrous b5 x4 channels
+    static constexpr u32 k_ViewPoolCombinedSamplerCount = 317;  // + DiSpecular SVGF + restir Set 2 b7 + GI upscale b0-b2 + DI upscale x2 b0-b2 + refl upscale b0-b2 + SVGF reproject b10 / atrous b5 x4 channels + Transparency b3 refraction backdrop x3
     static constexpr u32 k_ViewPoolAccelStructCount     = 8;   // Set 0 binding 6 (TLAS) cycled per frame
 
     namespace {
@@ -337,6 +337,11 @@ namespace Luth
         // the resolve shader (motion vectors land outside [0,1] when prevViewProj is identity).
         vr.taaHistoryA = Texture::Create(fullW, fullH, TextureFormat::RGBA16F);
         vr.taaHistoryB = Texture::Create(fullW, fullH, TextureFormat::RGBA16F);
+
+        // Screen-space refraction backdrop: pre-transparent scene-color copy target. Same RGBA16F color
+        // format as SceneColor (vkCmdCopyImage is layout-compatible); the default usage carries TRANSFER_DST
+        // for the copy + SAMPLED for the transparent fragment read. WritePerFrame rebinds it (Set 6 b3).
+        vr.refractionBackdrop = Texture::Create(fullW, fullH, TextureFormat::RGBA16F);
 
         // RT sun-shadow mask: viewport-sized R8 storage. Written by rt_sun_shadows.comp on
         // AsyncCompute, sampled by pbr.frag (Set 3 binding 4) when ShadowingMode == RtShadows.
@@ -668,6 +673,7 @@ namespace Luth
         vr.volInScatterHistA.reset();
         vr.volInScatterHistB.reset();
         vr.taaHistoryA.reset();
+        vr.refractionBackdrop.reset();
         vr.taaHistoryB.reset();
         vr.sunShadowMask.reset();
         vr.restirDI.reset();

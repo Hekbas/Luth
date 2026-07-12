@@ -4,17 +4,22 @@
 // Resource-agnostic: bindings (raster set 1/2 vs RT set 4/3) + the ITexFetch impls live in
 // material_bindings_{raster,rt}.slang so one decode serves both set layouts. see arch/rendering-pipeline.md
 
-// 96 B std430, field-identical to C++ Material.h GPUMaterialData (MaterialLayoutGuard cross-checks).
+// 160 B std430, field-identical to C++ Material.h GPUMaterialData (MaterialLayoutGuard cross-checks).
 public struct GPUMaterialData
 {
     public float4 color;
     public uint   diffuseIndex, normalIndex, metalRoughIndex, occlusionIndex;
-    public uint   emissiveIndex, alphaIndex, heightIndex, thicknessIndex;  // alpha/thickness reserved; height feeds parallax
+    public uint   emissiveIndex, subsurfaceIndex, heightIndex, thicknessIndex;  // subsurface = SSS scatter mask; height feeds parallax; thickness scales the factor
     public float  metalness, roughness, alphaCutoff;
     public uint   flags;          // bits 0-7 = HAS_* per map; bits 16-23 = per-map UV index (2 bits each)
     public float4 emissive;       // rgb = factor (linear), a = HDR strength
     public uint   decalIndex;     // decal RGBA (rgb color, a coverage); sampled by GraphDecal
-    public uint   reserved0, reserved1, reserved2;  // std430 vec4-align tail; spare map slots
+    public float  clearcoat, clearcoatRoughness;    // coat weight [0,1]; coat roughness (decode clamps [0.04,1])
+    public float  anisotropy, anisotropyRotation;   // [-1,1] mesh-tangent aligned; rotation turns [0,1] (x2pi)
+    public float  ior, transmission, thickness;     // dielectric IOR (>=1); transmission [0,1]; glTF thicknessFactor (raster Beer-Lambert proxy)
+    public float4 attenuation;                       // rgb = attenuationColor (linear), a = attenuationDistance (0 = off)
+    public float4 sheen;                             // rgb = sheenColor (linear, 0 = no sheen), a = sheenRoughness (perceptual)
+    public float4 subsurface;                        // rgb = subsurfaceColor (linear diffusion albedo A, 0 = no SSS), a = scatterRadius (mfp, world units)
 }
 
 public static const uint FLAG_HAS_NORMAL     = (1u << 0);
@@ -22,6 +27,8 @@ public static const uint FLAG_HAS_METALROUGH = (1u << 1);
 public static const uint FLAG_HAS_OCCLUSION  = (1u << 2);
 public static const uint FLAG_HAS_DIFFUSE    = (1u << 3);
 public static const uint FLAG_HAS_EMISSIVE   = (1u << 4);
+public static const uint FLAG_HAS_SUBSURFACE = (1u << 5);
+public static const uint FLAG_HAS_THICKNESS  = (1u << 7);
 public static const uint UV_SHIFT_DIFFUSE    = 16u;
 public static const uint UV_SHIFT_NORMAL     = 18u;
 public static const uint UV_SHIFT_METALROUGH = 20u;
@@ -50,6 +57,15 @@ public struct MaterialInputs
     public float  roughness;   // clamped [0.04, 1]; zero roughness -> NaN in GGX
     public float  occlusion;   // baked AO map term (screen-space AO is the caller's business)
     public float3 emissive;
+    public float  clearcoat, clearcoatRoughness;   // coat weight [0,1]; coat roughness clamped [0.04,1]
+    public float  anisotropy, anisotropyRotation;  // [-1,1] mesh-tangent aligned; rotation turns [0,1]
+    public float  transmission, ior, thickness;    // dielectric transmission [0,1]; IOR [1,4]; thickness (raster path-length)
+    public float3 attenuationColor;                // Beer-Lambert interior tint (linear)
+    public float  attenuationDistance;             // distance at which transmittance == attenuationColor (0 = off)
+    public float3 sheenColor;                      // production-sheen reflectance (linear, 0 = no sheen)
+    public float  sheenRoughness;                  // sheen lobe roughness (perceptual; eval clamps [0.04,1])
+    public float3 subsurfaceColor;                 // SSS diffusion surface albedo A (linear, per-RGB; 0 = no SSS -> fast path)
+    public float  scatterRadius;                   // SSS mean-free-path (world units; the diffusion-profile width)
 }
 
 // The two-tier seam: raster auto-mips (derivatives), RT samples LOD 0 (no derivatives at a ray hit).
@@ -104,6 +120,37 @@ public MaterialInputs EvalMaterialChannels<F : ITexFetch>(GPUMaterialData m, flo
     mi.occlusion = 1.0;
     if ((m.flags & FLAG_HAS_OCCLUSION) != 0u)
         mi.occlusion = fetch.Sample(m.occlusionIndex, SelectUV(m.flags, UV_SHIFT_OCCLUSION, uv0, uv1)).r;
+
+    // Shading-model factors: constant channels today (no maps in v1), clamped identically on both tiers.
+    mi.clearcoat          = m.clearcoat;
+    mi.clearcoatRoughness = clamp(m.clearcoatRoughness, 0.04, 1.0);
+    mi.anisotropy         = clamp(m.anisotropy, -1.0, 1.0);
+    mi.anisotropyRotation = m.anisotropyRotation;
+
+    // CONTRACT: transmission/ior/thickness/attenuation feed the dielectric lobe (brdf.slang) and the PT
+    // Beer-Lambert medium (path_trace.slang): sigma_a = -ln(max(attenuationColor,1e-5)) / attenuationDistance;
+    // attenuationDistance <= 0 disables interior absorption. Filled identically on both tiers. see arch/rendering-pipeline.md
+    mi.transmission        = clamp(m.transmission, 0.0, 1.0);
+    mi.ior                 = clamp(m.ior, 1.0, 4.0);
+    mi.thickness           = max(m.thickness, 0.0);
+    if ((m.flags & FLAG_HAS_THICKNESS) != 0u)
+        mi.thickness *= fetch.Sample(m.thicknessIndex, uv0).r;   // UV0, like emissive (no UV-set bit)
+    mi.attenuationColor    = clamp(m.attenuation.rgb, 0.0, 1.0);
+    mi.attenuationDistance = m.attenuation.a;
+
+    // Sheen: color clamped [0,1] (reflectance), roughness clamped [0.04,1] (coat-style). At sheenColor == 0
+    // the BRDF fast path is taken, so a sheen-free material shades bit-identically. see arch/rendering-pipeline.md
+    mi.sheenColor      = clamp(m.sheen.rgb, 0.0, 1.0);
+    mi.sheenRoughness  = clamp(m.sheen.a, 0.04, 1.0);
+
+    // Subsurface: diffusion surface albedo A + scatter radius (mfp), the color modulated by the scatter
+    // mask (UV0, like emissive) BEFORE the fold. Folding (1-metallic)(1-transmission) hard-disables SSS on
+    // metals + glass identically in every consumer (raster==RT); 0 = BRDF fast path. see arch/rendering-pipeline.md
+    mi.subsurfaceColor = clamp(m.subsurface.rgb, 0.0, 1.0);
+    if ((m.flags & FLAG_HAS_SUBSURFACE) != 0u)
+        mi.subsurfaceColor *= fetch.Sample(m.subsurfaceIndex, uv0).rgb;
+    mi.subsurfaceColor = mi.subsurfaceColor * (1.0 - mi.metallic) * (1.0 - mi.transmission);
+    mi.scatterRadius   = max(m.subsurface.a, 0.0);
 
     mi.normal = float3(0.0, 0.0, 1.0);
     return mi;
@@ -176,12 +223,26 @@ public struct HitGeometry
 }
 
 // Resolved RT hit surface: same field shape the GLSL FetchHitSurface returned, so RT consumers port 1:1.
+// The tangent (T/tSign/hasTangent, from HitGeometry) rides along for the anisotropic base lobe; clear-coat/
+// anisotropy factors carry from the decode so the PathTrace reference shades them raster==RT.
 public struct HitSurface
 {
     public float3 ns, ng;
     public float3 baseColor;
     public float3 emission;
     public float  metalness, roughness, ao;
+    public float3 T;          // world tangent, Gram-Schmidt vs pre-perturb ns (valid iff hasTangent)
+    public float  tSign;      // bitangent handedness
+    public bool   hasTangent;
+    public float  clearcoat, clearcoatRoughness, anisotropy, anisotropyRotation;
+    public float  transmission, ior, thickness;
+    public float3 attenuationColor;
+    public float  attenuationDistance;
+    public float3 sheenColor;
+    public float  sheenRoughness;
+    public float3 subsurfaceColor;
+    public float  scatterRadius;
+    public bool   frontFace;   // ray hit the outward (entering) side; from the un-faced geometric normal
 }
 
 // Slang has no inverse() (HLSL lineage); cofactor 3x3, feeds only the inverse-transpose normal matrix.

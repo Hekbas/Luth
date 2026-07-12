@@ -15,6 +15,8 @@ import froxel;
 // Set 6 b0: resolved volumetric in-scatter atlas (b1/b2 are the OIT heads/nodes; pbr_oit_store only).
 [[vk::binding(6, 0)]] RaytracingAccelerationStructure topLevelAS;
 [[vk::binding(0, 6)]] Sampler3D volInScatter;
+// b3: pre-transparent scene copy (opaque + fog) for screen-space refraction; partially-bound (glass only).
+[[vk::binding(3, 6)]] Sampler2D refractionBackdrop;
 
 public struct TransparentPC
 {
@@ -84,16 +86,21 @@ public float4 EvalTransparentSurfaceColor(uint materialIndex, uint shadeMode, fl
     float3 V  = normalize(ubo.cameraPos - worldPos);
     float3 Lo = float3(0.0);
 
+    // Shared BRDF surface (base + clear-coat + anisotropy); transparent skips the opaque spec-AA pass.
+    SurfaceBRDF surf = MakeSurfaceBRDF(nrm, T, B, true, mi.baseColor.rgb, mi.metallic, mi.roughness,
+                                       mi.clearcoat, mi.clearcoatRoughness, mi.anisotropy, mi.anisotropyRotation,
+                                       mi.transmission, mi.ior, frontFacing, mi.sheenColor, mi.sheenRoughness,
+                                       mi.subsurfaceColor, mi.scatterRadius, mi.thickness);
+
     float sunVis = (ubo.rtShadowParams.x > 0.5) ? TraceSunShadow(worldPos, nrm)
                                                 : ComputeShadowCSM(worldPos, nrm).shadow;
     DirectionalLightData dl = LoadDirLight();
     float3 dirRadiance = dl.color * dl.intensity;
-    Lo += EvalBRDFTimesNdotL(normalize(-dl.direction), dirRadiance, V, nrm,
-                             mi.baseColor.rgb, mi.metallic, mi.roughness) * sunVis;
+    Lo += EvalSurfBRDFTimesNdotL(normalize(-dl.direction), dirRadiance, V, surf) * sunVis;
 
-    Lo += EvalClusteredLights(fragCoord, worldPos, V, nrm, mi.baseColor.rgb, mi.metallic, mi.roughness, false);
+    Lo += EvalClusteredLights(fragCoord, worldPos, V, surf, false);
 
-    IblResult ibl = EvalIblAmbient(nrm, V, mi.baseColor.rgb, mi.metallic, mi.roughness, mi.occlusion, ubo.iblIntensity);
+    IblResult ibl = EvalIblAmbient(surf, V, mi.occlusion, ubo.iblIntensity);
     float3 color = ibl.ambient + Lo + mi.emissive;
 
     // Per-fragment froxel fog at the fragment's depth (the fullscreen composite already fogged opaque).
@@ -106,5 +113,44 @@ public float4 EvalTransparentSurfaceColor(uint materialIndex, uint shadeMode, fl
         color = color * (1.0 - fogOpacity) + volS.rgb;
     }
 
-    return float4(color, mi.baseColor.a);
+    // Screen-space refraction (documented deviation, Option-A shape): sample the pre-transparent scene copy
+    // along the refracted view ray, tint by Beer-Lambert over the authored thickness, weight by
+    // (1-Fresnel)*transmission. The refracted background replaces the straight-through view (alpha -> 1); the
+    // true refracted/absorbed reference is the PathTrace oracle. see arch/rendering-pipeline.md
+    float alphaOut = mi.baseColor.a;
+    if (mi.transmission > 0.0)
+    {
+        float  tw     = mi.transmission * (1.0 - mi.metallic);
+        float  relEta = frontFacing ? (1.0 / mi.ior) : mi.ior;
+        float3 rRefr  = refract(-V, nrm, relEta);
+        if (dot(rRefr, rRefr) > 1.0e-6)   // 0 under total internal reflection -> keep the straight-through view
+        {
+            float3 exitP  = worldPos + rRefr * mi.thickness;
+            float4 clip   = mul(ubo.viewProjection, float4(exitP, 1.0));
+            float2 refrUV = (clip.w > 1.0e-4) ? (clip.xy / clip.w * float2(0.5, 0.5) + 0.5)
+                                              : (fragCoord.xy / ubo.viewportSize);
+            float3 beer   = (mi.attenuationDistance > 0.0)
+                          ? exp(-(-log(max(mi.attenuationColor, float3(1.0e-5))) / mi.attenuationDistance) * mi.thickness)
+                          : float3(1.0);
+            // Roughness-driven frost: a rough interface scatters the transmitted view, so blur the backdrop by
+            // roughness (Vogel disk, per-fragment rotated to dither) -- makes the raster path respond to roughness
+            // like the PT BTDF. Screen-space can't model internal scatter, so PT stays the oracle for frosted glass.
+            float  blurR = mi.roughness * mi.roughness * 0.12;   // GGX-alpha scaled screen-space radius
+            float  rot   = frac(sin(dot(fragCoord.xy, float2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
+            float3 back  = float3(0.0);
+            [unroll] for (int i = 0; i < 16; ++i)
+            {
+                float  rr = sqrt((float(i) + 0.5) / 16.0) * blurR;
+                float  th = float(i) * 2.399963 + rot;   // golden angle
+                float2 uv = clamp(refrUV + float2(cos(th), sin(th)) * rr, float2(0.0), float2(1.0));
+                back += refractionBackdrop.SampleLevel(uv, 0.0).rgb;
+            }
+            back *= beer * (1.0 / 16.0);
+            float  Fv     = F_Dielectric(saturate(dot(nrm, V)), relEta);
+            color        += back * (1.0 - Fv) * tw;
+            alphaOut      = lerp(mi.baseColor.a, 1.0, tw);   // glass provides its own (refracted) background
+        }
+    }
+
+    return float4(color, alphaOut);
 }

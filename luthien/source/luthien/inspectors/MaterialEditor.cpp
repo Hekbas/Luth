@@ -97,6 +97,18 @@ namespace Luth
                 material.MarkDirty();
             }
 
+            // Cutoff lives with the mode that consumes it (was buried in the retired Alpha map row).
+            if (material.GetRenderMode() == Material::RenderMode::Cutout)
+            {
+                float cutoff = material.GetAlphaCutoff();
+                ImGui::Text("Cutoff     "); ImGui::SameLine();
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                if (ImGui::SliderFloat("##AlphaCutoff", &cutoff, 0.0f, 1.0f, "%.2f")) {
+                    material.SetAlphaCutoff(cutoff);
+                    material.MarkDirty();
+                }
+            }
+
             if (material.GetRenderMode() == Material::RenderMode::Transparent ||
                 material.GetRenderMode() == Material::RenderMode::Fade)
             {
@@ -173,7 +185,9 @@ namespace Luth
                     bool enabled = material.IsUseMapEnabled(type);
                     ImGui::Text("%s", label);
 
-                    ImGui::BeginDisabled(!enabled && type != MapType::Diffuse && type != MapType::Metalness && type != MapType::Roughness && type != MapType::Emissive);
+                    // Rows whose factor is authorable without a texture stay live (color/scalar-only workflow).
+                    ImGui::BeginDisabled(!enabled && type != MapType::Diffuse && type != MapType::Metalness
+                        && type != MapType::Roughness && type != MapType::Emissive && type != MapType::Subsurface);
                     
                     // Texture slot
                     ImGui::TableNextColumn();
@@ -267,16 +281,21 @@ namespace Luth
                     }
                 });
 
-                DrawSurfaceInput(MapType::Alpha, "Alpha", [&]() {
-                    if (material.GetRenderMode() == Material::RenderMode::Cutout) {
-                        float cutoff = material.GetAlphaCutoff();
-                        if (ImGui::SliderFloat("##AlphaCutoff", &cutoff, 0.0f, 1.0f, "%.2f")) {
-                            material.SetAlphaCutoff(cutoff);
-                            material.MarkDirty();
-                        }
-                    } else {
-                        ImGui::Dummy({0, 24});
+                DrawSurfaceInput(MapType::Subsurface, "Subsurface", [&]() {
+                    // Mirrors the Emissive row: swatch = diffusion albedo A (texture-modulated when a
+                    // scatter mask is bound), drag = scatter mean-free-path in world units.
+                    Vec3 ssColor = material.GetSubsurfaceColor();
+                    f32  ssRad   = material.GetScatterRadius();
+                    bool changed = false;
+                    if (ImGui::ColorEdit3("##SubsurfaceColor", &ssColor.x, ImGuiColorEditFlags_NoInputs)) {
+                        material.SetSubsurfaceColor(ssColor); changed = true;
                     }
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::DragFloat("##ScatterRadius", &ssRad, 0.01f, 0.0f, 10.0f, "%.2f")) {
+                        material.SetScatterRadius(ssRad); changed = true;
+                    }
+                    if (changed) material.MarkDirty();
                 });
 
                 DrawSurfaceInput(MapType::Normal, "Normal", nullptr);
@@ -320,6 +339,46 @@ namespace Luth
                 DrawSurfaceInput(MapType::Decal, "Decal", nullptr);
 
                 ImGui::EndTable();
+            }
+            UI::EndCollapsingHeader();
+        }
+
+        ImGui::Dummy({ 0, 4 });
+
+        // Clear-coat / anisotropy / transmission / sheen shading-model factors (uber path; live data).
+        // Subsurface authoring moved to its Surface Inputs row (map x color x radius, like Emissive).
+        if (UI::BeginCollapsingHeader("Shading Model", true))
+        {
+            if (UI::BeginProperties("ShadingModelProps"))
+            {
+                float cc = material.GetClearcoat();
+                if (UI::Property("Clear Coat", cc, 0.01f, 0.0f, 1.0f)) { material.SetClearcoat(cc); material.MarkDirty(); }
+                float ccr = material.GetClearcoatRoughness();
+                if (UI::Property("Coat Roughness", ccr, 0.01f, 0.0f, 1.0f)) { material.SetClearcoatRoughness(ccr); material.MarkDirty(); }
+                float an = material.GetAnisotropy();
+                if (UI::Property("Anisotropy", an, 0.01f, -1.0f, 1.0f)) { material.SetAnisotropy(an); material.MarkDirty(); }
+                float ar = material.GetAnisotropyRotation();
+                if (UI::Property("Aniso Rotation", ar, 0.005f, 0.0f, 1.0f)) { material.SetAnisotropyRotation(ar); material.MarkDirty(); }
+
+                // Glass: transmission implies RenderMode::Transparent/Fade for the raster viewport (TLAS masks
+                // key on RenderMode); the PathTrace reference refracts regardless of mode.
+                float tr = material.GetTransmission();
+                if (UI::Property("Transmission", tr, 0.01f, 0.0f, 1.0f)) { material.SetTransmission(tr); material.MarkDirty(); }
+                float ior = material.GetIor();
+                if (UI::Property("IOR", ior, 0.005f, 1.0f, 3.0f)) { material.SetIor(ior); material.MarkDirty(); }
+                float th = material.GetThickness();
+                if (UI::Property("Thickness", th, 0.01f, 0.0f, 100.0f)) { material.SetThickness(th); material.MarkDirty(); }
+                Vec4 ac(material.GetAttenuationColor(), 1.0f);
+                if (UI::PropertyColor("Absorption Color", ac)) { material.SetAttenuationColor(Vec3(ac)); material.MarkDirty(); }
+                float ad = material.GetAttenuationDistance();
+                if (UI::Property("Absorption Dist", ad, 0.05f, 0.0f, 1000.0f)) { material.SetAttenuationDistance(ad); material.MarkDirty(); }
+
+                // Sheen (cloth): a non-black color enables the lobe; roughness follows the coat convention.
+                Vec4 sc(material.GetSheenColor(), 1.0f);
+                if (UI::PropertyColor("Sheen Color", sc)) { material.SetSheenColor(Vec3(sc)); material.MarkDirty(); }
+                float shr = material.GetSheenRoughness();
+                if (UI::Property("Sheen Roughness", shr, 0.01f, 0.0f, 1.0f)) { material.SetSheenRoughness(shr); material.MarkDirty(); }
+                UI::EndProperties();
             }
             UI::EndCollapsingHeader();
         }

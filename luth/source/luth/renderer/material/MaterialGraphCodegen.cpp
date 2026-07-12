@@ -34,9 +34,10 @@ namespace Luth
                 case MapType::Roughness: return "fetch.Sample(m.metalRoughIndex, SelectUV(m.flags, UV_SHIFT_METALROUGH, uv0, uv1))";
                 case MapType::Occlusion: return "fetch.Sample(m.occlusionIndex, SelectUV(m.flags, UV_SHIFT_OCCLUSION, uv0, uv1))";
                 case MapType::Emissive:  return "fetch.Sample(m.emissiveIndex, uv0)";
-                case MapType::Alpha:     return "fetch.Sample(m.alphaIndex, uv0)";
                 case MapType::Height:    return "fetch.Sample(m.heightIndex, uv0)";
                 case MapType::Thickness: return "fetch.Sample(m.thicknessIndex, uv0)";
+                case MapType::Subsurface: return "fetch.Sample(m.subsurfaceIndex, uv0)";
+                // MapType::Alpha lost its GPU slot (repurposed for subsurface); legacy nodes sample black.
                 default:                 return "float4(0.0)";
             }
         }
@@ -53,9 +54,9 @@ namespace Luth
                 case MapType::Roughness: idx = "m.metalRoughIndex"; break;
                 case MapType::Occlusion: idx = "m.occlusionIndex";  break;
                 case MapType::Emissive:  idx = "m.emissiveIndex";   break;
-                case MapType::Alpha:     idx = "m.alphaIndex";      break;
                 case MapType::Height:    idx = "m.heightIndex";     break;
                 case MapType::Thickness: idx = "m.thicknessIndex";  break;
+                case MapType::Subsurface: idx = "m.subsurfaceIndex"; break;
                 default:                 return "float4(0.0)";
             }
             return "fetch.Sample(" + std::string(idx) + ", (" + uvExpr + ").xy)";
@@ -73,9 +74,9 @@ namespace Luth
                 case MapType::Roughness: return "m.metalRoughIndex";
                 case MapType::Occlusion: return "m.occlusionIndex";
                 case MapType::Emissive:  return "m.emissiveIndex";
-                case MapType::Alpha:     return "m.alphaIndex";
                 case MapType::Height:    return "m.heightIndex";
                 case MapType::Thickness: return "m.thicknessIndex";
+                case MapType::Subsurface: return "m.subsurfaceIndex";
                 default:                 return "m.diffuseIndex";
             }
         }
@@ -93,7 +94,7 @@ namespace Luth
             switch (t)
             {
                 case MatNodeType::MakeLayer:
-                    return 6;
+                    return 19;   // 6 base + 4 coat/aniso (6-9) + 5 transmission (10-14) + 2 sheen (15-16) + 2 subsurface (17-18)
                 case MatNodeType::Custom:
                     return 4;
                 case MatNodeType::Lerp: case MatNodeType::LayerBlend:
@@ -156,6 +157,10 @@ namespace Luth
                     if (const MatLink* l = Incoming(g, out->id, s)) visit(l->fromNode);
                 // Surface (bundle) slot 6: appended after the channel slots so pre-slot-6 graphs stay order-stable.
                 if (const MatLink* l = Incoming(g, out->id, 6)) visit(l->fromNode);
+                // Ext channels (coat/aniso 7-10 + transmission 11-15 + sheen 16-17 + subsurface 18-19): appended
+                // last, so a pre-ext graph (nothing on those slots) keeps its visit order + structure hash unchanged.
+                for (u8 s = 7; s < 20; ++s)
+                    if (const MatLink* l = Incoming(g, out->id, s)) visit(l->fromNode);
             }
             return order;
         }
@@ -317,9 +322,11 @@ namespace Luth
                 return SourceExpr(*byId.at(l->fromNode), l->fromSlot);
             }
 
-            // Per-channel overrides into a MaterialInputs target from a node's 6 channel input slots. Shared by
-            // Output's terminal mi and MakeLayer's local; the Output/mi emission stays byte-identical to before.
-            void EmitChannelOverrides(std::ostringstream& ss, const std::string& tgt, const MatNode& n) const
+            // Per-channel overrides into a MaterialInputs target from a node's channel input slots. Shared by
+            // Output's terminal mi and MakeLayer's local. extBase = the slot where the clear-coat/aniso channels
+            // begin (Output = 7, after the Surface slot; MakeLayer = 6). Appended after the six base channels so
+            // a pre-ext graph (nothing on those slots) emits byte-identically -> its structure hash is unchanged.
+            void EmitChannelOverrides(std::ostringstream& ss, const std::string& tgt, const MatNode& n, u8 extBase) const
             {
                 std::string s;
                 if (s = OutSrc(n, 0); !s.empty()) ss << "    " << tgt << ".baseColor = " << s << ";\n";
@@ -328,6 +335,19 @@ namespace Luth
                 if (s = OutSrc(n, 3); !s.empty()) ss << "    " << tgt << ".normal    = " << s << ".xyz;\n";
                 if (s = OutSrc(n, 4); !s.empty()) ss << "    " << tgt << ".occlusion = " << s << ".x;\n";
                 if (s = OutSrc(n, 5); !s.empty()) ss << "    " << tgt << ".emissive  = " << s << ".rgb;\n";
+                if (s = OutSrc(n, extBase + 0); !s.empty()) ss << "    " << tgt << ".clearcoat          = " << s << ".x;\n";
+                if (s = OutSrc(n, extBase + 1); !s.empty()) ss << "    " << tgt << ".clearcoatRoughness = clamp(" << s << ".x, 0.04, 1.0);\n";
+                if (s = OutSrc(n, extBase + 2); !s.empty()) ss << "    " << tgt << ".anisotropy         = clamp(" << s << ".x, -1.0, 1.0);\n";
+                if (s = OutSrc(n, extBase + 3); !s.empty()) ss << "    " << tgt << ".anisotropyRotation = " << s << ".x;\n";
+                if (s = OutSrc(n, extBase + 4); !s.empty()) ss << "    " << tgt << ".transmission        = clamp(" << s << ".x, 0.0, 1.0);\n";
+                if (s = OutSrc(n, extBase + 5); !s.empty()) ss << "    " << tgt << ".ior                 = clamp(" << s << ".x, 1.0, 4.0);\n";
+                if (s = OutSrc(n, extBase + 6); !s.empty()) ss << "    " << tgt << ".thickness           = max(" << s << ".x, 0.0);\n";
+                if (s = OutSrc(n, extBase + 7); !s.empty()) ss << "    " << tgt << ".attenuationColor    = " << s << ".rgb;\n";
+                if (s = OutSrc(n, extBase + 8); !s.empty()) ss << "    " << tgt << ".attenuationDistance = " << s << ".x;\n";
+                if (s = OutSrc(n, extBase + 9); !s.empty()) ss << "    " << tgt << ".sheenColor          = " << s << ".rgb;\n";
+                if (s = OutSrc(n, extBase + 10); !s.empty()) ss << "    " << tgt << ".sheenRoughness      = clamp(" << s << ".x, 0.04, 1.0);\n";
+                if (s = OutSrc(n, extBase + 11); !s.empty()) ss << "    " << tgt << ".subsurfaceColor     = " << s << ".rgb;\n";
+                if (s = OutSrc(n, extBase + 12); !s.empty()) ss << "    " << tgt << ".scatterRadius       = max(" << s << ".x, 0.0);\n";
             }
 
             std::string Run(const std::string& fnName)
@@ -366,7 +386,7 @@ namespace Luth
                     {
                         // A "layer": stock base + only the connected channel overrides (Make Material Attributes).
                         ss << "    MaterialInputs " << Name(id) << " = EvalMaterialChannels<F>(m, uv0, uv1, fetch);\n";
-                        EmitChannelOverrides(ss, Name(id), n);
+                        EmitChannelOverrides(ss, Name(id), n, 6);   // MakeLayer has no Surface slot -> ext at 6
                     }
                     else if (IsLayerNode(n.type))
                         ss << "    MaterialInputs " << Name(id) << " = " << NodeRhs(n) << ";\n";
@@ -379,7 +399,7 @@ namespace Luth
                     // Surface (bundle) slot 6: a connected layer replaces the stock base before channel overrides.
                     if (const MatLink* l = Incoming(g, out->id, 6); l && seq.count(l->fromNode))
                         ss << "    mi = " << SourceExpr(*byId.at(l->fromNode), l->fromSlot) << ";\n";
-                    EmitChannelOverrides(ss, "mi", *out);
+                    EmitChannelOverrides(ss, "mi", *out, 7);   // Output ext channels sit after Surface (slot 6)
                 }
                 ss << "    return mi;\n}\n";
                 return ss.str();

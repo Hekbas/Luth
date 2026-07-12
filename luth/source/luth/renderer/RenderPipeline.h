@@ -229,6 +229,11 @@ namespace Luth
         std::shared_ptr<Texture> taaHistoryB;
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> taaResolveDescSet{};
 
+        // Screen-space refraction backdrop: viewport-sized RGBA16F snapshot of the pre-transparent scene
+        // (opaque + fog), copied each frame before the transparent pass so glass can sample the refracted
+        // background (Set 6 b3). Persistent, recreated on resize like taaHistoryA/B.
+        std::shared_ptr<Texture> refractionBackdrop;
+
         // RT sun-shadow mask: viewport-sized R8 storage image, written by raygen on
         // AsyncCompute and sampled by pbr.frag (Set 3 binding 4) when ShadowingMode::RtShadows is
         // active. Lifetime mirrors taaHistoryA/B: persistent, recreated on resize. The cycled

@@ -50,6 +50,7 @@ namespace Luth
                                      RG::ResourceHandle entityID,
                                      RG::ResourceHandle sceneDepth,
                                      RG::ResourceHandle fogResolved,
+                                     RG::ResourceHandle refractionBackdrop,
                                      RG::BufferHandle indirectBufferHandle);
 
         VkDescriptorSetLayout GetSetLayout()        const { return m_TransparentSetLayout; }
@@ -61,6 +62,7 @@ namespace Luth
                                          RG::ResourceHandle entityID,
                                          RG::ResourceHandle sceneDepth,
                                          RG::ResourceHandle fogResolved,
+                                         RG::ResourceHandle refractionBackdrop,
                                          RG::BufferHandle indirectBufferHandle);
 
         // OITClear (transfer: heads -> OIT_EMPTY, node count -> 0) -> OITStore (shade + list push) ->
@@ -72,6 +74,7 @@ namespace Luth
                                         RG::ResourceHandle entityID,
                                         RG::ResourceHandle sceneDepth,
                                         RG::ResourceHandle fogResolved,
+                                        RG::ResourceHandle refractionBackdrop,
                                         RG::BufferHandle indirectBufferHandle);
 
         void BuildResolvePipeline();
@@ -93,6 +96,8 @@ namespace Luth
         VkDescriptorSetLayout m_TransparentSetLayout = VK_NULL_HANDLE;
         // OIT resolve pass-local (Set 1 of the fullscreen pipeline): b0 heads, b1 nodes.
         VkDescriptorSetLayout m_ResolveSetLayout = VK_NULL_HANDLE;
+        // Set 6 b3 refraction-backdrop sampler (linear, clamp-to-edge): the screen-space refraction tap.
+        VkSampler m_BackdropSampler = VK_NULL_HANDLE;
 
         PipelineManager  m_SortedPm;
         PipelineManager  m_SortedSkinnedPm;
