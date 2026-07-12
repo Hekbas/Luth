@@ -29,7 +29,8 @@ namespace Luth
         Occlusion   = 6,
         Emissive    = 7,
         Thickness   = 8,
-        Height      = 9    // parallax-occlusion displacement -> GPUMaterialData::heightIndex
+        Height      = 9,   // parallax-occlusion displacement -> GPUMaterialData::heightIndex
+        Decal       = 10   // UV-space decal RGBA -> GPUMaterialData::decalIndex
     };
 
     struct MapInfo {
@@ -75,10 +76,15 @@ namespace Luth
         // Emissive: rgb = factor (linear), a = HDR strength. Emission = rgb * a, modulated by the
         // emissive texture when FLAG_HAS_EMISSIVE is set. Byte 64, std430 vec4-aligned (no padding).
         Vec4 emissive = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+        // Decal RGBA (rgb color, a coverage); sampled by GraphDecal. decalIndex@80; the trailing 12 B
+        // are the std430 vec4-alignment tail (struct rounds to 96), reserved as spare map slots.
+        u32 decalIndex = 0;
+        u32 reserved0 = 0, reserved1 = 0, reserved2 = 0;
     };
     // std430 layout must stay byte-identical to material.slang's GPUMaterialData; MaterialLayoutGuard
     // cross-checks the field offsets at init; a desync silently corrupts every material index > 0.
-    static_assert(sizeof(GPUMaterialData) == 80, "GPUMaterialData std430 layout must stay 80 B");
+    static_assert(sizeof(GPUMaterialData) == 96, "GPUMaterialData std430 layout must stay 96 B");
 
     // Per-material graph-constant stride (float4 slots/material). invariant: matches material.slang MAT_GRAPH_STRIDE;
     // shader paramBase = materialIndex * MAT_GRAPH_STRIDE indexes gMatParams; drift cross-corrupts. Bounds value nodes.

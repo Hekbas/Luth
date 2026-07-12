@@ -4,7 +4,7 @@
 // Resource-agnostic: bindings (raster set 1/2 vs RT set 4/3) + the ITexFetch impls live in
 // material_bindings_{raster,rt}.slang so one decode serves both set layouts. see arch/rendering-pipeline.md
 
-// 80 B std430, field-identical to C++ Material.h GPUMaterialData (MaterialLayoutGuard cross-checks).
+// 96 B std430, field-identical to C++ Material.h GPUMaterialData (MaterialLayoutGuard cross-checks).
 public struct GPUMaterialData
 {
     public float4 color;
@@ -13,6 +13,8 @@ public struct GPUMaterialData
     public float  metalness, roughness, alphaCutoff;
     public uint   flags;          // bits 0-7 = HAS_* per map; bits 16-23 = per-map UV index (2 bits each)
     public float4 emissive;       // rgb = factor (linear), a = HDR strength
+    public uint   decalIndex;     // decal RGBA (rgb color, a coverage); sampled by GraphDecal
+    public uint   reserved0, reserved1, reserved2;  // std430 vec4-align tail; spare map slots
 }
 
 public static const uint FLAG_HAS_NORMAL     = (1u << 0);

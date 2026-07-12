@@ -44,6 +44,7 @@ namespace Luth
             { "alphaCutoff",     offsetof(GPUMaterialData, alphaCutoff) },
             { "flags",           offsetof(GPUMaterialData, flags) },
             { "emissive",        offsetof(GPUMaterialData, emissive) },
+            { "decalIndex",      offsetof(GPUMaterialData, decalIndex) },
         };
         MaterialLayoutGuard::Validate(FileSystem::EngineAssetsPath("shaders/common/material.slang"),
                                       "GPUMaterialData", kFields, sizeof(GPUMaterialData));

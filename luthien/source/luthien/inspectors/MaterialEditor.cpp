@@ -317,6 +317,7 @@ namespace Luth
                 });
 
                 DrawSurfaceInput(MapType::Thickness, "Thickness", nullptr);
+                DrawSurfaceInput(MapType::Decal, "Decal", nullptr);
 
                 ImGui::EndTable();
             }
