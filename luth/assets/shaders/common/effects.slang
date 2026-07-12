@@ -92,3 +92,25 @@ public float4 GraphParallax<F : ITexFetch>(F fetch, uint heightIndex, float2 bas
     float weight = (abs(denom) > 1e-6) ? saturate(after / denom) : 0.0;
     return float4(curUV + deltaUV * weight, 0.0, 0.0);
 }
+
+// UV-space decal: inverse of the placement map uv = center + scale * R(rot) * (d - 0.5), with
+// p = (centerU, centerV, scale, rotationRadians); decal.a lerps baseColor.rgb only (color-only v1).
+// invariant: contribution is step-box-masked to d in [0,1]^2 - REPEAT samplers must never tile a decal.
+public MaterialInputs GraphDecal<F : ITexFetch>(F fetch, uint decalIndex, MaterialInputs base, float2 uv, float4 p)
+{
+    if (decalIndex == 0u || abs(p.z) < 1e-4)
+        return base;   // null/white slot or degenerate scale (1/scale blow-up)
+
+    float2 q = (uv - p.xy) / p.z;                                    // undo translate + uniform scale
+    float  c = cos(p.w), s = sin(p.w);
+    float2 d = float2(c * q.x + s * q.y, c * q.y - s * q.x) + 0.5;   // R(-rot) inline, recentre at 0.5
+
+    // Sampled unconditionally, masked after: keeps the raster tier's implicit gradients in uniform flow.
+    float4 decal  = fetch.Sample(decalIndex, d);
+    float2 inside = step(float2(0.0), d) * step(d, float2(1.0));
+    float  mask   = decal.a * inside.x * inside.y;
+
+    MaterialInputs o = base;
+    o.baseColor.rgb = lerp(base.baseColor.rgb, decal.rgb, mask);
+    return o;
+}

@@ -85,7 +85,7 @@ namespace Luth
             return t == MatNodeType::ConstFloat || t == MatNodeType::ConstColor || t == MatNodeType::Remap
                 || t == MatNodeType::Noise      || t == MatNodeType::Fresnel
                 || t == MatNodeType::Triplanar  || t == MatNodeType::DetailNormal
-                || t == MatNodeType::Parallax;
+                || t == MatNodeType::Parallax   || t == MatNodeType::Decal;
         }
 
         u8 InputCount(MatNodeType t)
@@ -101,7 +101,7 @@ namespace Luth
                 case MatNodeType::Multiply: case MatNodeType::Add: case MatNodeType::StaticSwitch:
                 case MatNodeType::Subtract: case MatNodeType::Divide: case MatNodeType::Power:
                 case MatNodeType::Min: case MatNodeType::Max: case MatNodeType::Dot:
-                case MatNodeType::DetailNormal:
+                case MatNodeType::DetailNormal: case MatNodeType::Decal:
                     return 2;
                 default:
                     return 1;   // Remap / Split / Noise / TextureSample UV pin (value + context nodes leave slot 0 unlinked)
@@ -295,6 +295,15 @@ namespace Luth
                             if (seq.count(l->fromNode)) uv = SourceExpr(*byId.at(l->fromNode), l->fromSlot);
                         return "GraphParallax<F>(fetch, m.heightIndex, (" + uv
                              + ").xy, fetch.TangentViewDir(), fetch.Param(" + std::to_string(paramSlot.at(n.id)) + "))";
+                    }
+                    case MatNodeType::Decal:
+                    {
+                        // Base layer (slot 0, stock fallback via InputLayer); optional UV (slot 1) defaults uv0.
+                        std::string uv = "float4(uv0, 0.0, 0.0)";
+                        if (const MatLink* l = Incoming(g, n.id, 1))
+                            if (seq.count(l->fromNode)) uv = SourceExpr(*byId.at(l->fromNode), l->fromSlot);
+                        return "GraphDecal<F>(fetch, m.decalIndex, " + InputLayer(n, 0) + ", (" + uv
+                             + ").xy, fetch.Param(" + std::to_string(paramSlot.at(n.id)) + "))";
                     }
                     default:                         return "float4(0.0)";
                 }
