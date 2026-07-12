@@ -119,6 +119,25 @@
 > invariant: Output slot-6 + the effects import are emitted append-only, so a pre-slot-6 graph's canonical
 > source is byte-identical and its structure hash / RT variant never churn.
 
+> **Clear-coat + anisotropy (`shading-models`, v3.12.0).** `MaterialInputs` + `brdf.slang` gain a clear-coat
+> second lobe (fixed IOR 1.5 -> F0 = 0.04, own roughness) and anisotropic GGX (Filament `alpha_t/alpha_b` from a
+> `[-1,1]` param over the mesh tangent, rotatable). All shading routes through one `SurfaceBRDF` built by
+> `MakeSurfaceBRDF` (Gram-Schmidt tangent vs the perturbed N, handedness from raster `tangent.w` / RT `tSign`),
+> so the raster fragment path and the `path_trace.slang` reference shade identically (raster==RT): analytic
+> sun/spot/cluster lights, IBL (a coat env lobe + an anisotropic bent-reflection vector, base attenuated by
+> `1 - Fc` so the RT-reflection composite stays correct), and the PT NEE + a 3-lobe one-sample-MIS BSDF sampler
+> (coat + anisotropic-VNDF base + diffuse). The RT hit tangent (`HitGeometry.T`/`tSign`, already reconstructed)
+> now threads through `HitSurface`. `GPUMaterialData` grew 96 -> 112 B (four factors, `MaterialLayoutGuard`
+> cross-checked). invariant: at `clearcoat == 0 && anisotropy == 0` the eval calls `EvalBRDFTimesNdotL`
+> verbatim -- bit-identical including the PT random-stream consumption order -- so existing materials are
+> unchanged. **Documented deviation (Option A):** the slim G-buffer carries no tangent, so the screen-space
+> ReSTIR DI-specular (point lights) + RT reflections keep the PRIMARY surface isotropic; the analytic
+> sun/spot/cluster path and the PathTrace reference are fully anisotropic, so DI-off and PathTrace are the
+> correct references. A slim-G-buffer tangent would close it (deferred). Coat/aniso texture maps + Kulla-Conty
+> multiscatter compensation deferred. `path_trace.slang` also gained an indirect env-miss firefly clamp -- a
+> sharp coat lobe mirroring a bright env light blew out at the grazing Fresnel rim because the env-on-miss
+> bypassed the existing indirect clamp.
+
 ## Current RenderGraph Pass Order
 
 ```
