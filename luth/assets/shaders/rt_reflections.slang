@@ -160,6 +160,15 @@ void main(uint3 tid : SV_DispatchThreadID)
         HitSurface hs = FetchHitSurface(pc.geomTable, rq.CommittedInstanceID(), rq.CommittedPrimitiveIndex(),
                                         rq.CommittedTriangleBarycentrics(), rq.CommittedObjectToWorld3x4(), R, xs);
         Li      = ShadeHit(xs, hs, seed);
+        // Glass seen in a reflection: Fresnel-weighted surface shading + a single straight-through env tap
+        // (no bend, no geometry behind glass) -- a bounded stand-in; the PathTrace reference is the oracle.
+        if (hs.transmission > 0.0)
+        {
+            float  tw  = hs.transmission * (1.0 - hs.metalness);
+            float  Fg  = F_Dielectric(abs(dot(hs.ns, R)), hs.frontFace ? (1.0 / hs.ior) : hs.ior);
+            float3 thr = (pc.envReady != 0u) ? u_PrefilteredEnv.SampleLevel(R, hs.roughness * 4.0).rgb * ubo.iblIntensity : float3(0.0);
+            Li = lerp(Li, Li * Fg + hs.baseColor * (1.0 - Fg) * thr, tw);
+        }
         hitDist = tHit;
     }
 

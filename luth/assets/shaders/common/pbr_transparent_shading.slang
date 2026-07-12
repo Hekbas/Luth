@@ -15,6 +15,8 @@ import froxel;
 // Set 6 b0: resolved volumetric in-scatter atlas (b1/b2 are the OIT heads/nodes; pbr_oit_store only).
 [[vk::binding(6, 0)]] RaytracingAccelerationStructure topLevelAS;
 [[vk::binding(0, 6)]] Sampler3D volInScatter;
+// b3: pre-transparent scene copy (opaque + fog) for screen-space refraction; partially-bound (glass only).
+[[vk::binding(3, 6)]] Sampler2D refractionBackdrop;
 
 public struct TransparentPC
 {
@@ -110,5 +112,32 @@ public float4 EvalTransparentSurfaceColor(uint materialIndex, uint shadeMode, fl
         color = color * (1.0 - fogOpacity) + volS.rgb;
     }
 
-    return float4(color, mi.baseColor.a);
+    // Screen-space refraction (documented deviation, Option-A shape): sample the pre-transparent scene copy
+    // along the refracted view ray, tint by Beer-Lambert over the authored thickness, weight by
+    // (1-Fresnel)*transmission. The refracted background replaces the straight-through view (alpha -> 1); the
+    // true refracted/absorbed reference is the PathTrace oracle. see arch/rendering-pipeline.md
+    float alphaOut = mi.baseColor.a;
+    if (mi.transmission > 0.0)
+    {
+        float  tw     = mi.transmission * (1.0 - mi.metallic);
+        float  relEta = frontFacing ? (1.0 / mi.ior) : mi.ior;
+        float3 rRefr  = refract(-V, nrm, relEta);
+        if (dot(rRefr, rRefr) > 1.0e-6)   // 0 under total internal reflection -> keep the straight-through view
+        {
+            float3 exitP  = worldPos + rRefr * mi.thickness;
+            float4 clip   = mul(ubo.viewProjection, float4(exitP, 1.0));
+            float2 refrUV = (clip.w > 1.0e-4) ? (clip.xy / clip.w * float2(0.5, 0.5) + 0.5)
+                                              : (fragCoord.xy / ubo.viewportSize);
+            refrUV        = clamp(refrUV, float2(0.0), float2(1.0));
+            float3 beer   = (mi.attenuationDistance > 0.0)
+                          ? exp(-(-log(max(mi.attenuationColor, float3(1.0e-5))) / mi.attenuationDistance) * mi.thickness)
+                          : float3(1.0);
+            float3 back   = refractionBackdrop.SampleLevel(refrUV, 0.0).rgb * beer;
+            float  Fv     = F_Dielectric(saturate(dot(nrm, V)), relEta);
+            color        += back * (1.0 - Fv) * tw;
+            alphaOut      = lerp(mi.baseColor.a, 1.0, tw);   // glass provides its own (refracted) background
+        }
+    }
+
+    return float4(color, alphaOut);
 }
