@@ -97,12 +97,15 @@ float3 DirectLighting(float3 x, float3 V, HitSurface s, SurfaceBRDF surf, inout 
     return Lo;
 }
 
-// BSDF importance sampling: pick clear-coat / (anisotropic) base-specular / diffuse lobe, sample it,
-// weight by one-sample mixture MIS. Returns the next ray direction; multiplies `tp` by f*cos/pdf.
-// invariant: at clearcoat==0 && anisotropy==0 the lobe count, branch order, and RandFromSeed consumption
-// (1 select + 2 sample draws) match the legacy diffuse/spec split exactly, so legacy paths are bit-identical.
-bool SampleBSDF(float3 V, HitSurface s, SurfaceBRDF surf, inout uint seed, out float3 newDir, inout float3 tp)
+// BSDF importance sampling: pick clear-coat / (anisotropic) base-specular / dielectric-glass / diffuse lobe,
+// sample it, weight by one-sample mixture MIS. Returns the next direction + whether it transmitted; multiplies
+// `tp` by f*cos/pdf. The glass lobe carves probability from the diffuse side and does its Fresnel reflect/refract
+// split by renormalizing the lobe-select draw, so it stays exactly 3 RandFromSeed draws for every material.
+// invariant: at clearcoat==0 && anisotropy==0 && transmission==0 the lobe count, branch order, and draw
+// consumption match the legacy diffuse/spec split exactly (pTrans folds to +0.0), so legacy paths are bit-identical.
+bool SampleBSDF(float3 V, HitSurface s, SurfaceBRDF surf, inout uint seed, out float3 newDir, inout float3 tp, out bool transmitted)
 {
+    transmitted = false;
     bool   anisoActive = abs(surf.anisotropy) > 1.0e-3;
     float3 F0    = lerp(float3(0.04), s.baseColor, s.metalness);
     float  wDiff = Luminance((1.0 - s.metalness) * s.baseColor);
@@ -113,8 +116,13 @@ bool SampleBSDF(float3 V, HitSurface s, SurfaceBRDF surf, inout uint seed, out f
     // One-sample MIS is unbiased for any p in (0,1); the [0.1,0.9] clamp trades variance to never starve
     // the rare-but-bright specular highlight (or a metal's diffuse 10%). Base split is scaled by (1-pCoat).
     float  pSpecCond = clamp(wSpec / max(wDiff + wSpec, 1.0e-4), 0.1, 0.9);
-    float  pSpec = (1.0 - pCoat) * pSpecCond;
-    float  pDiff = (1.0 - pCoat) * (1.0 - pSpecCond);
+    float  pSpec  = (1.0 - pCoat) * pSpecCond;
+    float  pDiffT = (1.0 - pCoat) * (1.0 - pSpecCond);   // legacy diffuse-side total; the glass lobe carves from it
+    // Transmission carves the diffuse-side probability. invariant: at tw==0, pTrans = pDiffT*0.0 = +0.0 (the glass
+    // branch is unreachable) and pDiff = pDiffT*1.0 = pDiffT bit-for-bit, so the legacy stream stays unchanged.
+    float  tw     = surf.transmission * (1.0 - s.metalness);
+    float  pTrans = pDiffT * tw;
+    float  pDiff  = pDiffT * (1.0 - tw);
     float  ccR   = clamp(s.clearcoatRoughness, 0.04, 1.0);
     float  ccA   = ccR * ccR;
 
@@ -148,6 +156,18 @@ bool SampleBSDF(float3 V, HitSurface s, SurfaceBRDF surf, inout uint seed, out f
             newDir    = reflect(-V, Ht.x * t + Ht.y * bt + Ht.z * s.ns);
         }
     }
+    else if (u < pCoat + pSpec + pTrans)
+    {
+        // Dielectric interface: sample a VNDF half-vector (isotropic glass lobe), then a Fresnel-weighted
+        // reflect/refract split reusing the lobe-select u renormalized over this branch (no extra RNG draw).
+        float3 Vt = float3(dot(V, t), dot(V, bt), dot(V, s.ns));
+        float3 Ht = SampleGGXVNDF(Vt, surf.roughness * surf.roughness, ua, ub);
+        float3 H  = Ht.x * t + Ht.y * bt + Ht.z * s.ns;
+        float  Fr = F_Dielectric(dot(V, H), surf.relEta);        // == 1 under total internal reflection
+        float  ur = (u - (pCoat + pSpec)) / max(pTrans, 1.0e-8);
+        if (ur < Fr) newDir = reflect(-V, H);
+        else       { newDir = refract(-V, H, surf.relEta); transmitted = true; }
+    }
     else
     {
         float pdfIgnore;
@@ -155,25 +175,45 @@ bool SampleBSDF(float3 V, HitSurface s, SurfaceBRDF surf, inout uint seed, out f
     }
 
     float NdotL = dot(s.ns, newDir);
-    if (NdotL <= 0.0) return false;   // below the surface: terminate
+    if (!transmitted && NdotL <= 0.0) return false;   // reflection below the surface: terminate
+    if ( transmitted && NdotL >= 0.0) return false;   // refraction must cross to the far side
 
-    float3 fCos = EvalSurfBRDFTimesNdotL(newDir, float3(1.0), V, surf);
-    float  pdfSpec;
-    if (anisoActive)
+    float3 fCos;
+    float  pdf;
+    if (transmitted)
     {
-        float a  = s.roughness * s.roughness;
-        float at = clamp(a * (1.0 + surf.anisotropy), 1.6e-3, 1.0);
-        float ab = clamp(a * (1.0 - surf.anisotropy), 1.6e-3, 1.0);
-        float3 Vt = float3(dot(V, surf.T), dot(V, surf.B), dot(V, s.ns));
-        float3 Lt = float3(dot(newDir, surf.T), dot(newDir, surf.B), dot(newDir, s.ns));
-        pdfSpec = PdfSpecAnisoTS(Vt, Lt, at, ab);
+        fCos = EvalGlassBTDFTimesNdotL(newDir, V, surf);
+        float3 h  = GlassHalfVector(V, newDir, surf.relEta, s.ns);
+        float  Fr = F_Dielectric(dot(V, h), surf.relEta);
+        pdf = pTrans * (1.0 - Fr) * PdfGlassBTDF(s.ns, V, newDir, surf.roughness, surf.relEta);
     }
     else
-        pdfSpec = PdfSpec(s.ns, V, newDir, s.roughness);
+    {
+        fCos = EvalSurfBRDFTimesNdotL(newDir, float3(1.0), V, surf);
+        float pdfSpec;
+        if (anisoActive)
+        {
+            float a  = s.roughness * s.roughness;
+            float at = clamp(a * (1.0 + surf.anisotropy), 1.6e-3, 1.0);
+            float ab = clamp(a * (1.0 - surf.anisotropy), 1.6e-3, 1.0);
+            float3 Vt = float3(dot(V, surf.T), dot(V, surf.B), dot(V, s.ns));
+            float3 Lt = float3(dot(newDir, surf.T), dot(newDir, surf.B), dot(newDir, s.ns));
+            pdfSpec = PdfSpecAnisoTS(Vt, Lt, at, ab);
+        }
+        else
+            pdfSpec = PdfSpec(s.ns, V, newDir, s.roughness);
 
-    float pdf = pCoat * PdfSpec(s.ns, V, newDir, ccR)
-              + pSpec * pdfSpec
-              + pDiff * PdfDiffuse(s.ns, newDir);
+        pdf = pCoat * PdfSpec(s.ns, V, newDir, ccR)
+            + pSpec * pdfSpec
+            + pDiff * PdfDiffuse(s.ns, newDir);
+        // The glass lobe also generates reflections; fold its reflection density into the MIS sum so mixed
+        // glass reflection is unbiased. At pTrans==0 this adds +0.0 (legacy value + stream untouched).
+        if (pTrans > 0.0)
+        {
+            float3 Hh = normalize(V + newDir);
+            pdf += pTrans * F_Dielectric(dot(V, Hh), surf.relEta) * PdfSpec(s.ns, V, newDir, surf.roughness);
+        }
+    }
     if (pdf <= 0.0) return false;
     tp *= fCos / pdf;
     return true;
@@ -194,6 +234,9 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
     float  tMin       = ubo.rtShadowParams.y;
     float3 radiance   = float3(0.0);
     float3 throughput = float3(1.0);
+    float3 sigmaA     = float3(0.0);   // Beer-Lambert extinction of the medium the ray is currently inside
+    bool   inMedium   = false;         // single-medium tracking (no nesting); toggled on refraction enter/exit
+    bool   specularPath = true;        // every bounce so far was the glass lobe -> keep env-through-glass sharp
 
     for (uint bounce = 0u; bounce < pc.maxBounces; ++bounce)
     {
@@ -207,7 +250,7 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
             // spec) mirroring a bright env light is high-variance and blows out at the grazing Fresnel rim.
             // The primary camera ray missing (bounce 0 = the sky background) stays unbiased.
             float3 envContrib = throughput * SampleEnv(rd);
-            if (bounce > 0u)
+            if (bounce > 0u && !specularPath)   // a glass-only path keeps the refracted env sharp (not a firefly)
             {
                 float lum = Luminance(envContrib);
                 if (lum > pc.fireflyClamp) envContrib *= pc.fireflyClamp / lum;
@@ -217,6 +260,7 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
         }
 
         float  t = rq.CommittedRayT();
+        if (inMedium) throughput *= exp(-sigmaA * t);   // Beer-Lambert over the interior segment just traversed
         float3 x = ro + rd * t;
         HitSurface s = FetchHitSurface(pc.geomTable, rq.CommittedInstanceID(), rq.CommittedPrimitiveIndex(),
                                        rq.CommittedTriangleBarycentrics(), rq.CommittedObjectToWorld3x4(), rd, x);
@@ -235,9 +279,22 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
             if (lum > pc.fireflyClamp) contrib *= pc.fireflyClamp / lum;
         }
         radiance += contrib;
+        specularPath = specularPath && (surf.transmission > 0.0);   // a non-glass hit ends the sharp-env exemption
 
         float3 newDir;
-        if (!SampleBSDF(V, s, surf, seed, newDir, throughput)) break;
+        bool   transmitted;
+        if (!SampleBSDF(V, s, surf, seed, newDir, throughput, transmitted)) break;
+
+        // Medium transition: refracting through the outward (front) side enters the medium, through the back
+        // exits to air. Assignment (not toggle) self-heals open-mesh leaks; TIR keeps transmitted=false so the
+        // internally-reflected ray stays inside and keeps absorbing. No nested media (single bool).
+        if (transmitted)
+        {
+            inMedium = s.frontFace;
+            sigmaA   = (inMedium && s.attenuationDistance > 0.0)
+                     ? -log(max(s.attenuationColor, float3(1.0e-5))) / s.attenuationDistance
+                     : float3(0.0);
+        }
 
         // Russian roulette after a few guaranteed bounces; /survival keeps the estimator unbiased.
         if (bounce >= pc.rrStartDepth)
@@ -247,7 +304,8 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
             throughput /= p;
         }
 
-        ro = x + s.ng * (ubo.rtShadowParams.z * 0.5) + newDir * tMin;
+        // Transmitted rays continue on the far (-ng) side; reflections stay on the +ng side.
+        ro = x + (transmitted ? -s.ng : s.ng) * (ubo.rtShadowParams.z * 0.5) + newDir * tMin;
         rd = newDir;
     }
     return radiance;
