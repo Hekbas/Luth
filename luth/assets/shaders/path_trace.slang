@@ -118,6 +118,9 @@ bool SampleBSDF(float3 V, HitSurface s, SurfaceBRDF surf, inout uint seed, out f
     // legacy stream (x + (+0.0) == x for x >= +0.0; no draw added or moved).
     float  sheenW = max(surf.sheenColor.r, max(surf.sheenColor.g, surf.sheenColor.b));
     float  wSheen = (sheenW > 0.0) ? Luminance(surf.sheenColor * E_Sheen(NoV, surf.sheenRoughness)) : 0.0;
+    // Subsurface re-routes the diffuse lobe into an interior random walk; it adds no lobe and no selection
+    // bias, so at subsurfaceColor == 0 the whole block below is bit-identical (sssActive false).
+    bool   sssActive = max(surf.subsurfaceColor.r, max(surf.subsurfaceColor.g, surf.subsurfaceColor.b)) > 0.0;
     float  pCoat = (s.clearcoat > 0.0) ? clamp(wCoat / max(wDiff + wSheen + wSpec + wCoat, 1.0e-4), 0.0, 0.5) : 0.0;
     // One-sample MIS is unbiased for any p in (0,1); the [0.1,0.9] clamp trades variance to never starve
     // the rare-but-bright specular highlight (or a metal's diffuse 10%). Base split is scaled by (1-pCoat).
@@ -177,10 +180,16 @@ bool SampleBSDF(float3 V, HitSurface s, SurfaceBRDF surf, inout uint seed, out f
     else
     {
         float pdfIgnore;
-        newDir = SampleCosHemisphere(s.ns, float2(ua, ub), pdfIgnore);
+        // Subsurface: the diffuse transport is a random walk through the interior (SamplePath medium loop);
+        // enter/exit by a cosine transmit to the far side of the interface (-ns). Else a Lambert bounce.
+        newDir = SampleCosHemisphere(sssActive ? -s.ns : s.ns, float2(ua, ub), pdfIgnore);
+        if (sssActive) transmitted = true;
     }
 
     float NdotL = dot(s.ns, newDir);
+    // Subsurface diffuse transmit (unit-albedo cosine into the interior): the colour comes from the interior
+    // random walk, so f/pdf reduces to 1/pDiff. Bypasses the glass reflect/refract accounting below.
+    if (sssActive && transmitted) { tp *= 1.0 / max(pDiff, 1.0e-4); return true; }
     if (!transmitted && NdotL <= 0.0) return false;   // reflection below the surface: terminate
     if ( transmitted && NdotL >= 0.0) return false;   // refraction must cross to the far side
 
@@ -240,7 +249,8 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
     float  tMin       = ubo.rtShadowParams.y;
     float3 radiance   = float3(0.0);
     float3 throughput = float3(1.0);
-    float3 sigmaA     = float3(0.0);   // Beer-Lambert extinction of the medium the ray is currently inside
+    float3 sigmaA     = float3(0.0);   // absorption of the medium the ray is currently inside
+    float3 sigmaS     = float3(0.0);   // scattering coefficient (subsurface only; glass keeps this 0 = absorb-only)
     bool   inMedium   = false;         // single-medium tracking (no nesting); toggled on refraction enter/exit
     bool   specularPath = true;        // every bounce so far was the glass lobe -> keep env-through-glass sharp
 
@@ -250,6 +260,33 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
         RayQuery<RAY_FLAG_NONE> rq;
         rq.TraceRayInline(topLevelAS, RAY_FLAG_NONE, GT_VIS_ALL, ray);
         RtConfirmAlphaCandidates(rq, pc.geomTable);
+
+        // Subsurface scattering medium: sample a free-flight collision before the boundary. A collision is an
+        // interior scatter event (no surface interaction); reaching the boundary is an exit (the normal hit
+        // below). invariant: sigmaS == 0 (every non-SSS path) skips this whole block, so the RNG stream stays
+        // bit-identical. Scalar hero extinction + per-channel scatter albedo (spectral MIS is a follow-up).
+        if (inMedium && (sigmaS.r + sigmaS.g + sigmaS.b) > 0.0)
+        {
+            bool   ssMiss = (rq.CommittedStatus() == COMMITTED_NOTHING);
+            float  tB     = ssMiss ? 1.0e30 : rq.CommittedRayT();
+            float3 sigT   = sigmaS + sigmaA;
+            float  sigTh  = (sigT.r + sigT.g + sigT.b) * (1.0 / 3.0);   // mean hero extinction for the free-flight
+            float  ts     = -log(max(1.0 - RandFromSeed(seed), 1.0e-6)) / max(sigTh, 1.0e-6);
+            if (ts < tB)
+            {
+                ro         = ro + rd * ts;                             // advance to the collision, stay inside
+                throughput *= sigmaS / max(sigT, float3(1.0e-6));      // per-channel single-scatter albedo (absorbs 1-alpha)
+                float u1 = RandFromSeed(seed), u2 = RandFromSeed(seed);
+                float z  = 1.0 - 2.0 * u1, rr = sqrt(max(0.0, 1.0 - z * z)), ph = 6.2831853 * u2;
+                rd = float3(rr * cos(ph), rr * sin(ph), z);            // isotropic phase (Henyey-Greenstein g = 0)
+                float pr = clamp(max(throughput.r, max(throughput.g, throughput.b)), 0.02, 1.0);
+                if (RandFromSeed(seed) > pr) break;                    // absorbed: a dark medium terminates the walk
+                throughput /= pr;
+                continue;                                              // next step of the walk, still inMedium
+            }
+            // no collision before the boundary -> the ray exits at the surface (handled as the normal hit below)
+        }
+
         if (rq.CommittedStatus() == COMMITTED_NOTHING)
         {
             // Firefly-clamp INDIRECT env hits, same as the hit path below: a sharp lobe (clear-coat / smooth
@@ -266,7 +303,9 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
         }
 
         float  t = rq.CommittedRayT();
-        if (inMedium) throughput *= exp(-sigmaA * t);   // Beer-Lambert over the interior segment just traversed
+        // Beer-Lambert for the absorbing glass medium only; the SSS medium's absorption is folded into the
+        // collision walk's per-channel scatter albedo above, so it must not be double-applied here.
+        if (inMedium && (sigmaS.r + sigmaS.g + sigmaS.b) <= 0.0) throughput *= exp(-sigmaA * t);
         float3 x = ro + rd * t;
         HitSurface s = FetchHitSurface(pc.geomTable, rq.CommittedInstanceID(), rq.CommittedPrimitiveIndex(),
                                        rq.CommittedTriangleBarycentrics(), rq.CommittedObjectToWorld3x4(), rd, x);
@@ -298,9 +337,21 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
         if (transmitted)
         {
             inMedium = s.frontFace;
-            sigmaA   = (inMedium && s.attenuationDistance > 0.0)
-                     ? -log(max(s.attenuationColor, float3(1.0e-5))) / s.attenuationDistance
-                     : float3(0.0);
+            if (max(surf.subsurfaceColor.r, max(surf.subsurfaceColor.g, surf.subsurfaceColor.b)) > 0.0)
+            {
+                // Subsurface entry seeds the scattering medium (Chiang albedo -> sigma); the back-face exit
+                // clears it. sigmaS > 0 is what routes the medium block above into the scatter walk.
+                SssSigma sg = SssAlbedoToSigma(surf.subsurfaceColor, surf.scatterRadius);
+                sigmaS = inMedium ? sg.sigmaS : float3(0.0);
+                sigmaA = inMedium ? sg.sigmaA : float3(0.0);
+            }
+            else
+            {
+                sigmaS = float3(0.0);
+                sigmaA = (inMedium && s.attenuationDistance > 0.0)
+                       ? -log(max(s.attenuationColor, float3(1.0e-5))) / s.attenuationDistance
+                       : float3(0.0);
+            }
         }
 
         // Russian roulette after a few guaranteed bounces; /survival keeps the estimator unbiased.
