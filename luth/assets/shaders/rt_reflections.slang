@@ -167,7 +167,7 @@ void main(uint3 tid : SV_DispatchThreadID)
             float  tw  = hs.transmission * (1.0 - hs.metalness);
             float  Fg  = F_Dielectric(abs(dot(hs.ns, R)), hs.frontFace ? (1.0 / hs.ior) : hs.ior);
             float3 thr = (pc.envReady != 0u) ? u_PrefilteredEnv.SampleLevel(R, hs.roughness * 4.0).rgb * ubo.iblIntensity : float3(0.0);
-            Li = lerp(Li, Li * Fg + hs.baseColor * (1.0 - Fg) * thr, tw);
+            Li = lerp(Li, Li * Fg + (1.0 - Fg) * thr, tw);   // achromatic transmitted env (tint = absorption, not albedo)
         }
         hitDist = tHit;
     }

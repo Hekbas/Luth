@@ -231,7 +231,10 @@ public float3 EvalGlassBTDFTimesNdotL(float3 L, float3 V, SurfaceBRDF s)
     float d   = s.relEta * VoH + LoH;
     float ft  = D_GGX(s.N, h, s.roughness) * G1_GGX(NoV, a) * G1_GGX(NoL, a)
               * VoH * (-LoH) / max(NoV * d * d, 1.0e-6);   // f_t * |NoL|, the |NoL| denom cancelled
-    return s.albedo * (tw * (1.0 - F) * ft);               // baseColor = interface tint (glTF semantics)
+    // Achromatic clear interface: the transmission tint is the VOLUME absorption (attenuationColor, applied
+    // as Beer-Lambert in the PT medium / raster beer term), NOT baseColor -- keeps raster == RT and lets a
+    // clear glass stay clear regardless of its albedo.
+    return float3(tw * (1.0 - F) * ft);
 }
 
 // Sample a VNDF half-vector (Heitz 2018) given the tangent-space view Ve (N = +Z). Natively anisotropic:
