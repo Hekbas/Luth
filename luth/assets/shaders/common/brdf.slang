@@ -68,6 +68,62 @@ public float V_SmithGGXCorrelated(float NoV, float NoL, float alpha)
     return 0.5 / max(lambdaV + lambdaL, 1.0e-6);
 }
 
+// ---- Estevez-Kulla 2017 production sheen (fabric / velvet / banners) ----
+// "Charlie" sheen NDF: (2 + 1/a) * sin^(1/a) / (2*pi), a = sheenRoughness^2 (glTF KHR_materials_sheen /
+// Filament perceptual remap). invariant: int D*NoH dwh == 1 for any alpha; the sin2h floor 2^-7 keeps
+// the pow finite. Caller clamps sheenRoughness (coat-style [0.04,1]).
+public float D_Charlie(float sheenRoughness, float NoH)
+{
+    float a = sheenRoughness * sheenRoughness;
+    float invAlpha = 1.0 / a;
+    float sin2h = max(1.0 - NoH * NoH, 0.0078125);
+    return (2.0 + invAlpha) * pow(sin2h, invAlpha * 0.5) / (2.0 * kPi);
+}
+
+// Soft shadowing-masking: Smith Lambda numerically fit in log space (mirrored about x=0.5), coefficient
+// sets at alpha 0/1 interpolated by (1-alpha)^2. Coeffs match the KHR_materials_sheen reference impl.
+float LambdaSheenL(float x, float aG)
+{
+    float t = (1.0 - aG) * (1.0 - aG);
+    float a = lerp(21.5473, 25.3245, t);
+    float b = lerp(3.82987, 3.32435, t);
+    float c = lerp(0.19823, 0.16801, t);
+    float d = lerp(-1.97760, -1.27393, t);
+    float e = lerp(-4.32054, -4.85967, t);
+    return a / (1.0 + b * pow(x, c)) + d * x + e;
+}
+float LambdaSheen(float cosT, float aG)
+{
+    return (cosT < 0.5) ? exp(LambdaSheenL(cosT, aG))
+                        : exp(2.0 * LambdaSheenL(0.5, aG) - LambdaSheenL(1.0 - cosT, aG));
+}
+
+// Height-UNcorrelated Smith combine (the paper's form; do NOT swap to the height-correlated one -- the fit
+// was derived for this). Folds 1/(4*NoV*NoL) like the other V_*; the [0,1] clamp bounds grazing energy AND
+// the PT f/pdf ratio. Cheaper fallback (unused): V_Neubelt = 1/(4*(NoL+NoV-NoL*NoV)), whose albedo
+// overshoots 1 at grazing where the EK fit stays <= ~0.9.
+public float V_Charlie(float sheenRoughness, float NoV, float NoL)
+{
+    float aG = sheenRoughness * sheenRoughness;
+    float G  = 1.0 / (1.0 + LambdaSheen(NoV, aG) + LambdaSheen(NoL, aG));
+    return clamp(G / (4.0 * NoV * NoL), 0.0, 1.0);
+}
+
+// Directional albedo of the shipped sheen lobe (D_Charlie * V_Charlie incl. its clamp): analytic fit
+// (mean err ~2%, |abs| <= 0.03 for r in [0.15,1]). Bespoke because published fits target the Neubelt lobe
+// (differs up to ~1.7x). One fit feeds the base energy comp + IBL sheen + the PT lobe weight, so all three
+// paths stay matched. Self-clamps r (the 1/r^2 basis diverges outside the fit domain).
+public float E_Sheen(float NoV, float sheenRoughness)
+{
+    float r  = clamp(sheenRoughness, 0.04, 1.0);
+    float ir = 1.0 / r;
+    float q0 = ((0.206010 * r + 0.226792) * r - 0.795040) + (0.168545 - 0.004546 * ir) * ir;
+    float q1 = ((-5.311925 * r + 8.385109) * r - 4.158626) + (-0.651188 + 0.007145 * ir) * ir;
+    float q2 = ((1.632468 * r - 0.764938) * r - 1.466601) + (0.951670 - 0.212060 * ir) * ir;
+    float cap = ((-3.086316 * r + 6.473346) * r - 4.160183) * r + 1.524600;
+    return min(min(exp(q0 + (q1 + q2 * NoV) * NoV), cap), 1.0);
+}
+
 // f(V,L)*NdotL*radiance: the shared evaluate-at-surface-point seam (radiance=1 yields f*NdotL).
 public float3 EvalBRDFTimesNdotL(float3 L, float3 radiance, float3 V, float3 N, float3 albedo, float metallic, float roughness)
 {
@@ -81,9 +137,10 @@ public float3 EvalBRDFTimesNdotL(float3 L, float3 radiance, float3 V, float3 N, 
     return (kD * albedo / kPi + spec) * radiance * max(dot(N, L), 0.0);
 }
 
-// Extended surface: an anisotropic base lobe + an isotropic clear-coat lobe layered over it.
-// invariant: at clearcoat==0 && anisotropy==0 this reduces to EvalBRDFTimesNdotL bit-for-bit (the fast
-// path calls it verbatim), so materials that use neither are unchanged. see arch/rendering-pipeline.md
+// Extended surface: an anisotropic base lobe + a clear-coat lobe + a dielectric-transmission lobe + a
+// production-sheen lobe layered over the base. invariant: with every extension weight zero (clearcoat==0
+// && anisotropy==0 && transmission==0 && sheenColor==0) this reduces to EvalBRDFTimesNdotL bit-for-bit
+// (the fast path calls it verbatim), so materials that use none are unchanged. see arch/rendering-pipeline.md
 public struct SurfaceBRDF
 {
     public float3 N, T, B;    // T/B pre-rotated by anisotropyRotation, orthonormalized vs N
@@ -93,6 +150,8 @@ public struct SurfaceBRDF
     public float  anisotropy;   // 0 (or tangentless mesh) -> isotropic fast path
     public float  transmission; // dielectric transmission weight [0,1]; 0 = legacy fast paths
     public float  relEta;       // n_incident/n_transmitted on V's side (entering 1/ior, exiting ior)
+    public float3 sheenColor;   // production-sheen reflectance (linear); 0 = legacy fast paths
+    public float  sheenRoughness;
 }
 
 // Build the shading frame once: Gram-Schmidt the tangent vs the (perturbed) N, restore the mesh handedness
@@ -100,13 +159,15 @@ public struct SurfaceBRDF
 public SurfaceBRDF MakeSurfaceBRDF(float3 N, float3 T, float3 B, bool hasTangent, float3 albedo,
                                    float metallic, float roughness, float clearcoat,
                                    float clearcoatRoughness, float anisotropy, float anisotropyRotation,
-                                   float transmission, float ior, bool frontFace)
+                                   float transmission, float ior, bool frontFace,
+                                   float3 sheenColor, float sheenRoughness)
 {
     SurfaceBRDF s;
     s.N = N; s.albedo = albedo; s.metallic = metallic; s.roughness = roughness;
     s.clearcoat = clearcoat; s.clearcoatRoughness = clearcoatRoughness;
     s.transmission = transmission;
     s.relEta = frontFace ? (1.0 / max(ior, 1.0)) : max(ior, 1.0);   // enter: 1/ior, exit: ior
+    s.sheenColor = sheenColor; s.sheenRoughness = sheenRoughness;
 
     float3 To = T - dot(T, N) * N;                       // project the tangent onto the surface plane
     bool   ok = hasTangent && dot(To, To) > 1.0e-8;
@@ -125,9 +186,10 @@ public SurfaceBRDF MakeSurfaceBRDF(float3 N, float3 T, float3 B, bool hasTangent
 // Layered evaluate-at-surface-point: anisotropic base lobe (when active) + isotropic clear-coat on top.
 public float3 EvalSurfBRDFTimesNdotL(float3 L, float3 radiance, float3 V, SurfaceBRDF s)
 {
-    bool anisoActive = abs(s.anisotropy) > 1.0e-3;
-    bool glassActive = s.transmission > 0.0;
-    if (!anisoActive && s.clearcoat <= 0.0 && !glassActive)
+    bool  anisoActive = abs(s.anisotropy) > 1.0e-3;
+    bool  glassActive = s.transmission > 0.0;
+    float sheenW      = max(s.sheenColor.r, max(s.sheenColor.g, s.sheenColor.b));
+    if (!anisoActive && s.clearcoat <= 0.0 && !glassActive && sheenW <= 0.0)
         return EvalBRDFTimesNdotL(L, radiance, V, s.N, s.albedo, s.metallic, s.roughness);
 
     float NdotL = dot(s.N, L);
@@ -171,6 +233,16 @@ public float3 EvalSurfBRDFTimesNdotL(float3 L, float3 radiance, float3 V, Surfac
     float3 diff = kD * s.albedo / kPi;
     if (glassActive) diff *= (1.0 - tw);   // diffuse energy re-routed into the transmission lobe (sampled, not evaluated here)
     float3 base = diff + spec;
+
+    // Sheen: Charlie retro-lobe under the coat; the base loses the lobe's directional albedo (Filament
+    // sheenScaling, view-side comp). No Fresnel by construction -- sheenColor is the reflectance.
+    // invariant: sheenColor == 0 never enters this block, so a sheen-free material is bit-identical.
+    if (sheenW > 0.0)
+    {
+        float  sr = clamp(s.sheenRoughness, 0.04, 1.0);
+        float3 fSheen = s.sheenColor * (D_Charlie(sr, NoH) * V_Charlie(sr, NoV, NoL));
+        base = base * (1.0 - sheenW * E_Sheen(NoV, sr)) + fSheen;
+    }
 
     if (s.clearcoat > 0.0)
     {

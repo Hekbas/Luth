@@ -112,10 +112,16 @@ bool SampleBSDF(float3 V, HitSurface s, SurfaceBRDF surf, inout uint seed, out f
     float  wSpec = Luminance(F0);
     float  NoV   = max(dot(s.ns, V), 1.0e-4);
     float  wCoat = s.clearcoat * (0.04 + 0.96 * pow(1.0 - NoV, 5.0));
-    float  pCoat = (s.clearcoat > 0.0) ? clamp(wCoat / max(wDiff + wSpec + wCoat, 1.0e-4), 0.0, 0.5) : 0.0;
+    // Sheen rides the cosine lobe (hemisphere support, f/pdf bounded by the V_Charlie clamp): no lobe of
+    // its own, no RNG draw; it only biases SELECTION toward the diffuse side where sheen is bright.
+    // invariant: at sheenColor == 0, wSheen == +0.0 keeps every probability below bit-identical to the
+    // legacy stream (x + (+0.0) == x for x >= +0.0; no draw added or moved).
+    float  sheenW = max(surf.sheenColor.r, max(surf.sheenColor.g, surf.sheenColor.b));
+    float  wSheen = (sheenW > 0.0) ? Luminance(surf.sheenColor * E_Sheen(NoV, surf.sheenRoughness)) : 0.0;
+    float  pCoat = (s.clearcoat > 0.0) ? clamp(wCoat / max(wDiff + wSheen + wSpec + wCoat, 1.0e-4), 0.0, 0.5) : 0.0;
     // One-sample MIS is unbiased for any p in (0,1); the [0.1,0.9] clamp trades variance to never starve
     // the rare-but-bright specular highlight (or a metal's diffuse 10%). Base split is scaled by (1-pCoat).
-    float  pSpecCond = clamp(wSpec / max(wDiff + wSpec, 1.0e-4), 0.1, 0.9);
+    float  pSpecCond = clamp(wSpec / max(wDiff + wSheen + wSpec, 1.0e-4), 0.1, 0.9);
     float  pSpec  = (1.0 - pCoat) * pSpecCond;
     float  pDiffT = (1.0 - pCoat) * (1.0 - pSpecCond);   // legacy diffuse-side total; the glass lobe carves from it
     // Transmission carves the diffuse-side probability. invariant: at tw==0, pTrans = pDiffT*0.0 = +0.0 (the glass
@@ -270,7 +276,7 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
         SurfaceBRDF surf = MakeSurfaceBRDF(s.ns, s.T, cross(s.ns, s.T) * s.tSign, s.hasTangent,
                                            s.baseColor, s.metalness, s.roughness,
                                            s.clearcoat, s.clearcoatRoughness, s.anisotropy, s.anisotropyRotation,
-                                           s.transmission, s.ior, s.frontFace);
+                                           s.transmission, s.ior, s.frontFace, s.sheenColor, s.sheenRoughness);
         float3 contrib = throughput * (s.emission + DirectLighting(x, V, s, surf, seed));
         // Firefly clamp INDIRECT contributions only (primary direct/emission stays unbiased).
         if (bounce > 0u)

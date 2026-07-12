@@ -236,6 +236,24 @@ public IblResult EvalIblAmbient(SurfaceBRDF s, float3 V, float ao, float iblInte
     r.specularIBL = prefilteredColor * r.envBRDF;
 
     float3 base = kD * diffuseIBL + r.specularIBL;
+
+    // Sheen env lobe UNDER the coat: split-sum with E_Sheen as the (Fresnel-free) BRDF term; the GGX
+    // prefilter at the sheen roughness stands in for a Charlie prefilter (Filament does the same). Folding
+    // sheenScale into envBRDF/specularIBL keeps the consumer's RT-reflection swap correct -- the fuzz
+    // attenuates the base spec whether it comes from the cube or the tracer.
+    float sheenW = max(s.sheenColor.r, max(s.sheenColor.g, s.sheenColor.b));
+    if (sheenW > 0.0)
+    {
+        float  sr = clamp(s.sheenRoughness, 0.04, 1.0);
+        float  Es = E_Sheen(NoV, sr);
+        float3 sheenEnv = u_PrefilteredMap.SampleLevel(reflect(-V, s.N), sr * MAX_REFLECTION_LOD).rgb
+                        * (s.sheenColor * Es);
+        float  sheenScale = 1.0 - sheenW * Es;
+        base = base * sheenScale + sheenEnv;
+        r.envBRDF     *= sheenScale;
+        r.specularIBL *= sheenScale;
+    }
+
     if (s.clearcoat > 0.0)
     {
         // Isotropic F0=0.04 coat env lobe on top; base attenuates by (1-Fc). Folding (1-Fc) into
