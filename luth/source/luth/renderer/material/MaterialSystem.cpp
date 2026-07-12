@@ -49,6 +49,10 @@ namespace Luth
             { "clearcoatRoughness", offsetof(GPUMaterialData, clearcoatRoughness) },
             { "anisotropy",         offsetof(GPUMaterialData, anisotropy) },
             { "anisotropyRotation", offsetof(GPUMaterialData, anisotropyRotation) },
+            { "ior",                offsetof(GPUMaterialData, ior) },
+            { "transmission",       offsetof(GPUMaterialData, transmission) },
+            { "thickness",          offsetof(GPUMaterialData, thickness) },
+            { "attenuation",        offsetof(GPUMaterialData, attenuation) },
         };
         MaterialLayoutGuard::Validate(FileSystem::EngineAssetsPath("shaders/common/material.slang"),
                                       "GPUMaterialData", kFields, sizeof(GPUMaterialData));

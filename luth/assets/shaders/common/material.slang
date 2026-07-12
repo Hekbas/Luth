@@ -4,19 +4,20 @@
 // Resource-agnostic: bindings (raster set 1/2 vs RT set 4/3) + the ITexFetch impls live in
 // material_bindings_{raster,rt}.slang so one decode serves both set layouts. see arch/rendering-pipeline.md
 
-// 112 B std430, field-identical to C++ Material.h GPUMaterialData (MaterialLayoutGuard cross-checks).
+// 128 B std430, field-identical to C++ Material.h GPUMaterialData (MaterialLayoutGuard cross-checks).
 public struct GPUMaterialData
 {
     public float4 color;
     public uint   diffuseIndex, normalIndex, metalRoughIndex, occlusionIndex;
-    public uint   emissiveIndex, alphaIndex, heightIndex, thicknessIndex;  // alpha/thickness reserved; height feeds parallax
+    public uint   emissiveIndex, alphaIndex, heightIndex, thicknessIndex;  // alpha/thickness map slots reserved; height feeds parallax
     public float  metalness, roughness, alphaCutoff;
     public uint   flags;          // bits 0-7 = HAS_* per map; bits 16-23 = per-map UV index (2 bits each)
     public float4 emissive;       // rgb = factor (linear), a = HDR strength
     public uint   decalIndex;     // decal RGBA (rgb color, a coverage); sampled by GraphDecal
     public float  clearcoat, clearcoatRoughness;    // coat weight [0,1]; coat roughness (decode clamps [0.04,1])
     public float  anisotropy, anisotropyRotation;   // [-1,1] mesh-tangent aligned; rotation turns [0,1] (x2pi)
-    public uint   reserved0, reserved1, reserved2;  // std430 vec4-align tail; spare map slots
+    public float  ior, transmission, thickness;     // dielectric IOR (>=1); transmission [0,1]; glTF thicknessFactor (raster Beer-Lambert proxy)
+    public float4 attenuation;                       // rgb = attenuationColor (linear), a = attenuationDistance (0 = off)
 }
 
 public static const uint FLAG_HAS_NORMAL     = (1u << 0);
@@ -54,6 +55,9 @@ public struct MaterialInputs
     public float3 emissive;
     public float  clearcoat, clearcoatRoughness;   // coat weight [0,1]; coat roughness clamped [0.04,1]
     public float  anisotropy, anisotropyRotation;  // [-1,1] mesh-tangent aligned; rotation turns [0,1]
+    public float  transmission, ior, thickness;    // dielectric transmission [0,1]; IOR [1,4]; thickness (raster path-length)
+    public float3 attenuationColor;                // Beer-Lambert interior tint (linear)
+    public float  attenuationDistance;             // distance at which transmittance == attenuationColor (0 = off)
 }
 
 // The two-tier seam: raster auto-mips (derivatives), RT samples LOD 0 (no derivatives at a ray hit).
@@ -114,6 +118,15 @@ public MaterialInputs EvalMaterialChannels<F : ITexFetch>(GPUMaterialData m, flo
     mi.clearcoatRoughness = clamp(m.clearcoatRoughness, 0.04, 1.0);
     mi.anisotropy         = clamp(m.anisotropy, -1.0, 1.0);
     mi.anisotropyRotation = m.anisotropyRotation;
+
+    // CONTRACT: transmission/ior/thickness/attenuation feed the dielectric lobe (brdf.slang) and the PT
+    // Beer-Lambert medium (path_trace.slang): sigma_a = -ln(max(attenuationColor,1e-5)) / attenuationDistance;
+    // attenuationDistance <= 0 disables interior absorption. Filled identically on both tiers. see arch/rendering-pipeline.md
+    mi.transmission        = clamp(m.transmission, 0.0, 1.0);
+    mi.ior                 = clamp(m.ior, 1.0, 4.0);
+    mi.thickness           = max(m.thickness, 0.0);
+    mi.attenuationColor    = clamp(m.attenuation.rgb, 0.0, 1.0);
+    mi.attenuationDistance = m.attenuation.a;
 
     mi.normal = float3(0.0, 0.0, 1.0);
     return mi;
@@ -198,6 +211,10 @@ public struct HitSurface
     public float  tSign;      // bitangent handedness
     public bool   hasTangent;
     public float  clearcoat, clearcoatRoughness, anisotropy, anisotropyRotation;
+    public float  transmission, ior, thickness;
+    public float3 attenuationColor;
+    public float  attenuationDistance;
+    public bool   frontFace;   // ray hit the outward (entering) side; from the un-faced geometric normal
 }
 
 // Slang has no inverse() (HLSL lineage); cofactor 3x3, feeds only the inverse-transpose normal matrix.

@@ -82,16 +82,23 @@ namespace Luth
 
         // Shading-model factors (all default-inert). clearcoat@84 weight [0,1]; clearcoatRoughness@88
         // perceptual (decode clamps [0.04,1]); anisotropy@92 [-1,1] (mesh-tangent aligned); anisotropyRotation@96
-        // turns [0,1] (x2pi in shader). The trailing 12 B are the std430 vec4-align tail (struct rounds to 112).
+        // turns [0,1] (x2pi in shader).
         f32 clearcoat = 0.0f;
         f32 clearcoatRoughness = 0.0f;
         f32 anisotropy = 0.0f;
         f32 anisotropyRotation = 0.0f;
-        u32 reserved0 = 0, reserved1 = 0, reserved2 = 0;
+
+        // Dielectric transmission (glTF KHR_materials_transmission + _volume). ior@100 (>=1); transmission@104
+        // [0,1]; thickness@108 (glTF thicknessFactor, raster Beer-Lambert path-length proxy); attenuation@112
+        // vec4 (rgb = attenuationColor linear, a = attenuationDistance, 0 = off). Struct rounds to 128.
+        f32  ior = 1.5f;
+        f32  transmission = 0.0f;
+        f32  thickness = 0.0f;
+        Vec4 attenuation = { 1.0f, 1.0f, 1.0f, 0.0f };
     };
     // std430 layout must stay byte-identical to material.slang's GPUMaterialData; MaterialLayoutGuard
     // cross-checks the field offsets at init; a desync silently corrupts every material index > 0.
-    static_assert(sizeof(GPUMaterialData) == 112, "GPUMaterialData std430 layout must stay 112 B");
+    static_assert(sizeof(GPUMaterialData) == 128, "GPUMaterialData std430 layout must stay 128 B");
 
     // Per-material graph-constant stride (float4 slots/material). invariant: matches material.slang MAT_GRAPH_STRIDE;
     // shader paramBase = materialIndex * MAT_GRAPH_STRIDE indexes gMatParams; drift cross-corrupts. Bounds value nodes.
@@ -262,6 +269,18 @@ namespace Luth
         void SetAnisotropy(f32 a) { m_GPUData.anisotropy = a; }
         f32  GetAnisotropyRotation() const { return m_GPUData.anisotropyRotation; }
         void SetAnisotropyRotation(f32 r) { m_GPUData.anisotropyRotation = r; }
+
+        // Dielectric transmission factors (direct GPUData fields). attenuationColor = attenuation.rgb.
+        f32  GetIor() const { return m_GPUData.ior; }
+        void SetIor(f32 v) { m_GPUData.ior = v; }
+        f32  GetTransmission() const { return m_GPUData.transmission; }
+        void SetTransmission(f32 v) { m_GPUData.transmission = v; }
+        f32  GetThickness() const { return m_GPUData.thickness; }
+        void SetThickness(f32 v) { m_GPUData.thickness = v; }
+        Vec3 GetAttenuationColor() const { return Vec3(m_GPUData.attenuation); }
+        void SetAttenuationColor(const Vec3& c) { m_GPUData.attenuation.x = c.x; m_GPUData.attenuation.y = c.y; m_GPUData.attenuation.z = c.z; }
+        f32  GetAttenuationDistance() const { return m_GPUData.attenuation.w; }
+        void SetAttenuationDistance(f32 d) { m_GPUData.attenuation.w = d; }
 
         // GPU Data Access
         const GPUMaterialData& GetGPUData() const { return m_GPUData; }

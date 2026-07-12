@@ -115,6 +115,14 @@ namespace Luth
         if (m_GPUData.anisotropy != 0.0f)         json["anisotropy"] = m_GPUData.anisotropy;
         if (m_GPUData.anisotropyRotation != 0.0f) json["anisotropy_rotation"] = m_GPUData.anisotropyRotation;
 
+        // Dielectric transmission: written only when non-default (glass materials), pre-feature .mat stays byte-stable.
+        if (m_GPUData.ior != 1.5f)                json["ior"] = m_GPUData.ior;
+        if (m_GPUData.transmission != 0.0f)       json["transmission"] = m_GPUData.transmission;
+        if (m_GPUData.thickness != 0.0f)          json["thickness"] = m_GPUData.thickness;
+        const Vec4& att = m_GPUData.attenuation;
+        if (att.x != 1.0f || att.y != 1.0f || att.z != 1.0f || att.w != 0.0f)
+            json["attenuation"] = { att.x, att.y, att.z, att.w };
+
         // Serialize Uniforms
         nlohmann::json uniformsJson;
         auto shader = GetShader();
@@ -238,6 +246,17 @@ namespace Luth
         m_GPUData.clearcoatRoughness = json.value("clearcoat_roughness", 0.0f);
         m_GPUData.anisotropy         = json.value("anisotropy", 0.0f);
         m_GPUData.anisotropyRotation = json.value("anisotropy_rotation", 0.0f);
+
+        // Dielectric transmission (defaults keep glass inert; absent keys reset explicitly so a reused
+        // Material can't inherit a prior load's glass factors).
+        m_GPUData.ior          = json.value("ior", 1.5f);
+        m_GPUData.transmission = json.value("transmission", 0.0f);
+        m_GPUData.thickness    = json.value("thickness", 0.0f);
+        if (json.contains("attenuation") && json["attenuation"].is_array() && json["attenuation"].size() == 4)
+            m_GPUData.attenuation = Vec4(json["attenuation"][0], json["attenuation"][1],
+                                         json["attenuation"][2], json["attenuation"][3]);
+        else
+            m_GPUData.attenuation = Vec4(1.0f, 1.0f, 1.0f, 0.0f);
 
         m_Maps.clear();
         for (const auto& texJson : json["textures"]) {
