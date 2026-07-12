@@ -326,6 +326,26 @@ namespace Luth
 
         ImGui::Dummy({ 0, 4 });
 
+        // Clear-coat + anisotropy shading-model factors (uber path; map-less, live per-frame data).
+        if (UI::BeginCollapsingHeader("Shading Model", true))
+        {
+            if (UI::BeginProperties("ShadingModelProps"))
+            {
+                float cc = material.GetClearcoat();
+                if (UI::Property("Clear Coat", cc, 0.01f, 0.0f, 1.0f)) { material.SetClearcoat(cc); material.MarkDirty(); }
+                float ccr = material.GetClearcoatRoughness();
+                if (UI::Property("Coat Roughness", ccr, 0.01f, 0.0f, 1.0f)) { material.SetClearcoatRoughness(ccr); material.MarkDirty(); }
+                float an = material.GetAnisotropy();
+                if (UI::Property("Anisotropy", an, 0.01f, -1.0f, 1.0f)) { material.SetAnisotropy(an); material.MarkDirty(); }
+                float ar = material.GetAnisotropyRotation();
+                if (UI::Property("Aniso Rotation", ar, 0.005f, 0.0f, 1.0f)) { material.SetAnisotropyRotation(ar); material.MarkDirty(); }
+                UI::EndProperties();
+            }
+            UI::EndCollapsingHeader();
+        }
+
+        ImGui::Dummy({ 0, 4 });
+
         // Exposed graph parameters: named value nodes edited without opening the graph. Value edits land
         // as per-material data (RefreshParams, no recompile); the TextureSample slot is structure and
         // recompiles, mirroring the graph panel's split.

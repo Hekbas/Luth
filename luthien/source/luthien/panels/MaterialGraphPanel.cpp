@@ -26,15 +26,18 @@ namespace Luth
         const char* kIn_ABCD[]  = { "A", "B", "C", "D" };
         const char* kIn_In[]    = { "in" };
         const char* kIn_RGBA[]  = { "rgba" };
-        const char* kIn_Out[]   = { "BaseColor", "Metallic", "Roughness", "Normal", "AO", "Emissive" };
         const char* kOut_1[]    = { "out" };
         const char* kOut_RGBA[] = { "rgba" };
         const char* kOut_Split[]= { "R", "G", "B", "A" };
         const char* kIn_BaseDet[] = { "Base", "Detail" };
         const char* kIn_BaseUV[]  = { "Base", "UV" };
         const char* kIn_BTM[]     = { "Bottom", "Top", "Mask" };
-        const char* kIn_Out7[]    = { "BaseColor", "Metallic", "Roughness", "Normal", "AO", "Emissive", "Surface" };
         const char* kOut_Layer[]  = { "Layer" };
+        // Clear-coat/aniso ext channels: appended to Output (after Surface, slots 7-10) and MakeLayer (slots 6-9).
+        const char* kIn_Out11[]   = { "BaseColor", "Metallic", "Roughness", "Normal", "AO", "Emissive",
+                                      "Surface", "ClearCoat", "CoatRough", "Anisotropy", "AnisoRot" };
+        const char* kIn_Layer10[] = { "BaseColor", "Metallic", "Roughness", "Normal", "AO", "Emissive",
+                                      "ClearCoat", "CoatRough", "Anisotropy", "AnisoRot" };
 
         struct TypeInfo
         {
@@ -53,7 +56,7 @@ namespace Luth
             { "Lerp",     IM_COL32( 90, 90, 90,255), kIn_ABT,  3, kOut_1,     1 },  // Lerp
             { "Remap",    IM_COL32( 90, 90, 90,255), kIn_In,   1, kOut_1,     1 },  // Remap
             { "Split",    IM_COL32( 90, 80,110,255), kIn_RGBA, 1, kOut_Split, 4 },  // Split
-            { "Output",   IM_COL32(120, 70, 70,255), kIn_Out7, 7, nullptr,    0 },  // Output (slot 6 = Surface layer)
+            { "Output",   IM_COL32(120, 70, 70,255), kIn_Out11,11, nullptr,   0 },  // Output (slot 6 = Surface layer; 7-10 = coat/aniso)
             { "Switch",   IM_COL32( 70,110,110,255), kIn_OffOn,2, kOut_1,     1 },  // StaticSwitch
             { "Subtract", IM_COL32( 90, 90, 90,255), kIn_AB,   2, kOut_1,     1 },  // Subtract
             { "Divide",   IM_COL32( 90, 90, 90,255), kIn_AB,   2, kOut_1,     1 },  // Divide
@@ -73,7 +76,7 @@ namespace Luth
             { "Custom",   IM_COL32(110, 70,110,255), kIn_ABCD, 4, kOut_1,     1 },  // Custom
             { "Triplanar",    IM_COL32( 70,120, 90,255), nullptr,     0, kOut_1,     1 },  // Triplanar
             { "Detail Normal",IM_COL32( 80,110,110,255), kIn_BaseDet, 2, kOut_1,     1 },  // DetailNormal
-            { "Make Layer",   IM_COL32( 90,120, 90,255), kIn_Out,     6, kOut_Layer, 1 },  // MakeLayer
+            { "Make Layer",   IM_COL32( 90,120, 90,255), kIn_Layer10,10, kOut_Layer, 1 },  // MakeLayer (6 channels + 4 coat/aniso)
             { "Layer Blend",  IM_COL32( 90,120, 90,255), kIn_BTM,     3, kOut_Layer, 1 },  // LayerBlend
             { "Parallax",     IM_COL32( 70,120,100,255), kIn_UV,      1, kOut_1,     1 },  // Parallax (UV pin optional)
             { "Decal",        IM_COL32(100,120, 80,255), kIn_BaseUV,  2, kOut_Layer, 1 },  // Decal (Base layer + optional UV)
@@ -97,12 +100,12 @@ namespace Luth
         ImU32* InPinColors(MatNodeType t)   // GraphEditor::Template holds non-const ImU32* (read-only in practice)
         {
             static ImU32 layerBlend[] = { kLayerPinCol, kLayerPinCol, kValuePinCol };
-            static ImU32 out7[] = { kValuePinCol, kValuePinCol, kValuePinCol,
-                                    kValuePinCol, kValuePinCol, kValuePinCol, kLayerPinCol };
+            static ImU32 out11[] = { kValuePinCol, kValuePinCol, kValuePinCol, kValuePinCol, kValuePinCol,
+                                     kValuePinCol, kLayerPinCol, kValuePinCol, kValuePinCol, kValuePinCol, kValuePinCol };
             static ImU32 decal[] = { kLayerPinCol, kValuePinCol };
             if (t == MatNodeType::LayerBlend) return layerBlend;
             if (t == MatNodeType::Decal)      return decal;
-            if (t == MatNodeType::Output)     return out7;
+            if (t == MatNodeType::Output)     return out11;
             return nullptr;   // GraphEditor falls back to a default pin color
         }
 
