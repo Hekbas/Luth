@@ -93,7 +93,7 @@ namespace Luth
             switch (t)
             {
                 case MatNodeType::MakeLayer:
-                    return 15;   // 6 base + 4 clear-coat/aniso (slots 6-9) + 5 transmission (slots 10-14)
+                    return 17;   // 6 base + 4 clear-coat/aniso (6-9) + 5 transmission (10-14) + 2 sheen (15-16)
                 case MatNodeType::Custom:
                     return 4;
                 case MatNodeType::Lerp: case MatNodeType::LayerBlend:
@@ -156,9 +156,9 @@ namespace Luth
                     if (const MatLink* l = Incoming(g, out->id, s)) visit(l->fromNode);
                 // Surface (bundle) slot 6: appended after the channel slots so pre-slot-6 graphs stay order-stable.
                 if (const MatLink* l = Incoming(g, out->id, 6)) visit(l->fromNode);
-                // Ext channels (clear-coat/aniso slots 7-10 + transmission slots 11-15): appended last, so a
+                // Ext channels (clear-coat/aniso 7-10 + transmission 11-15 + sheen 16-17): appended last, so a
                 // pre-ext graph (nothing on those slots) keeps its visit order + structure hash unchanged.
-                for (u8 s = 7; s < 16; ++s)
+                for (u8 s = 7; s < 18; ++s)
                     if (const MatLink* l = Incoming(g, out->id, s)) visit(l->fromNode);
             }
             return order;
@@ -343,6 +343,8 @@ namespace Luth
                 if (s = OutSrc(n, extBase + 6); !s.empty()) ss << "    " << tgt << ".thickness           = max(" << s << ".x, 0.0);\n";
                 if (s = OutSrc(n, extBase + 7); !s.empty()) ss << "    " << tgt << ".attenuationColor    = " << s << ".rgb;\n";
                 if (s = OutSrc(n, extBase + 8); !s.empty()) ss << "    " << tgt << ".attenuationDistance = " << s << ".x;\n";
+                if (s = OutSrc(n, extBase + 9); !s.empty()) ss << "    " << tgt << ".sheenColor          = " << s << ".rgb;\n";
+                if (s = OutSrc(n, extBase + 10); !s.empty()) ss << "    " << tgt << ".sheenRoughness      = clamp(" << s << ".x, 0.04, 1.0);\n";
             }
 
             std::string Run(const std::string& fnName)

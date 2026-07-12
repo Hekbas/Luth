@@ -33,14 +33,16 @@ namespace Luth
         const char* kIn_BaseUV[]  = { "Base", "UV" };
         const char* kIn_BTM[]     = { "Bottom", "Top", "Mask" };
         const char* kOut_Layer[]  = { "Layer" };
-        // Ext channels appended to Output (after Surface, slots 7-15) and MakeLayer (slots 6-14): clear-coat/
-        // aniso then dielectric transmission (Transmission/IOR/Thickness/AttenColor/AttenDist).
-        const char* kIn_Out16[]   = { "BaseColor", "Metallic", "Roughness", "Normal", "AO", "Emissive",
+        // Ext channels appended to Output (after Surface, slots 7-17) and MakeLayer (slots 6-16): clear-coat/
+        // aniso, dielectric transmission (Transmission/IOR/Thickness/AttenColor/AttenDist), then sheen.
+        const char* kIn_Out18[]   = { "BaseColor", "Metallic", "Roughness", "Normal", "AO", "Emissive",
                                       "Surface", "ClearCoat", "CoatRough", "Anisotropy", "AnisoRot",
-                                      "Transmission", "IOR", "Thickness", "AttenColor", "AttenDist" };
-        const char* kIn_Layer15[] = { "BaseColor", "Metallic", "Roughness", "Normal", "AO", "Emissive",
+                                      "Transmission", "IOR", "Thickness", "AttenColor", "AttenDist",
+                                      "Sheen", "SheenRough" };
+        const char* kIn_Layer17[] = { "BaseColor", "Metallic", "Roughness", "Normal", "AO", "Emissive",
                                       "ClearCoat", "CoatRough", "Anisotropy", "AnisoRot",
-                                      "Transmission", "IOR", "Thickness", "AttenColor", "AttenDist" };
+                                      "Transmission", "IOR", "Thickness", "AttenColor", "AttenDist",
+                                      "Sheen", "SheenRough" };
 
         struct TypeInfo
         {
@@ -59,7 +61,7 @@ namespace Luth
             { "Lerp",     IM_COL32( 90, 90, 90,255), kIn_ABT,  3, kOut_1,     1 },  // Lerp
             { "Remap",    IM_COL32( 90, 90, 90,255), kIn_In,   1, kOut_1,     1 },  // Remap
             { "Split",    IM_COL32( 90, 80,110,255), kIn_RGBA, 1, kOut_Split, 4 },  // Split
-            { "Output",   IM_COL32(120, 70, 70,255), kIn_Out16,16, nullptr,   0 },  // Output (slot 6 = Surface layer; 7-10 = coat/aniso; 11-15 = transmission)
+            { "Output",   IM_COL32(120, 70, 70,255), kIn_Out18,18, nullptr,   0 },  // Output (slot 6 = Surface; 7-10 coat/aniso; 11-15 transmission; 16-17 sheen)
             { "Switch",   IM_COL32( 70,110,110,255), kIn_OffOn,2, kOut_1,     1 },  // StaticSwitch
             { "Subtract", IM_COL32( 90, 90, 90,255), kIn_AB,   2, kOut_1,     1 },  // Subtract
             { "Divide",   IM_COL32( 90, 90, 90,255), kIn_AB,   2, kOut_1,     1 },  // Divide
@@ -79,7 +81,7 @@ namespace Luth
             { "Custom",   IM_COL32(110, 70,110,255), kIn_ABCD, 4, kOut_1,     1 },  // Custom
             { "Triplanar",    IM_COL32( 70,120, 90,255), nullptr,     0, kOut_1,     1 },  // Triplanar
             { "Detail Normal",IM_COL32( 80,110,110,255), kIn_BaseDet, 2, kOut_1,     1 },  // DetailNormal
-            { "Make Layer",   IM_COL32( 90,120, 90,255), kIn_Layer15,15, kOut_Layer, 1 },  // MakeLayer (6 channels + 4 coat/aniso + 5 transmission)
+            { "Make Layer",   IM_COL32( 90,120, 90,255), kIn_Layer17,17, kOut_Layer, 1 },  // MakeLayer (6 channels + 4 coat/aniso + 5 transmission + 2 sheen)
             { "Layer Blend",  IM_COL32( 90,120, 90,255), kIn_BTM,     3, kOut_Layer, 1 },  // LayerBlend
             { "Parallax",     IM_COL32( 70,120,100,255), kIn_UV,      1, kOut_1,     1 },  // Parallax (UV pin optional)
             { "Decal",        IM_COL32(100,120, 80,255), kIn_BaseUV,  2, kOut_Layer, 1 },  // Decal (Base layer + optional UV)
@@ -103,13 +105,14 @@ namespace Luth
         ImU32* InPinColors(MatNodeType t)   // GraphEditor::Template holds non-const ImU32* (read-only in practice)
         {
             static ImU32 layerBlend[] = { kLayerPinCol, kLayerPinCol, kValuePinCol };
-            static ImU32 out16[] = { kValuePinCol, kValuePinCol, kValuePinCol, kValuePinCol, kValuePinCol,
+            static ImU32 out18[] = { kValuePinCol, kValuePinCol, kValuePinCol, kValuePinCol, kValuePinCol,
                                      kValuePinCol, kLayerPinCol, kValuePinCol, kValuePinCol, kValuePinCol, kValuePinCol,
-                                     kValuePinCol, kValuePinCol, kValuePinCol, kValuePinCol, kValuePinCol };
+                                     kValuePinCol, kValuePinCol, kValuePinCol, kValuePinCol, kValuePinCol,
+                                     kValuePinCol, kValuePinCol };
             static ImU32 decal[] = { kLayerPinCol, kValuePinCol };
             if (t == MatNodeType::LayerBlend) return layerBlend;
             if (t == MatNodeType::Decal)      return decal;
-            if (t == MatNodeType::Output)     return out16;
+            if (t == MatNodeType::Output)     return out18;
             return nullptr;   // GraphEditor falls back to a default pin color
         }
 

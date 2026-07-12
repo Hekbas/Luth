@@ -326,7 +326,7 @@ namespace Luth
 
         ImGui::Dummy({ 0, 4 });
 
-        // Clear-coat / anisotropy / dielectric-transmission shading-model factors (uber path; live per-frame data).
+        // Clear-coat / anisotropy / transmission / sheen shading-model factors (uber path; live per-frame data).
         if (UI::BeginCollapsingHeader("Shading Model", true))
         {
             if (UI::BeginProperties("ShadingModelProps"))
@@ -352,6 +352,12 @@ namespace Luth
                 if (UI::PropertyColor("Absorption Color", ac)) { material.SetAttenuationColor(Vec3(ac)); material.MarkDirty(); }
                 float ad = material.GetAttenuationDistance();
                 if (UI::Property("Absorption Dist", ad, 0.05f, 0.0f, 1000.0f)) { material.SetAttenuationDistance(ad); material.MarkDirty(); }
+
+                // Sheen (cloth): a non-black color enables the lobe; roughness follows the coat convention.
+                Vec4 sc(material.GetSheenColor(), 1.0f);
+                if (UI::PropertyColor("Sheen Color", sc)) { material.SetSheenColor(Vec3(sc)); material.MarkDirty(); }
+                float shr = material.GetSheenRoughness();
+                if (UI::Property("Sheen Roughness", shr, 0.01f, 0.0f, 1.0f)) { material.SetSheenRoughness(shr); material.MarkDirty(); }
                 UI::EndProperties();
             }
             UI::EndCollapsingHeader();
