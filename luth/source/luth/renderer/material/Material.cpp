@@ -109,6 +109,12 @@ namespace Luth
         json["metalness"] = m_GPUData.metalness;
         json["roughness"] = m_GPUData.roughness;
 
+        // Shading-model factors: written only when non-default, so materials that use neither stay byte-stable.
+        if (m_GPUData.clearcoat != 0.0f)          json["clearcoat"] = m_GPUData.clearcoat;
+        if (m_GPUData.clearcoatRoughness != 0.0f) json["clearcoat_roughness"] = m_GPUData.clearcoatRoughness;
+        if (m_GPUData.anisotropy != 0.0f)         json["anisotropy"] = m_GPUData.anisotropy;
+        if (m_GPUData.anisotropyRotation != 0.0f) json["anisotropy_rotation"] = m_GPUData.anisotropyRotation;
+
         // Serialize Uniforms
         nlohmann::json uniformsJson;
         auto shader = GetShader();
@@ -226,6 +232,12 @@ namespace Luth
         }
         m_GPUData.metalness = json.value("metalness", legacyMetal);
         m_GPUData.roughness = json.value("roughness", legacyRough);
+
+        // Shading-model factors (0-default; absent key => inert, so pre-feature .mat files are unchanged).
+        m_GPUData.clearcoat          = json.value("clearcoat", 0.0f);
+        m_GPUData.clearcoatRoughness = json.value("clearcoat_roughness", 0.0f);
+        m_GPUData.anisotropy         = json.value("anisotropy", 0.0f);
+        m_GPUData.anisotropyRotation = json.value("anisotropy_rotation", 0.0f);
 
         m_Maps.clear();
         for (const auto& texJson : json["textures"]) {

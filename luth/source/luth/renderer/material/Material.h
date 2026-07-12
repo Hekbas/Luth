@@ -77,14 +77,21 @@ namespace Luth
         // emissive texture when FLAG_HAS_EMISSIVE is set. Byte 64, std430 vec4-aligned (no padding).
         Vec4 emissive = { 0.0f, 0.0f, 0.0f, 1.0f };
 
-        // Decal RGBA (rgb color, a coverage); sampled by GraphDecal. decalIndex@80; the trailing 12 B
-        // are the std430 vec4-alignment tail (struct rounds to 96), reserved as spare map slots.
+        // Decal RGBA (rgb color, a coverage); sampled by GraphDecal. decalIndex@80.
         u32 decalIndex = 0;
+
+        // Shading-model factors (all default-inert). clearcoat@84 weight [0,1]; clearcoatRoughness@88
+        // perceptual (decode clamps [0.04,1]); anisotropy@92 [-1,1] (mesh-tangent aligned); anisotropyRotation@96
+        // turns [0,1] (x2pi in shader). The trailing 12 B are the std430 vec4-align tail (struct rounds to 112).
+        f32 clearcoat = 0.0f;
+        f32 clearcoatRoughness = 0.0f;
+        f32 anisotropy = 0.0f;
+        f32 anisotropyRotation = 0.0f;
         u32 reserved0 = 0, reserved1 = 0, reserved2 = 0;
     };
     // std430 layout must stay byte-identical to material.slang's GPUMaterialData; MaterialLayoutGuard
     // cross-checks the field offsets at init; a desync silently corrupts every material index > 0.
-    static_assert(sizeof(GPUMaterialData) == 96, "GPUMaterialData std430 layout must stay 96 B");
+    static_assert(sizeof(GPUMaterialData) == 112, "GPUMaterialData std430 layout must stay 112 B");
 
     // Per-material graph-constant stride (float4 slots/material). invariant: matches material.slang MAT_GRAPH_STRIDE;
     // shader paramBase = materialIndex * MAT_GRAPH_STRIDE indexes gMatParams; drift cross-corrupts. Bounds value nodes.
@@ -245,6 +252,16 @@ namespace Luth
         void SetMetalness(f32 m) { m_GPUData.metalness = m; }
         f32  GetRoughness() const { return m_GPUData.roughness; }
         void SetRoughness(f32 r) { m_GPUData.roughness = r; }
+
+        // Clear-coat / anisotropy shading-model factors (direct GPUData fields, like metalness/roughness).
+        f32  GetClearcoat() const { return m_GPUData.clearcoat; }
+        void SetClearcoat(f32 c) { m_GPUData.clearcoat = c; }
+        f32  GetClearcoatRoughness() const { return m_GPUData.clearcoatRoughness; }
+        void SetClearcoatRoughness(f32 r) { m_GPUData.clearcoatRoughness = r; }
+        f32  GetAnisotropy() const { return m_GPUData.anisotropy; }
+        void SetAnisotropy(f32 a) { m_GPUData.anisotropy = a; }
+        f32  GetAnisotropyRotation() const { return m_GPUData.anisotropyRotation; }
+        void SetAnisotropyRotation(f32 r) { m_GPUData.anisotropyRotation = r; }
 
         // GPU Data Access
         const GPUMaterialData& GetGPUData() const { return m_GPUData; }

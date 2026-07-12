@@ -44,6 +44,10 @@ public MaterialInputs GraphLayerBlend(MaterialInputs a, MaterialInputs b, float 
     o.roughness = clamp(lerp(a.roughness, b.roughness, t), 0.04, 1.0);
     o.occlusion = lerp(a.occlusion, b.occlusion, t);
     o.emissive  = lerp(a.emissive,  b.emissive,  t);
+    o.clearcoat          = lerp(a.clearcoat, b.clearcoat, t);
+    o.clearcoatRoughness = clamp(lerp(a.clearcoatRoughness, b.clearcoatRoughness, t), 0.04, 1.0);
+    o.anisotropy         = lerp(a.anisotropy, b.anisotropy, t);
+    o.anisotropyRotation = lerp(a.anisotropyRotation, b.anisotropyRotation, t);
     float3 n = lerp(a.normal, b.normal, t);
     o.normal = (dot(n, n) > 1e-8) ? normalize(n) : float3(0.0, 0.0, 1.0);
     return o;

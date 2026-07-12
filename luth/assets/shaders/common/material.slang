@@ -4,7 +4,7 @@
 // Resource-agnostic: bindings (raster set 1/2 vs RT set 4/3) + the ITexFetch impls live in
 // material_bindings_{raster,rt}.slang so one decode serves both set layouts. see arch/rendering-pipeline.md
 
-// 96 B std430, field-identical to C++ Material.h GPUMaterialData (MaterialLayoutGuard cross-checks).
+// 112 B std430, field-identical to C++ Material.h GPUMaterialData (MaterialLayoutGuard cross-checks).
 public struct GPUMaterialData
 {
     public float4 color;
@@ -14,6 +14,8 @@ public struct GPUMaterialData
     public uint   flags;          // bits 0-7 = HAS_* per map; bits 16-23 = per-map UV index (2 bits each)
     public float4 emissive;       // rgb = factor (linear), a = HDR strength
     public uint   decalIndex;     // decal RGBA (rgb color, a coverage); sampled by GraphDecal
+    public float  clearcoat, clearcoatRoughness;    // coat weight [0,1]; coat roughness (decode clamps [0.04,1])
+    public float  anisotropy, anisotropyRotation;   // [-1,1] mesh-tangent aligned; rotation turns [0,1] (x2pi)
     public uint   reserved0, reserved1, reserved2;  // std430 vec4-align tail; spare map slots
 }
 
@@ -50,6 +52,8 @@ public struct MaterialInputs
     public float  roughness;   // clamped [0.04, 1]; zero roughness -> NaN in GGX
     public float  occlusion;   // baked AO map term (screen-space AO is the caller's business)
     public float3 emissive;
+    public float  clearcoat, clearcoatRoughness;   // coat weight [0,1]; coat roughness clamped [0.04,1]
+    public float  anisotropy, anisotropyRotation;  // [-1,1] mesh-tangent aligned; rotation turns [0,1]
 }
 
 // The two-tier seam: raster auto-mips (derivatives), RT samples LOD 0 (no derivatives at a ray hit).
@@ -104,6 +108,12 @@ public MaterialInputs EvalMaterialChannels<F : ITexFetch>(GPUMaterialData m, flo
     mi.occlusion = 1.0;
     if ((m.flags & FLAG_HAS_OCCLUSION) != 0u)
         mi.occlusion = fetch.Sample(m.occlusionIndex, SelectUV(m.flags, UV_SHIFT_OCCLUSION, uv0, uv1)).r;
+
+    // Shading-model factors: constant channels today (no maps in v1), clamped identically on both tiers.
+    mi.clearcoat          = m.clearcoat;
+    mi.clearcoatRoughness = clamp(m.clearcoatRoughness, 0.04, 1.0);
+    mi.anisotropy         = clamp(m.anisotropy, -1.0, 1.0);
+    mi.anisotropyRotation = m.anisotropyRotation;
 
     mi.normal = float3(0.0, 0.0, 1.0);
     return mi;
@@ -176,12 +186,18 @@ public struct HitGeometry
 }
 
 // Resolved RT hit surface: same field shape the GLSL FetchHitSurface returned, so RT consumers port 1:1.
+// The tangent (T/tSign/hasTangent, from HitGeometry) rides along for the anisotropic base lobe; clear-coat/
+// anisotropy factors carry from the decode so the PathTrace reference shades them raster==RT.
 public struct HitSurface
 {
     public float3 ns, ng;
     public float3 baseColor;
     public float3 emission;
     public float  metalness, roughness, ao;
+    public float3 T;          // world tangent, Gram-Schmidt vs pre-perturb ns (valid iff hasTangent)
+    public float  tSign;      // bitangent handedness
+    public bool   hasTangent;
+    public float  clearcoat, clearcoatRoughness, anisotropy, anisotropyRotation;
 }
 
 // Slang has no inverse() (HLSL lineage); cofactor 3x3, feeds only the inverse-transpose normal matrix.

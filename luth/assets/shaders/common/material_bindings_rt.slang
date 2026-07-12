@@ -64,6 +64,10 @@ public HitSurface FetchHitSurface(GtGeomEntry* geomTable, uint customIndex, uint
     s.metalness = mi.metallic;
     s.roughness = mi.roughness;
     s.ao        = mi.occlusion;
+    // Tangent the RT tier already reconstructed (dropped until now); re-orthonormalized vs N in MakeSurfaceBRDF.
+    s.T = g.T;  s.tSign = g.tSign;  s.hasTangent = g.hasTangent;
+    s.clearcoat = mi.clearcoat;  s.clearcoatRoughness = mi.clearcoatRoughness;
+    s.anisotropy = mi.anisotropy;  s.anisotropyRotation = mi.anisotropyRotation;
     return s;
 }
 
