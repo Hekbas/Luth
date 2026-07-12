@@ -103,13 +103,15 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
     float  metallic  = mi.metallic;
     float  roughness = mi.roughness;
 
-    // Tokuyoshi 2019 geometric specular AA: screen-space normal curvature lifted into roughness.
+    // Tokuyoshi 2019 geometric specular AA: screen-space normal curvature lifted into roughness (base + coat).
+    float ccRough = mi.clearcoatRoughness;
     if (ubo.specAaParams.x != 0.0)
     {
         float3 dNdu = ddx(N); float3 dNdv = ddy(N);
         float  sigma2   = ubo.specAaParams.y * ubo.specAaParams.y;
         float  variance = sigma2 * (dot(dNdu, dNdu) + dot(dNdv, dNdv));
         roughness = clamp(sqrt(roughness * roughness + variance), 0.04, 1.0);
+        if (mi.clearcoat > 0.0) ccRough = clamp(sqrt(ccRough * ccRough + variance), 0.04, 1.0);
     }
 
     // Shade-mode overrides.
@@ -144,12 +146,16 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
     float3 Lo = float3(0.0);
     float2 screenUv = fragCoord.xy / ubo.viewportSize;
 
+    // Shared BRDF surface (base + clear-coat + anisotropy); T/B from the interpolated tangent frame.
+    SurfaceBRDF surf = MakeSurfaceBRDF(N, i.T, i.B, true, albedo.rgb, metallic, roughness,
+                                       mi.clearcoat, ccRough, mi.anisotropy, mi.anisotropyRotation);
+
     // Directional light + shadow (cascade PCF or RT mask).
     ShadowResult sr = ComputeShadow(i.worldPos, N, screenUv);
     {
         DirectionalLightData dl = LoadDirLight();
         float3 dirRadiance = dl.color * dl.intensity;
-        Lo += EvalBRDFTimesNdotL(normalize(-dl.direction), dirRadiance, V, N, albedo.rgb, metallic, roughness) * sr.shadow;
+        Lo += EvalSurfBRDFTimesNdotL(normalize(-dl.direction), dirRadiance, V, surf) * sr.shadow;
     }
 
     // Punctual lights: demodulated ReSTIR DI image (points only), else the Forward+ cluster loop. Remodulate
@@ -158,10 +164,10 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
     if (ubo.restirParams.x > 0.5)
     {
         Lo += diIrradiance.Sample(screenUv).rgb * (albedo.rgb * (1.0 - metallic) / GI_PI);
-        Lo += EvalClusteredLights(fragCoord, i.worldPos, V, N, albedo.rgb, metallic, roughness, true);
+        Lo += EvalClusteredLights(fragCoord, i.worldPos, V, surf, true);
     }
     else
-        Lo += EvalClusteredLights(fragCoord, i.worldPos, V, N, albedo.rgb, metallic, roughness, false);
+        Lo += EvalClusteredLights(fragCoord, i.worldPos, V, surf, false);
 
     // ReSTIR GI: demodulated indirect diffuse, added on top (independent of the DI gate).
     if (ubo.restirParams.y > 0.5)
@@ -176,7 +182,7 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
         Lo += diSpecular.Sample(screenUv).rgb * (DiSpecRho(NoV, roughness) * ubo.restirParams.z) * F0;
     }
 
-    IblResult ibl = EvalIblAmbient(N, V, albedo.rgb, metallic, roughness, ao, ubo.iblIntensity);
+    IblResult ibl = EvalIblAmbient(surf, V, ao, ubo.iblIntensity);
     float3 color = ibl.ambient + Lo;
 
     // RT specular reflection supersedes IBL specular above the roughness cutoff. reflRad is a

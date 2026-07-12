@@ -74,7 +74,7 @@ bool Visible(float3 x, float3 offsetN, float3 dir, float maxDist)
 
 // Full-BRDF NEE at (x, surface s) with view dir V. One random point light (x count undoes the 1/count
 // pick pdf) + deterministic sun, each shadow-rayed.
-float3 DirectLighting(float3 x, float3 V, HitSurface s, inout uint seed)
+float3 DirectLighting(float3 x, float3 V, HitSurface s, SurfaceBRDF surf, inout uint seed)
 {
     float3 Lo = float3(0.0);
     uint lc = LoadPointCount();
@@ -85,50 +85,95 @@ float3 DirectLighting(float3 x, float3 V, HitSurface s, inout uint seed)
         float3 Lw; float ld;
         float3 Li = PointLightRadiance(pl, x, Lw, ld);
         if (dot(s.ns, Lw) > 0.0 && Visible(x, s.ng, Lw, ld - 2.0 * ubo.rtShadowParams.y))
-            Lo += EvalBRDFTimesNdotL(Lw, Li * float(lc), V, s.ns, s.baseColor, s.metalness, s.roughness);
+            Lo += EvalSurfBRDFTimesNdotL(Lw, Li * float(lc), V, surf);
     }
     DirectionalLightData dl = LoadDirLight();
     if (dl.intensity > 0.0)
     {
         float3 Lsun = normalize(-dl.direction);
         if (dot(s.ns, Lsun) > 0.0 && Visible(x, s.ng, Lsun, 1.0e30))
-            Lo += EvalBRDFTimesNdotL(Lsun, dl.color * dl.intensity, V, s.ns, s.baseColor, s.metalness, s.roughness);
+            Lo += EvalSurfBRDFTimesNdotL(Lsun, dl.color * dl.intensity, V, surf);
     }
     return Lo;
 }
 
-// BSDF importance sampling: pick diffuse or specular lobe, sample it, weight by one-sample lobe MIS.
-// Returns the next ray direction; multiplies `tp` by f*cos/pdf. false -> dead path.
-bool SampleBSDF(float3 V, HitSurface s, inout uint seed, out float3 newDir, inout float3 tp)
+// BSDF importance sampling: pick clear-coat / (anisotropic) base-specular / diffuse lobe, sample it,
+// weight by one-sample mixture MIS. Returns the next ray direction; multiplies `tp` by f*cos/pdf.
+// invariant: at clearcoat==0 && anisotropy==0 the lobe count, branch order, and RandFromSeed consumption
+// (1 select + 2 sample draws) match the legacy diffuse/spec split exactly, so legacy paths are bit-identical.
+bool SampleBSDF(float3 V, HitSurface s, SurfaceBRDF surf, inout uint seed, out float3 newDir, inout float3 tp)
 {
+    bool   anisoActive = abs(surf.anisotropy) > 1.0e-3;
     float3 F0    = lerp(float3(0.04), s.baseColor, s.metalness);
     float  wDiff = Luminance((1.0 - s.metalness) * s.baseColor);
     float  wSpec = Luminance(F0);
-    // One-sample MIS is unbiased for any p in (0,1); the [0.1,0.9] clamp only trades variance to never
-    // starve the rare-but-bright specular highlight (or a metal's diffuse 10%).
-    float pSpec = clamp(wSpec / max(wDiff + wSpec, 1.0e-4), 0.1, 0.9);
+    float  NoV   = max(dot(s.ns, V), 1.0e-4);
+    float  wCoat = s.clearcoat * (0.04 + 0.96 * pow(1.0 - NoV, 5.0));
+    float  pCoat = (s.clearcoat > 0.0) ? clamp(wCoat / max(wDiff + wSpec + wCoat, 1.0e-4), 0.0, 0.5) : 0.0;
+    // One-sample MIS is unbiased for any p in (0,1); the [0.1,0.9] clamp trades variance to never starve
+    // the rare-but-bright specular highlight (or a metal's diffuse 10%). Base split is scaled by (1-pCoat).
+    float  pSpecCond = clamp(wSpec / max(wDiff + wSpec, 1.0e-4), 0.1, 0.9);
+    float  pSpec = (1.0 - pCoat) * pSpecCond;
+    float  pDiff = (1.0 - pCoat) * (1.0 - pSpecCond);
+    float  ccR   = clamp(s.clearcoatRoughness, 0.04, 1.0);
+    float  ccA   = ccR * ccR;
 
+    // Isotropic frame for the coat + isotropic base (keeps the aniso==0 && coat==0 stream bit-identical);
+    // the anisotropic base samples in the rotated hit tangent frame instead.
     float3 t, bt; BranchlessONB(s.ns, t, bt);
-    if (RandFromSeed(seed) < pSpec)
+    float  u  = RandFromSeed(seed);
+    float  ua = RandFromSeed(seed);
+    float  ub = RandFromSeed(seed);
+    if (u < pCoat)
     {
         float3 Vt = float3(dot(V, t), dot(V, bt), dot(V, s.ns));
-        float ua = RandFromSeed(seed); float ub = RandFromSeed(seed);
-        float3 Ht = SampleGGXVNDF(Vt, s.roughness * s.roughness, ua, ub);
-        float3 H  = Ht.x * t + Ht.y * bt + Ht.z * s.ns;
-        newDir    = reflect(-V, H);
+        float3 Ht = SampleGGXVNDF(Vt, ccA, ua, ub);
+        newDir    = reflect(-V, Ht.x * t + Ht.y * bt + Ht.z * s.ns);
+    }
+    else if (u < pCoat + pSpec)
+    {
+        if (anisoActive)
+        {
+            float a  = s.roughness * s.roughness;
+            float at = clamp(a * (1.0 + surf.anisotropy), 1.6e-3, 1.0);
+            float ab = clamp(a * (1.0 - surf.anisotropy), 1.6e-3, 1.0);
+            float3 Vt = float3(dot(V, surf.T), dot(V, surf.B), dot(V, s.ns));
+            float3 Ht = SampleGGXVNDFAniso(Vt, at, ab, ua, ub);
+            newDir    = reflect(-V, Ht.x * surf.T + Ht.y * surf.B + Ht.z * s.ns);
+        }
+        else
+        {
+            float3 Vt = float3(dot(V, t), dot(V, bt), dot(V, s.ns));
+            float3 Ht = SampleGGXVNDF(Vt, s.roughness * s.roughness, ua, ub);
+            newDir    = reflect(-V, Ht.x * t + Ht.y * bt + Ht.z * s.ns);
+        }
     }
     else
     {
-        float ua = RandFromSeed(seed); float ub = RandFromSeed(seed);
-        float pdf;
-        newDir = SampleCosHemisphere(s.ns, float2(ua, ub), pdf);
+        float pdfIgnore;
+        newDir = SampleCosHemisphere(s.ns, float2(ua, ub), pdfIgnore);
     }
 
     float NdotL = dot(s.ns, newDir);
     if (NdotL <= 0.0) return false;   // below the surface: terminate
 
-    float3 fCos = EvalBRDFTimesNdotL(newDir, float3(1.0), V, s.ns, s.baseColor, s.metalness, s.roughness);
-    float  pdf  = pSpec * PdfSpec(s.ns, V, newDir, s.roughness) + (1.0 - pSpec) * PdfDiffuse(s.ns, newDir);
+    float3 fCos = EvalSurfBRDFTimesNdotL(newDir, float3(1.0), V, surf);
+    float  pdfSpec;
+    if (anisoActive)
+    {
+        float a  = s.roughness * s.roughness;
+        float at = clamp(a * (1.0 + surf.anisotropy), 1.6e-3, 1.0);
+        float ab = clamp(a * (1.0 - surf.anisotropy), 1.6e-3, 1.0);
+        float3 Vt = float3(dot(V, surf.T), dot(V, surf.B), dot(V, s.ns));
+        float3 Lt = float3(dot(newDir, surf.T), dot(newDir, surf.B), dot(newDir, s.ns));
+        pdfSpec = PdfSpecAnisoTS(Vt, Lt, at, ab);
+    }
+    else
+        pdfSpec = PdfSpec(s.ns, V, newDir, s.roughness);
+
+    float pdf = pCoat * PdfSpec(s.ns, V, newDir, ccR)
+              + pSpec * pdfSpec
+              + pDiff * PdfDiffuse(s.ns, newDir);
     if (pdf <= 0.0) return false;
     tp *= fCos / pdf;
     return true;
@@ -168,7 +213,11 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
                                        rq.CommittedTriangleBarycentrics(), rq.CommittedObjectToWorld3x4(), rd, x);
 
         float3 V = -rd;
-        float3 contrib = throughput * (s.emission + DirectLighting(x, V, s, seed));
+        // Shared BRDF surface (base + clear-coat + anisotropy) from the hit; bitangent from tangent x tSign.
+        SurfaceBRDF surf = MakeSurfaceBRDF(s.ns, s.T, cross(s.ns, s.T) * s.tSign, s.hasTangent,
+                                           s.baseColor, s.metalness, s.roughness,
+                                           s.clearcoat, s.clearcoatRoughness, s.anisotropy, s.anisotropyRotation);
+        float3 contrib = throughput * (s.emission + DirectLighting(x, V, s, surf, seed));
         // Firefly clamp INDIRECT contributions only (primary direct/emission stays unbiased).
         if (bounce > 0u)
         {
@@ -178,7 +227,7 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
         radiance += contrib;
 
         float3 newDir;
-        if (!SampleBSDF(V, s, seed, newDir, throughput)) break;
+        if (!SampleBSDF(V, s, surf, seed, newDir, throughput)) break;
 
         // Russian roulette after a few guaranteed bounces; /survival keeps the estimator unbiased.
         if (bounce >= pc.rrStartDepth)

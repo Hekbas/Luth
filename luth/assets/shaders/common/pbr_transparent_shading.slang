@@ -84,16 +84,19 @@ public float4 EvalTransparentSurfaceColor(uint materialIndex, uint shadeMode, fl
     float3 V  = normalize(ubo.cameraPos - worldPos);
     float3 Lo = float3(0.0);
 
+    // Shared BRDF surface (base + clear-coat + anisotropy); transparent skips the opaque spec-AA pass.
+    SurfaceBRDF surf = MakeSurfaceBRDF(nrm, T, B, true, mi.baseColor.rgb, mi.metallic, mi.roughness,
+                                       mi.clearcoat, mi.clearcoatRoughness, mi.anisotropy, mi.anisotropyRotation);
+
     float sunVis = (ubo.rtShadowParams.x > 0.5) ? TraceSunShadow(worldPos, nrm)
                                                 : ComputeShadowCSM(worldPos, nrm).shadow;
     DirectionalLightData dl = LoadDirLight();
     float3 dirRadiance = dl.color * dl.intensity;
-    Lo += EvalBRDFTimesNdotL(normalize(-dl.direction), dirRadiance, V, nrm,
-                             mi.baseColor.rgb, mi.metallic, mi.roughness) * sunVis;
+    Lo += EvalSurfBRDFTimesNdotL(normalize(-dl.direction), dirRadiance, V, surf) * sunVis;
 
-    Lo += EvalClusteredLights(fragCoord, worldPos, V, nrm, mi.baseColor.rgb, mi.metallic, mi.roughness, false);
+    Lo += EvalClusteredLights(fragCoord, worldPos, V, surf, false);
 
-    IblResult ibl = EvalIblAmbient(nrm, V, mi.baseColor.rgb, mi.metallic, mi.roughness, mi.occlusion, ubo.iblIntensity);
+    IblResult ibl = EvalIblAmbient(surf, V, mi.occlusion, ubo.iblIntensity);
     float3 color = ibl.ambient + Lo + mi.emissive;
 
     // Per-fragment froxel fog at the fragment's depth (the fullscreen composite already fogged opaque).

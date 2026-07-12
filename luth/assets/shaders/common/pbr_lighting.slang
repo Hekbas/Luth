@@ -165,8 +165,7 @@ public ShadowResult ComputeShadowCSM(float3 worldPos, float3 N)
 // Unshadowed Forward+ cluster loop: point + spot lights. Spot indices carry SPOT_INDEX_FLAG; the cone
 // term gates the shared point distance/range falloff. spotsOnly skips points when ReSTIR DI already
 // supplied them via the demodulated image; spots aren't in the DI reservoir yet, so they ride here.
-public float3 EvalClusteredLights(float4 fragCoord, float3 worldPos, float3 V, float3 N,
-                                  float3 albedo, float metallic, float roughness, bool spotsOnly)
+public float3 EvalClusteredLights(float4 fragCoord, float3 worldPos, float3 V, SurfaceBRDF s, bool spotsOnly)
 {
     float3 Lo        = float3(0.0);
     uint   clusterID = ComputeClusterID(fragCoord, ubo.viewportSize, ubo.nearZ, ubo.farZ);
@@ -198,7 +197,7 @@ public float3 EvalClusteredLights(float4 fragCoord, float3 worldPos, float3 V, f
         float  rolloff = pow(1.0 - clamp(dist / range, 0.0, 1.0), 2.0);
         float3 radiance = color * intensity * atten * rolloff * cone;
         if (dot(radiance, radiance) > 0.0001)
-            Lo += EvalBRDFTimesNdotL(normalize(toLight), radiance, V, N, albedo, metallic, roughness);
+            Lo += EvalSurfBRDFTimesNdotL(normalize(toLight), radiance, V, s);
     }
     return Lo;
 }
@@ -207,22 +206,48 @@ public float3 EvalClusteredLights(float4 fragCoord, float3 worldPos, float3 V, f
 // specularIBL out for traced radiance above the roughness cutoff.
 public struct IblResult { public float3 ambient; public float3 envBRDF; public float3 specularIBL; }
 
-public IblResult EvalIblAmbient(float3 N, float3 V, float3 albedo, float metallic, float roughness, float ao, float iblIntensity)
+public IblResult EvalIblAmbient(SurfaceBRDF s, float3 V, float ao, float iblIntensity)
 {
-    float3 F0 = lerp(float3(0.04), albedo, metallic);
-    float3 F  = FresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
-    float3 kD = (1.0 - F) * (1.0 - metallic);
+    float  NoV = max(dot(s.N, V), 0.0);
+    float3 F0  = lerp(float3(0.04), s.albedo, s.metallic);
+    float3 F   = FresnelSchlickRoughness(NoV, F0, s.roughness);
+    float3 kD  = (1.0 - F) * (1.0 - s.metallic);
 
-    float3 diffuseIBL = u_IrradianceMap.Sample(N).rgb * albedo;
+    float3 diffuseIBL = u_IrradianceMap.Sample(s.N).rgb * s.albedo;
 
     const float MAX_REFLECTION_LOD = 4.0;
-    float3 R = reflect(-V, N);
-    float3 prefilteredColor = u_PrefilteredMap.SampleLevel(R, roughness * MAX_REFLECTION_LOD).rgb;
-    float2 brdf = u_BrdfLUT.Sample(float2(max(dot(N, V), 0.0), roughness)).rg;
+    // Anisotropic bent reflection (McAuley/Filament): warp N toward the stretched-highlight axis.
+    float3 R;
+    if (abs(s.anisotropy) > 1.0e-3)
+    {
+        float3 dir  = (s.anisotropy >= 0.0) ? s.B : s.T;
+        float3 nA   = cross(cross(dir, V), dir);
+        float  bend = abs(s.anisotropy) * saturate(5.0 * s.roughness);
+        R = reflect(-V, normalize(lerp(s.N, nA, bend)));
+    }
+    else
+        R = reflect(-V, s.N);
+    float3 prefilteredColor = u_PrefilteredMap.SampleLevel(R, s.roughness * MAX_REFLECTION_LOD).rgb;
+    float2 brdf = u_BrdfLUT.Sample(float2(NoV, s.roughness)).rg;
 
     IblResult r;
     r.envBRDF     = F * brdf.x + brdf.y;
     r.specularIBL = prefilteredColor * r.envBRDF;
-    r.ambient     = (kD * diffuseIBL + r.specularIBL) * ao * iblIntensity;
+
+    float3 base = kD * diffuseIBL + r.specularIBL;
+    if (s.clearcoat > 0.0)
+    {
+        // Isotropic F0=0.04 coat env lobe on top; base attenuates by (1-Fc). Folding (1-Fc) into
+        // envBRDF/specularIBL keeps the consumer's RT-reflection composite (base-spec swap) correct.
+        float  Fc  = s.clearcoat * (0.04 + 0.96 * pow(1.0 - NoV, 5.0));
+        float  ccR = clamp(s.clearcoatRoughness, 0.04, 1.0);
+        float3 Rc  = reflect(-V, s.N);
+        float2 ccB = u_BrdfLUT.Sample(float2(NoV, ccR)).rg;
+        float3 ccSpec = u_PrefilteredMap.SampleLevel(Rc, ccR * MAX_REFLECTION_LOD).rgb * (0.04 * ccB.x + ccB.y);
+        base = base * (1.0 - Fc) + ccSpec;
+        r.envBRDF     *= (1.0 - Fc);
+        r.specularIBL *= (1.0 - Fc);
+    }
+    r.ambient = base * ao * iblIntensity;
     return r;
 }
