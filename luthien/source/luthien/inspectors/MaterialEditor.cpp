@@ -326,7 +326,7 @@ namespace Luth
 
         ImGui::Dummy({ 0, 4 });
 
-        // Clear-coat + anisotropy shading-model factors (uber path; map-less, live per-frame data).
+        // Clear-coat / anisotropy / dielectric-transmission shading-model factors (uber path; live per-frame data).
         if (UI::BeginCollapsingHeader("Shading Model", true))
         {
             if (UI::BeginProperties("ShadingModelProps"))
@@ -339,6 +339,19 @@ namespace Luth
                 if (UI::Property("Anisotropy", an, 0.01f, -1.0f, 1.0f)) { material.SetAnisotropy(an); material.MarkDirty(); }
                 float ar = material.GetAnisotropyRotation();
                 if (UI::Property("Aniso Rotation", ar, 0.005f, 0.0f, 1.0f)) { material.SetAnisotropyRotation(ar); material.MarkDirty(); }
+
+                // Glass: transmission implies RenderMode::Transparent/Fade for the raster viewport (TLAS masks
+                // key on RenderMode); the PathTrace reference refracts regardless of mode.
+                float tr = material.GetTransmission();
+                if (UI::Property("Transmission", tr, 0.01f, 0.0f, 1.0f)) { material.SetTransmission(tr); material.MarkDirty(); }
+                float ior = material.GetIor();
+                if (UI::Property("IOR", ior, 0.005f, 1.0f, 3.0f)) { material.SetIor(ior); material.MarkDirty(); }
+                float th = material.GetThickness();
+                if (UI::Property("Thickness", th, 0.01f, 0.0f, 100.0f)) { material.SetThickness(th); material.MarkDirty(); }
+                Vec4 ac(material.GetAttenuationColor(), 1.0f);
+                if (UI::PropertyColor("Absorption Color", ac)) { material.SetAttenuationColor(Vec3(ac)); material.MarkDirty(); }
+                float ad = material.GetAttenuationDistance();
+                if (UI::Property("Absorption Dist", ad, 0.05f, 0.0f, 1000.0f)) { material.SetAttenuationDistance(ad); material.MarkDirty(); }
                 UI::EndProperties();
             }
             UI::EndCollapsingHeader();

@@ -93,7 +93,7 @@ namespace Luth
             switch (t)
             {
                 case MatNodeType::MakeLayer:
-                    return 10;   // 6 base channels + 4 clear-coat/aniso ext channels (slots 6-9)
+                    return 15;   // 6 base + 4 clear-coat/aniso (slots 6-9) + 5 transmission (slots 10-14)
                 case MatNodeType::Custom:
                     return 4;
                 case MatNodeType::Lerp: case MatNodeType::LayerBlend:
@@ -156,8 +156,9 @@ namespace Luth
                     if (const MatLink* l = Incoming(g, out->id, s)) visit(l->fromNode);
                 // Surface (bundle) slot 6: appended after the channel slots so pre-slot-6 graphs stay order-stable.
                 if (const MatLink* l = Incoming(g, out->id, 6)) visit(l->fromNode);
-                // Clear-coat/aniso channels (slots 7-10): appended last, so pre-ext graphs keep their order + hash.
-                for (u8 s = 7; s < 11; ++s)
+                // Ext channels (clear-coat/aniso slots 7-10 + transmission slots 11-15): appended last, so a
+                // pre-ext graph (nothing on those slots) keeps its visit order + structure hash unchanged.
+                for (u8 s = 7; s < 16; ++s)
                     if (const MatLink* l = Incoming(g, out->id, s)) visit(l->fromNode);
             }
             return order;
@@ -337,6 +338,11 @@ namespace Luth
                 if (s = OutSrc(n, extBase + 1); !s.empty()) ss << "    " << tgt << ".clearcoatRoughness = clamp(" << s << ".x, 0.04, 1.0);\n";
                 if (s = OutSrc(n, extBase + 2); !s.empty()) ss << "    " << tgt << ".anisotropy         = clamp(" << s << ".x, -1.0, 1.0);\n";
                 if (s = OutSrc(n, extBase + 3); !s.empty()) ss << "    " << tgt << ".anisotropyRotation = " << s << ".x;\n";
+                if (s = OutSrc(n, extBase + 4); !s.empty()) ss << "    " << tgt << ".transmission        = clamp(" << s << ".x, 0.0, 1.0);\n";
+                if (s = OutSrc(n, extBase + 5); !s.empty()) ss << "    " << tgt << ".ior                 = clamp(" << s << ".x, 1.0, 4.0);\n";
+                if (s = OutSrc(n, extBase + 6); !s.empty()) ss << "    " << tgt << ".thickness           = max(" << s << ".x, 0.0);\n";
+                if (s = OutSrc(n, extBase + 7); !s.empty()) ss << "    " << tgt << ".attenuationColor    = " << s << ".rgb;\n";
+                if (s = OutSrc(n, extBase + 8); !s.empty()) ss << "    " << tgt << ".attenuationDistance = " << s << ".x;\n";
             }
 
             std::string Run(const std::string& fnName)
