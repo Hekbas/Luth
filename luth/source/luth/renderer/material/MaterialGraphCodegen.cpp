@@ -34,9 +34,10 @@ namespace Luth
                 case MapType::Roughness: return "fetch.Sample(m.metalRoughIndex, SelectUV(m.flags, UV_SHIFT_METALROUGH, uv0, uv1))";
                 case MapType::Occlusion: return "fetch.Sample(m.occlusionIndex, SelectUV(m.flags, UV_SHIFT_OCCLUSION, uv0, uv1))";
                 case MapType::Emissive:  return "fetch.Sample(m.emissiveIndex, uv0)";
-                case MapType::Alpha:     return "fetch.Sample(m.alphaIndex, uv0)";
                 case MapType::Height:    return "fetch.Sample(m.heightIndex, uv0)";
                 case MapType::Thickness: return "fetch.Sample(m.thicknessIndex, uv0)";
+                case MapType::Subsurface: return "fetch.Sample(m.subsurfaceIndex, uv0)";
+                // MapType::Alpha lost its GPU slot (repurposed for subsurface); legacy nodes sample black.
                 default:                 return "float4(0.0)";
             }
         }
@@ -53,9 +54,9 @@ namespace Luth
                 case MapType::Roughness: idx = "m.metalRoughIndex"; break;
                 case MapType::Occlusion: idx = "m.occlusionIndex";  break;
                 case MapType::Emissive:  idx = "m.emissiveIndex";   break;
-                case MapType::Alpha:     idx = "m.alphaIndex";      break;
                 case MapType::Height:    idx = "m.heightIndex";     break;
                 case MapType::Thickness: idx = "m.thicknessIndex";  break;
+                case MapType::Subsurface: idx = "m.subsurfaceIndex"; break;
                 default:                 return "float4(0.0)";
             }
             return "fetch.Sample(" + std::string(idx) + ", (" + uvExpr + ").xy)";
@@ -73,9 +74,9 @@ namespace Luth
                 case MapType::Roughness: return "m.metalRoughIndex";
                 case MapType::Occlusion: return "m.occlusionIndex";
                 case MapType::Emissive:  return "m.emissiveIndex";
-                case MapType::Alpha:     return "m.alphaIndex";
                 case MapType::Height:    return "m.heightIndex";
                 case MapType::Thickness: return "m.thicknessIndex";
+                case MapType::Subsurface: return "m.subsurfaceIndex";
                 default:                 return "m.diffuseIndex";
             }
         }

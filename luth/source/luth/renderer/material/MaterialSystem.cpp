@@ -36,7 +36,7 @@ namespace Luth
             { "metalRoughIndex", offsetof(GPUMaterialData, metalRoughIndex) },
             { "occlusionIndex",  offsetof(GPUMaterialData, occlusionIndex) },
             { "emissiveIndex",   offsetof(GPUMaterialData, emissiveIndex) },
-            { "alphaIndex",      offsetof(GPUMaterialData, alphaIndex) },
+            { "subsurfaceIndex", offsetof(GPUMaterialData, subsurfaceIndex) },
             { "heightIndex",     offsetof(GPUMaterialData, heightIndex) },
             { "thicknessIndex",  offsetof(GPUMaterialData, thicknessIndex) },
             { "metalness",       offsetof(GPUMaterialData, metalness) },

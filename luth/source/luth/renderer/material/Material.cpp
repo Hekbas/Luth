@@ -26,7 +26,7 @@ namespace Luth
         m_GPUData.metalRoughIndex  = GetIndex(MapType::Metalness);
         m_GPUData.occlusionIndex   = GetIndex(MapType::Occlusion);
         m_GPUData.emissiveIndex    = GetIndex(MapType::Emissive);
-        m_GPUData.alphaIndex       = GetIndex(MapType::Alpha);
+        m_GPUData.subsurfaceIndex  = GetIndex(MapType::Subsurface);
         m_GPUData.heightIndex      = GetIndex(MapType::Height);
         m_GPUData.thicknessIndex   = GetIndex(MapType::Thickness);
         m_GPUData.decalIndex       = GetIndex(MapType::Decal);
@@ -42,14 +42,14 @@ namespace Luth
             if (GetTextureByType(type) && IsUseMapEnabled(type))
                 m_GPUData.flags |= (1u << bit);
         };
-        SetHas(MapType::Normal,    0);
-        SetHas(MapType::Metalness, 1);
-        SetHas(MapType::Occlusion, 2);
-        SetHas(MapType::Diffuse,   3);
-        SetHas(MapType::Emissive,  4);
-        SetHas(MapType::Alpha,     5);
-        SetHas(MapType::Height,    6);
-        SetHas(MapType::Thickness, 7);
+        SetHas(MapType::Normal,     0);
+        SetHas(MapType::Metalness,  1);
+        SetHas(MapType::Occlusion,  2);
+        SetHas(MapType::Diffuse,    3);
+        SetHas(MapType::Emissive,   4);
+        SetHas(MapType::Subsurface, 5);
+        SetHas(MapType::Height,     6);
+        SetHas(MapType::Thickness,  7);
 
         auto PackUV = [&](MapType type, u32 bitOffset) {
             auto idx = GetUVIndex(type);
@@ -427,6 +427,7 @@ namespace Luth
             case MapType::Occlusion:  return "Occlusion";
             case MapType::Height:    return "Height";
             case MapType::Decal:     return "Decal";
+            case MapType::Subsurface: return "Subsurface";
             default: return "Unknown";
         }
     }

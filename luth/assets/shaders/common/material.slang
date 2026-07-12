@@ -9,7 +9,7 @@ public struct GPUMaterialData
 {
     public float4 color;
     public uint   diffuseIndex, normalIndex, metalRoughIndex, occlusionIndex;
-    public uint   emissiveIndex, alphaIndex, heightIndex, thicknessIndex;  // alpha/thickness map slots reserved; height feeds parallax
+    public uint   emissiveIndex, subsurfaceIndex, heightIndex, thicknessIndex;  // subsurface = SSS scatter mask; height feeds parallax; thickness scales the factor
     public float  metalness, roughness, alphaCutoff;
     public uint   flags;          // bits 0-7 = HAS_* per map; bits 16-23 = per-map UV index (2 bits each)
     public float4 emissive;       // rgb = factor (linear), a = HDR strength
@@ -27,6 +27,8 @@ public static const uint FLAG_HAS_METALROUGH = (1u << 1);
 public static const uint FLAG_HAS_OCCLUSION  = (1u << 2);
 public static const uint FLAG_HAS_DIFFUSE    = (1u << 3);
 public static const uint FLAG_HAS_EMISSIVE   = (1u << 4);
+public static const uint FLAG_HAS_SUBSURFACE = (1u << 5);
+public static const uint FLAG_HAS_THICKNESS  = (1u << 7);
 public static const uint UV_SHIFT_DIFFUSE    = 16u;
 public static const uint UV_SHIFT_NORMAL     = 18u;
 public static const uint UV_SHIFT_METALROUGH = 20u;
@@ -131,6 +133,8 @@ public MaterialInputs EvalMaterialChannels<F : ITexFetch>(GPUMaterialData m, flo
     mi.transmission        = clamp(m.transmission, 0.0, 1.0);
     mi.ior                 = clamp(m.ior, 1.0, 4.0);
     mi.thickness           = max(m.thickness, 0.0);
+    if ((m.flags & FLAG_HAS_THICKNESS) != 0u)
+        mi.thickness *= fetch.Sample(m.thicknessIndex, uv0).r;   // UV0, like emissive (no UV-set bit)
     mi.attenuationColor    = clamp(m.attenuation.rgb, 0.0, 1.0);
     mi.attenuationDistance = m.attenuation.a;
 
@@ -139,9 +143,13 @@ public MaterialInputs EvalMaterialChannels<F : ITexFetch>(GPUMaterialData m, flo
     mi.sheenColor      = clamp(m.sheen.rgb, 0.0, 1.0);
     mi.sheenRoughness  = clamp(m.sheen.a, 0.04, 1.0);
 
-    // Subsurface: diffusion surface albedo A + scatter radius (mfp). Folding (1-metallic)(1-transmission)
-    // hard-disables SSS on metals + glass identically in every consumer (raster==RT); 0 = BRDF fast path.
-    mi.subsurfaceColor = clamp(m.subsurface.rgb, 0.0, 1.0) * (1.0 - mi.metallic) * (1.0 - mi.transmission);
+    // Subsurface: diffusion surface albedo A + scatter radius (mfp), the color modulated by the scatter
+    // mask (UV0, like emissive) BEFORE the fold. Folding (1-metallic)(1-transmission) hard-disables SSS on
+    // metals + glass identically in every consumer (raster==RT); 0 = BRDF fast path. see arch/rendering-pipeline.md
+    mi.subsurfaceColor = clamp(m.subsurface.rgb, 0.0, 1.0);
+    if ((m.flags & FLAG_HAS_SUBSURFACE) != 0u)
+        mi.subsurfaceColor *= fetch.Sample(m.subsurfaceIndex, uv0).rgb;
+    mi.subsurfaceColor = mi.subsurfaceColor * (1.0 - mi.metallic) * (1.0 - mi.transmission);
     mi.scatterRadius   = max(m.subsurface.a, 0.0);
 
     mi.normal = float3(0.0, 0.0, 1.0);
