@@ -203,7 +203,16 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
         RtConfirmAlphaCandidates(rq, pc.geomTable);
         if (rq.CommittedStatus() == COMMITTED_NOTHING)
         {
-            radiance += throughput * SampleEnv(rd);
+            // Firefly-clamp INDIRECT env hits, same as the hit path below: a sharp lobe (clear-coat / smooth
+            // spec) mirroring a bright env light is high-variance and blows out at the grazing Fresnel rim.
+            // The primary camera ray missing (bounce 0 = the sky background) stays unbiased.
+            float3 envContrib = throughput * SampleEnv(rd);
+            if (bounce > 0u)
+            {
+                float lum = Luminance(envContrib);
+                if (lum > pc.fireflyClamp) envContrib *= pc.fireflyClamp / lum;
+            }
+            radiance += envContrib;
             break;
         }
 
