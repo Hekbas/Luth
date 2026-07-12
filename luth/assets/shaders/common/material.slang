@@ -4,7 +4,7 @@
 // Resource-agnostic: bindings (raster set 1/2 vs RT set 4/3) + the ITexFetch impls live in
 // material_bindings_{raster,rt}.slang so one decode serves both set layouts. see arch/rendering-pipeline.md
 
-// 128 B std430, field-identical to C++ Material.h GPUMaterialData (MaterialLayoutGuard cross-checks).
+// 144 B std430, field-identical to C++ Material.h GPUMaterialData (MaterialLayoutGuard cross-checks).
 public struct GPUMaterialData
 {
     public float4 color;
@@ -18,6 +18,7 @@ public struct GPUMaterialData
     public float  anisotropy, anisotropyRotation;   // [-1,1] mesh-tangent aligned; rotation turns [0,1] (x2pi)
     public float  ior, transmission, thickness;     // dielectric IOR (>=1); transmission [0,1]; glTF thicknessFactor (raster Beer-Lambert proxy)
     public float4 attenuation;                       // rgb = attenuationColor (linear), a = attenuationDistance (0 = off)
+    public float4 sheen;                             // rgb = sheenColor (linear, 0 = no sheen), a = sheenRoughness (perceptual)
 }
 
 public static const uint FLAG_HAS_NORMAL     = (1u << 0);
@@ -58,6 +59,8 @@ public struct MaterialInputs
     public float  transmission, ior, thickness;    // dielectric transmission [0,1]; IOR [1,4]; thickness (raster path-length)
     public float3 attenuationColor;                // Beer-Lambert interior tint (linear)
     public float  attenuationDistance;             // distance at which transmittance == attenuationColor (0 = off)
+    public float3 sheenColor;                      // production-sheen reflectance (linear, 0 = no sheen)
+    public float  sheenRoughness;                  // sheen lobe roughness (perceptual; eval clamps [0.04,1])
 }
 
 // The two-tier seam: raster auto-mips (derivatives), RT samples LOD 0 (no derivatives at a ray hit).
@@ -127,6 +130,11 @@ public MaterialInputs EvalMaterialChannels<F : ITexFetch>(GPUMaterialData m, flo
     mi.thickness           = max(m.thickness, 0.0);
     mi.attenuationColor    = clamp(m.attenuation.rgb, 0.0, 1.0);
     mi.attenuationDistance = m.attenuation.a;
+
+    // Sheen: color clamped [0,1] (reflectance), roughness clamped [0.04,1] (coat-style). At sheenColor == 0
+    // the BRDF fast path is taken, so a sheen-free material shades bit-identically. see arch/rendering-pipeline.md
+    mi.sheenColor      = clamp(m.sheen.rgb, 0.0, 1.0);
+    mi.sheenRoughness  = clamp(m.sheen.a, 0.04, 1.0);
 
     mi.normal = float3(0.0, 0.0, 1.0);
     return mi;
@@ -214,6 +222,8 @@ public struct HitSurface
     public float  transmission, ior, thickness;
     public float3 attenuationColor;
     public float  attenuationDistance;
+    public float3 sheenColor;
+    public float  sheenRoughness;
     public bool   frontFace;   // ray hit the outward (entering) side; from the un-faced geometric normal
 }
 

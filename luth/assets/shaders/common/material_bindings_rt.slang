@@ -70,6 +70,7 @@ public HitSurface FetchHitSurface(GtGeomEntry* geomTable, uint customIndex, uint
     s.anisotropy = mi.anisotropy;  s.anisotropyRotation = mi.anisotropyRotation;
     s.transmission = mi.transmission;  s.ior = mi.ior;  s.thickness = mi.thickness;
     s.attenuationColor = mi.attenuationColor;  s.attenuationDistance = mi.attenuationDistance;
+    s.sheenColor = mi.sheenColor;  s.sheenRoughness = mi.sheenRoughness;
     // Un-faced geometric smooth normal (g.ns keeps its outward orientation; s.ns above was faced against the
     // ray): dot < 0 means the ray hit the outward side = entering the medium. Feeds the PT enter/exit + IOR ratio.
     s.frontFace = dot(g.ns, rayDir) < 0.0;

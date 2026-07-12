@@ -123,6 +123,15 @@ namespace Luth
         if (att.x != 1.0f || att.y != 1.0f || att.z != 1.0f || att.w != 0.0f)
             json["attenuation"] = { att.x, att.y, att.z, att.w };
 
+        // Sheen: written only when a non-black color is set (roughness rides along), so sheen-free
+        // materials stay byte-stable. A black sheenColor takes the BRDF fast path, so roughness is moot.
+        const Vec4& sh = m_GPUData.sheen;
+        if (sh.x != 0.0f || sh.y != 0.0f || sh.z != 0.0f)
+        {
+            json["sheenColor"]     = { sh.x, sh.y, sh.z };
+            json["sheenRoughness"] = sh.w;
+        }
+
         // Serialize Uniforms
         nlohmann::json uniformsJson;
         auto shader = GetShader();
@@ -257,6 +266,13 @@ namespace Luth
                                          json["attenuation"][2], json["attenuation"][3]);
         else
             m_GPUData.attenuation = Vec4(1.0f, 1.0f, 1.0f, 0.0f);
+
+        // Sheen (absent keys => inert black/0, reset explicitly so a reused Material can't inherit prior sheen).
+        if (json.contains("sheenColor") && json["sheenColor"].is_array() && json["sheenColor"].size() == 3)
+            m_GPUData.sheen = Vec4(json["sheenColor"][0], json["sheenColor"][1], json["sheenColor"][2],
+                                   json.value("sheenRoughness", 0.0f));
+        else
+            m_GPUData.sheen = Vec4(0.0f, 0.0f, 0.0f, json.value("sheenRoughness", 0.0f));
 
         m_Maps.clear();
         for (const auto& texJson : json["textures"]) {

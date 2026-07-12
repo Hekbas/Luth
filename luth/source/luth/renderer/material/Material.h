@@ -90,15 +90,19 @@ namespace Luth
 
         // Dielectric transmission (glTF KHR_materials_transmission + _volume). ior@100 (>=1); transmission@104
         // [0,1]; thickness@108 (glTF thicknessFactor, raster Beer-Lambert path-length proxy); attenuation@112
-        // vec4 (rgb = attenuationColor linear, a = attenuationDistance, 0 = off). Struct rounds to 128.
+        // vec4 (rgb = attenuationColor linear, a = attenuationDistance, 0 = off).
         f32  ior = 1.5f;
         f32  transmission = 0.0f;
         f32  thickness = 0.0f;
         Vec4 attenuation = { 1.0f, 1.0f, 1.0f, 0.0f };
+
+        // Sheen (Estevez-Kulla production cloth). sheen@128 vec4: rgb = sheenColor (linear, 0 = no sheen,
+        // takes the BRDF fast path), a = sheenRoughness (perceptual; eval clamps [0.04,1]). Struct rounds to 144.
+        Vec4 sheen = { 0.0f, 0.0f, 0.0f, 0.0f };
     };
     // std430 layout must stay byte-identical to material.slang's GPUMaterialData; MaterialLayoutGuard
     // cross-checks the field offsets at init; a desync silently corrupts every material index > 0.
-    static_assert(sizeof(GPUMaterialData) == 128, "GPUMaterialData std430 layout must stay 128 B");
+    static_assert(sizeof(GPUMaterialData) == 144, "GPUMaterialData std430 layout must stay 144 B");
 
     // Per-material graph-constant stride (float4 slots/material). invariant: matches material.slang MAT_GRAPH_STRIDE;
     // shader paramBase = materialIndex * MAT_GRAPH_STRIDE indexes gMatParams; drift cross-corrupts. Bounds value nodes.
@@ -281,6 +285,12 @@ namespace Luth
         void SetAttenuationColor(const Vec3& c) { m_GPUData.attenuation.x = c.x; m_GPUData.attenuation.y = c.y; m_GPUData.attenuation.z = c.z; }
         f32  GetAttenuationDistance() const { return m_GPUData.attenuation.w; }
         void SetAttenuationDistance(f32 d) { m_GPUData.attenuation.w = d; }
+
+        // Sheen cloth factors (direct GPUData fields). sheenColor = sheen.rgb, sheenRoughness = sheen.a.
+        Vec3 GetSheenColor() const { return Vec3(m_GPUData.sheen); }
+        void SetSheenColor(const Vec3& c) { m_GPUData.sheen.x = c.x; m_GPUData.sheen.y = c.y; m_GPUData.sheen.z = c.z; }
+        f32  GetSheenRoughness() const { return m_GPUData.sheen.w; }
+        void SetSheenRoughness(f32 r) { m_GPUData.sheen.w = r; }
 
         // GPU Data Access
         const GPUMaterialData& GetGPUData() const { return m_GPUData; }
