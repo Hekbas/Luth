@@ -31,6 +31,7 @@ namespace Luth
         const char* kOut_RGBA[] = { "rgba" };
         const char* kOut_Split[]= { "R", "G", "B", "A" };
         const char* kIn_BaseDet[] = { "Base", "Detail" };
+        const char* kIn_BaseUV[]  = { "Base", "UV" };
         const char* kIn_BTM[]     = { "Bottom", "Top", "Mask" };
         const char* kIn_Out7[]    = { "BaseColor", "Metallic", "Roughness", "Normal", "AO", "Emissive", "Surface" };
         const char* kOut_Layer[]  = { "Layer" };
@@ -75,6 +76,7 @@ namespace Luth
             { "Make Layer",   IM_COL32( 90,120, 90,255), kIn_Out,     6, kOut_Layer, 1 },  // MakeLayer
             { "Layer Blend",  IM_COL32( 90,120, 90,255), kIn_BTM,     3, kOut_Layer, 1 },  // LayerBlend
             { "Parallax",     IM_COL32( 70,120,100,255), kIn_UV,      1, kOut_1,     1 },  // Parallax (UV pin optional)
+            { "Decal",        IM_COL32(100,120, 80,255), kIn_BaseUV,  2, kOut_Layer, 1 },  // Decal (Base layer + optional UV)
         };
         constexpr size_t kTypeCount = sizeof(kTypes) / sizeof(kTypes[0]);
 
@@ -88,6 +90,7 @@ namespace Luth
             if (isOutput) return IsLayerNode(t);                  // MakeLayer / LayerBlend emit a layer
             if (t == MatNodeType::LayerBlend) return slot < 2;    // Bottom, Top are layers; Mask is a value
             if (t == MatNodeType::Output)     return slot == 6;   // the Surface pin
+            if (t == MatNodeType::Decal)      return slot == 0;   // Base is a layer; UV is a value
             return false;
         }
 
@@ -96,7 +99,9 @@ namespace Luth
             static ImU32 layerBlend[] = { kLayerPinCol, kLayerPinCol, kValuePinCol };
             static ImU32 out7[] = { kValuePinCol, kValuePinCol, kValuePinCol,
                                     kValuePinCol, kValuePinCol, kValuePinCol, kLayerPinCol };
+            static ImU32 decal[] = { kLayerPinCol, kValuePinCol };
             if (t == MatNodeType::LayerBlend) return layerBlend;
+            if (t == MatNodeType::Decal)      return decal;
             if (t == MatNodeType::Output)     return out7;
             return nullptr;   // GraphEditor falls back to a default pin color
         }
@@ -143,6 +148,7 @@ namespace Luth
                 case MatNodeType::Triplanar:    n.value = Vec4(4.0f, 0.0f, 0.0f, 0.0f); break; // tiling
                 case MatNodeType::DetailNormal: n.value = Vec4(1.0f, 0.0f, 0.0f, 0.0f); break; // strength
                 case MatNodeType::Parallax:     n.value = Vec4(0.05f, 8.0f, 32.0f, 0.0f); break; // height, min/max steps
+                case MatNodeType::Decal:        n.value = Vec4(0.5f, 0.5f, 0.25f, 0.0f); break;  // center uv, scale, rotation
                 default:                      n.value = Vec4(0.0f); break;
             }
             return n;
@@ -290,6 +296,20 @@ namespace Luth
                     ImGui::DragFloat("Max Steps", &n.value.z, 0.5f, 1.0f, 64.0f, "%.0f");
                     e.value |= ImGui::IsItemDeactivatedAfterEdit();
                     break;
+                case MatNodeType::Decal:
+                {
+                    ImGui::DragFloat("Offset X", &n.value.x, 0.005f);
+                    e.value |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::DragFloat("Offset Y", &n.value.y, 0.005f);
+                    e.value |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::DragFloat("Scale", &n.value.z, 0.005f, 0.001f, 8.0f, "%.3f");
+                    e.value |= ImGui::IsItemDeactivatedAfterEdit();
+                    float deg = n.value.w * (180.0f / Math::Pi<f32>);
+                    if (ImGui::DragFloat("Rotation", &deg, 0.5f, -360.0f, 360.0f, "%.0f deg"))
+                        n.value.w = deg * (Math::Pi<f32> / 180.0f);
+                    e.value |= ImGui::IsItemDeactivatedAfterEdit();
+                    break;
+                }
                 default:
                     ImGui::TextDisabled("No parameters.");
                     break;
@@ -430,6 +450,7 @@ namespace Luth
             }
             case MatNodeType::DetailNormal: snprintf(buf, sizeof(buf), "s%.2g", n.value.x); break;
             case MatNodeType::Parallax:     snprintf(buf, sizeof(buf), "h%.3g", n.value.x); break;
+            case MatNodeType::Decal:        snprintf(buf, sizeof(buf), "(%.2g,%.2g) x%.2g", n.value.x, n.value.y, n.value.z); break;
             default: return;
         }
         drawList->AddText(ImVec2(rect.Min.x + 4.0f, rect.Min.y + 2.0f), IM_COL32(210, 210, 210, 255), buf);

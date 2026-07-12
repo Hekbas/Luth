@@ -396,6 +396,10 @@ namespace Luth
                             if (UI::Property(label, n.value.x, 0.002f)) valueEdit = true;
                             if (ImGui::IsItemHovered()) ImGui::SetTooltip("parallax height scale");
                             break;
+                        case MatNodeType::Decal:
+                            if (UI::Property(label, n.value, 0.005f)) valueEdit = true;
+                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("(offset x, offset y, scale, rotation rad)");
+                            break;
                         default: break;
                     }
                     ImGui::PopID();
