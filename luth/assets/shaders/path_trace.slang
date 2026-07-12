@@ -276,7 +276,8 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
         SurfaceBRDF surf = MakeSurfaceBRDF(s.ns, s.T, cross(s.ns, s.T) * s.tSign, s.hasTangent,
                                            s.baseColor, s.metalness, s.roughness,
                                            s.clearcoat, s.clearcoatRoughness, s.anisotropy, s.anisotropyRotation,
-                                           s.transmission, s.ior, s.frontFace, s.sheenColor, s.sheenRoughness);
+                                           s.transmission, s.ior, s.frontFace, s.sheenColor, s.sheenRoughness,
+                                           s.subsurfaceColor, s.scatterRadius, s.thickness);
         float3 contrib = throughput * (s.emission + DirectLighting(x, V, s, surf, seed));
         // Firefly clamp INDIRECT contributions only (primary direct/emission stays unbiased).
         if (bounce > 0u)

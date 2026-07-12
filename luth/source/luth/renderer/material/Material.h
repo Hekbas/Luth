@@ -97,12 +97,16 @@ namespace Luth
         Vec4 attenuation = { 1.0f, 1.0f, 1.0f, 0.0f };
 
         // Sheen (Estevez-Kulla production cloth). sheen@128 vec4: rgb = sheenColor (linear, 0 = no sheen,
-        // takes the BRDF fast path), a = sheenRoughness (perceptual; eval clamps [0.04,1]). Struct rounds to 144.
+        // takes the BRDF fast path), a = sheenRoughness (perceptual; eval clamps [0.04,1]).
         Vec4 sheen = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+        // Subsurface (SSS). subsurface@144 vec4: rgb = subsurfaceColor (linear diffusion albedo A, 0 = no
+        // SSS -> BRDF fast path), a = scatterRadius (mean-free-path, world units). Struct rounds to 160.
+        Vec4 subsurface = { 0.0f, 0.0f, 0.0f, 0.0f };
     };
     // std430 layout must stay byte-identical to material.slang's GPUMaterialData; MaterialLayoutGuard
     // cross-checks the field offsets at init; a desync silently corrupts every material index > 0.
-    static_assert(sizeof(GPUMaterialData) == 144, "GPUMaterialData std430 layout must stay 144 B");
+    static_assert(sizeof(GPUMaterialData) == 160, "GPUMaterialData std430 layout must stay 160 B");
 
     // Per-material graph-constant stride (float4 slots/material). invariant: matches material.slang MAT_GRAPH_STRIDE;
     // shader paramBase = materialIndex * MAT_GRAPH_STRIDE indexes gMatParams; drift cross-corrupts. Bounds value nodes.
@@ -291,6 +295,12 @@ namespace Luth
         void SetSheenColor(const Vec3& c) { m_GPUData.sheen.x = c.x; m_GPUData.sheen.y = c.y; m_GPUData.sheen.z = c.z; }
         f32  GetSheenRoughness() const { return m_GPUData.sheen.w; }
         void SetSheenRoughness(f32 r) { m_GPUData.sheen.w = r; }
+
+        // Subsurface (SSS) factors (direct GPUData fields). subsurfaceColor = subsurface.rgb, scatterRadius = subsurface.a.
+        Vec3 GetSubsurfaceColor() const { return Vec3(m_GPUData.subsurface); }
+        void SetSubsurfaceColor(const Vec3& c) { m_GPUData.subsurface.x = c.x; m_GPUData.subsurface.y = c.y; m_GPUData.subsurface.z = c.z; }
+        f32  GetScatterRadius() const { return m_GPUData.subsurface.w; }
+        void SetScatterRadius(f32 r) { m_GPUData.subsurface.w = r; }
 
         // GPU Data Access
         const GPUMaterialData& GetGPUData() const { return m_GPUData; }

@@ -152,6 +152,9 @@ public struct SurfaceBRDF
     public float  relEta;       // n_incident/n_transmitted on V's side (entering 1/ior, exiting ior)
     public float3 sheenColor;   // production-sheen reflectance (linear); 0 = legacy fast paths
     public float  sheenRoughness;
+    public float3 subsurfaceColor;  // SSS diffusion surface albedo A (linear, per-RGB); 0 = legacy fast paths
+    public float  scatterRadius;    // SSS mean-free-path (world units)
+    public float  thickness;        // SSS translucency path-length proxy (glTF thicknessFactor); thin -> more glow
 }
 
 // Build the shading frame once: Gram-Schmidt the tangent vs the (perturbed) N, restore the mesh handedness
@@ -160,7 +163,8 @@ public SurfaceBRDF MakeSurfaceBRDF(float3 N, float3 T, float3 B, bool hasTangent
                                    float metallic, float roughness, float clearcoat,
                                    float clearcoatRoughness, float anisotropy, float anisotropyRotation,
                                    float transmission, float ior, bool frontFace,
-                                   float3 sheenColor, float sheenRoughness)
+                                   float3 sheenColor, float sheenRoughness,
+                                   float3 subsurfaceColor, float scatterRadius, float thickness)
 {
     SurfaceBRDF s;
     s.N = N; s.albedo = albedo; s.metallic = metallic; s.roughness = roughness;
@@ -168,6 +172,7 @@ public SurfaceBRDF MakeSurfaceBRDF(float3 N, float3 T, float3 B, bool hasTangent
     s.transmission = transmission;
     s.relEta = frontFace ? (1.0 / max(ior, 1.0)) : max(ior, 1.0);   // enter: 1/ior, exit: ior
     s.sheenColor = sheenColor; s.sheenRoughness = sheenRoughness;
+    s.subsurfaceColor = subsurfaceColor; s.scatterRadius = scatterRadius; s.thickness = thickness;
 
     float3 To = T - dot(T, N) * N;                       // project the tangent onto the surface plane
     bool   ok = hasTangent && dot(To, To) > 1.0e-8;
@@ -183,17 +188,65 @@ public SurfaceBRDF MakeSurfaceBRDF(float3 N, float3 T, float3 B, bool hasTangent
     return s;
 }
 
-// Layered evaluate-at-surface-point: anisotropic base lobe (when active) + isotropic clear-coat on top.
+// ---- Subsurface scattering (skin / wax / marble): local diffusion approx + the PT random-walk inversion ----
+// Burley Eq.5 (searchlight) shape s(A) = 1.85 - A + 7|A-0.8|^3 -- monotone-decreasing, so the per-channel
+// profile width A/s(A) is widest for the brightest channel (red bleeds furthest) under one scalar radius.
+static const float kSssWrap    = 0.5;   // scatterRadius (world units) -> [0,1] terminator-wrap scale (tuning)
+static const float kSssDistort = 0.3;   // back-scatter light-bend toward N (Frostbite distortion, tuning)
+static const float kSssPower   = 4.0;   // back-scatter view falloff exponent (tuning)
+
+float3 SssProfileShape(float3 A) { return 1.85 - A + 7.0 * pow(abs(A - 0.8), 3.0); }   // Burley Eq.5, per channel
+
+// Front scatter: soften + tint the terminator. The per-channel wrapped cosine adds light beyond the hard
+// NdotL horizon; the SSS term is only that EXTRA, tinted by subsurfaceColor (0 in the fully-lit region).
+float3 SssWrapDiffuse(float3 L, SurfaceBRDF s)
+{
+    float  NdotL = dot(s.N, L);
+    float3 w  = saturate(kSssWrap * s.scatterRadius) * (s.subsurfaceColor / max(SssProfileShape(s.subsurfaceColor), 1.0e-3));
+    float3 Cw = saturate((NdotL + w) / (1.0 + w));
+    return s.subsurfaceColor * max(Cw - saturate(NdotL), float3(0.0)) / kPi;
+}
+
+// Back scatter (Frostbite / Barre-Brisebois): light transmitted through thin regions toward the viewer.
+// Thin (low thickness) glows more; carries its own view geometry (no NdotL factor).
+float3 SssTranslucency(float3 L, float3 V, SurfaceBRDF s)
+{
+    float3 Ht   = normalize(L + s.N * kSssDistort);
+    float  back = pow(saturate(dot(V, -Ht)), kSssPower);
+    return s.subsurfaceColor * (back * (1.0 - saturate(s.thickness)));
+}
+
+// Chiang 2016 reparameterization for the PT random walk: surface albedo A -> single-scatter albedo alpha +
+// the extinction from the authored mfp. sigma_s = alpha*sigma_t, sigma_a = (1-alpha)*sigma_t (per channel).
+public struct SssSigma { public float3 sigmaS; public float3 sigmaA; }
+public SssSigma SssAlbedoToSigma(float3 A, float radius)
+{
+    float3 alpha  = 1.0 - exp((-5.09406 + (2.61188 - 4.31805 * A) * A) * A);   // Horner of Chiang's cubic fit
+    float3 d      = 1.9 - alpha + 3.5 * (alpha - 0.8) * (alpha - 0.8);         // diffuse-transmission scaling
+    float3 sigmaT = 1.0 / max(radius * d, 1.0e-4);
+    SssSigma o;
+    o.sigmaS = alpha * sigmaT;
+    o.sigmaA = (1.0 - alpha) * sigmaT;
+    return o;
+}
+
+// Layered evaluate-at-surface-point: aniso base + clear-coat + sheen (NdotL > 0), plus the subsurface
+// wrap/translucency which have support below the horizon. see arch/rendering-pipeline.md
 public float3 EvalSurfBRDFTimesNdotL(float3 L, float3 radiance, float3 V, SurfaceBRDF s)
 {
     bool  anisoActive = abs(s.anisotropy) > 1.0e-3;
     bool  glassActive = s.transmission > 0.0;
     float sheenW      = max(s.sheenColor.r, max(s.sheenColor.g, s.sheenColor.b));
-    if (!anisoActive && s.clearcoat <= 0.0 && !glassActive && sheenW <= 0.0)
+    float sssW        = max(s.subsurfaceColor.r, max(s.subsurfaceColor.g, s.subsurfaceColor.b));
+    bool  sssActive   = sssW > 0.0;
+    if (!anisoActive && s.clearcoat <= 0.0 && !glassActive && sheenW <= 0.0 && !sssActive)
         return EvalBRDFTimesNdotL(L, radiance, V, s.N, s.albedo, s.metallic, s.roughness);
 
     float NdotL = dot(s.N, L);
-    if (NdotL <= 0.0) return float3(0.0);
+    // Below the horizon only subsurface contributes (wrap past the terminator + back-lit translucency); the
+    // reflection lobes have no sub-horizon support.
+    if (NdotL <= 0.0)
+        return sssActive ? (SssWrapDiffuse(L, s) + SssTranslucency(L, V, s)) * radiance : float3(0.0);
     float  NoL = max(NdotL, 1.0e-4);
 
     float3 H   = normalize(V + L);
@@ -252,7 +305,12 @@ public float3 EvalSurfBRDFTimesNdotL(float3 L, float3 radiance, float3 V, Surfac
         base = base * (1.0 - Fc) + float3(coat);
     }
 
-    return base * radiance * NdotL;
+    // Subsurface (NdotL > 0 side): additive local diffusion approx -- wrapped/tinted terminator + thickness
+    // translucency, carrying their own geometry (not the outer NdotL). invariant: subsurfaceColor == 0 ->
+    // sssActive false -> sssTerms 0 -> bit-identical to base * radiance * NdotL. The true non-local transport
+    // is the path_trace random-walk (Option A). see arch/rendering-pipeline.md
+    float3 sssTerms = sssActive ? (SssWrapDiffuse(L, s) + SssTranslucency(L, V, s)) : float3(0.0);
+    return (base * NdotL + sssTerms) * radiance;
 }
 
 // Analytic Smith G1 for GGX alpha (unbiased VNDF pdf, distinct from the BRDF's approximate G).

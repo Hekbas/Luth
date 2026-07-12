@@ -54,6 +54,7 @@ namespace Luth
             { "thickness",          offsetof(GPUMaterialData, thickness) },
             { "attenuation",        offsetof(GPUMaterialData, attenuation) },
             { "sheen",              offsetof(GPUMaterialData, sheen) },
+            { "subsurface",         offsetof(GPUMaterialData, subsurface) },
         };
         MaterialLayoutGuard::Validate(FileSystem::EngineAssetsPath("shaders/common/material.slang"),
                                       "GPUMaterialData", kFields, sizeof(GPUMaterialData));

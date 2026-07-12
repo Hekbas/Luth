@@ -132,6 +132,15 @@ namespace Luth
             json["sheenRoughness"] = sh.w;
         }
 
+        // Subsurface: written only when a non-black color is set (radius rides along), so SSS-free
+        // materials stay byte-stable (black subsurfaceColor takes the BRDF fast path).
+        const Vec4& ss = m_GPUData.subsurface;
+        if (ss.x != 0.0f || ss.y != 0.0f || ss.z != 0.0f)
+        {
+            json["subsurfaceColor"] = { ss.x, ss.y, ss.z };
+            json["scatterRadius"]   = ss.w;
+        }
+
         // Serialize Uniforms
         nlohmann::json uniformsJson;
         auto shader = GetShader();
@@ -273,6 +282,13 @@ namespace Luth
                                    json.value("sheenRoughness", 0.0f));
         else
             m_GPUData.sheen = Vec4(0.0f, 0.0f, 0.0f, json.value("sheenRoughness", 0.0f));
+
+        // Subsurface (absent keys => inert black/0, reset explicitly so a reused Material can't inherit prior SSS).
+        if (json.contains("subsurfaceColor") && json["subsurfaceColor"].is_array() && json["subsurfaceColor"].size() == 3)
+            m_GPUData.subsurface = Vec4(json["subsurfaceColor"][0], json["subsurfaceColor"][1], json["subsurfaceColor"][2],
+                                        json.value("scatterRadius", 0.0f));
+        else
+            m_GPUData.subsurface = Vec4(0.0f, 0.0f, 0.0f, json.value("scatterRadius", 0.0f));
 
         m_Maps.clear();
         for (const auto& texJson : json["textures"]) {
