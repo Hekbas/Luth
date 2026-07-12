@@ -128,11 +128,23 @@ public float4 EvalTransparentSurfaceColor(uint materialIndex, uint shadeMode, fl
             float4 clip   = mul(ubo.viewProjection, float4(exitP, 1.0));
             float2 refrUV = (clip.w > 1.0e-4) ? (clip.xy / clip.w * float2(0.5, 0.5) + 0.5)
                                               : (fragCoord.xy / ubo.viewportSize);
-            refrUV        = clamp(refrUV, float2(0.0), float2(1.0));
             float3 beer   = (mi.attenuationDistance > 0.0)
                           ? exp(-(-log(max(mi.attenuationColor, float3(1.0e-5))) / mi.attenuationDistance) * mi.thickness)
                           : float3(1.0);
-            float3 back   = refractionBackdrop.SampleLevel(refrUV, 0.0).rgb * beer;
+            // Roughness-driven frost: a rough interface scatters the transmitted view, so blur the backdrop by
+            // roughness (Vogel disk, per-fragment rotated to dither) -- makes the raster path respond to roughness
+            // like the PT BTDF. Screen-space can't model internal scatter, so PT stays the oracle for frosted glass.
+            float  blurR = mi.roughness * mi.roughness * 0.12;   // GGX-alpha scaled screen-space radius
+            float  rot   = frac(sin(dot(fragCoord.xy, float2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
+            float3 back  = float3(0.0);
+            [unroll] for (int i = 0; i < 16; ++i)
+            {
+                float  rr = sqrt((float(i) + 0.5) / 16.0) * blurR;
+                float  th = float(i) * 2.399963 + rot;   // golden angle
+                float2 uv = clamp(refrUV + float2(cos(th), sin(th)) * rr, float2(0.0), float2(1.0));
+                back += refractionBackdrop.SampleLevel(uv, 0.0).rgb;
+            }
+            back *= beer * (1.0 / 16.0);
             float  Fv     = F_Dielectric(saturate(dot(nrm, V)), relEta);
             color        += back * (1.0 - Fv) * tw;
             alphaOut      = lerp(mi.baseColor.a, 1.0, tw);   // glass provides its own (refracted) background
