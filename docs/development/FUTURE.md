@@ -43,7 +43,7 @@ demands them.
 |---|---|---|
 | **Full deferred shading** | `rt-renderer` (slim G-buffer lands in Phase A.2) | If the forward path hits material-variant complexity limits; the slim G-buffer is already there feeding RT denoising, motion vectors, and SSR-replaced-by-RT-reflections. Full deferred would extend it with albedo + metallic/roughness + emissive + opaque shading model ID. |
 | **HZB Occlusion Culling** | `compute-gpu-culling` ✅, `gpu-driven` series | Two-phase cull pipeline; depth pyramid as compute. Lands as part of the post-`rt-renderer` `gpu-driven` series (mesh shaders + GPU-driven culling). |
-| **Decals (screen-space deferred)** | `rt-renderer` slim G-buffer | Cluster-binned (same pattern as lights). Could land late in `rt-renderer` arc or as polish; not on the critical path for Bhaal Temple. |
+| **Volume decals (`DecalVolume` component)** | forward+ clustered (like lights); scene component like `FogVolume` | Box-projected decals as a scene component (transform + decal texture), gathered + cluster-binned like lights, applied in the forward PBR pass (the slim G-buffer has no albedo, so classic deferred-decal G-buffer writes don't fit). **Key call: the raster==RT stance** - raster-only is simple but decals miss RT reflections/GI; RT-correct needs decal projection at ray hits too (novel, the design crux). Deferred from surface-detail (#175, 2026-07-12); UV-space material decals shipped there instead as a complementary node. L/XL. |
 
 > Removed because absorbed into `rt-renderer`: Volumetric Fog → Phase A.4 (Wronski full voxel volume), Global Illumination → Phase C (ReSTIR DI + GI), SSR → Phase D.1 (RT reflections supersede screen-space). Shadow frustum-union fit removed because Phase B.3 retires CSM entirely.
 

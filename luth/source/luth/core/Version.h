@@ -6,7 +6,7 @@ namespace Luth
 {
     // ---- Source of truth: edit ONLY these three values ----
     inline constexpr uint32_t VERSION_MAJOR = 3;
-    inline constexpr uint32_t VERSION_MINOR = 10;
+    inline constexpr uint32_t VERSION_MINOR = 11;
     inline constexpr uint32_t VERSION_PATCH = 0;
 
     // Empty for releases; otherwise "-dev", "-rc1", etc.
