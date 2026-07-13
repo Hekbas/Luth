@@ -17,6 +17,21 @@
 
 > For detailed fiber hazard analysis (V1-V6 vulnerability mitigations), see [`arch/fiber-system.md`](arch/fiber-system.md).
 
+At any frame `T`, three stages overlap, each one frame behind the last:
+
+```text
+time ──►
+              ┌──────────┬──────────┬──────────┬──────────┐
+   CPU game   │ N        │ N+1      │ N+2      │ N+3      │
+              ├──────────┼──────────┼──────────┼──────────┤
+   CPU render │ N-1      │ N        │ N+1      │ N+2      │
+              ├──────────┼──────────┼──────────┼──────────┤
+   GPU exec   │ N-2      │ N-1      │ N        │ N+1      │
+              └──────────┴──────────┴──────────┴──────────┘
+```
+
+Game (N) updates transforms and animation, then freezes a `RenderSnapshot` POD into the frame's arena. Render (N-1) reads the previous snapshot, builds the render graph, records per-pass command buffers in parallel, and submits. GPU (N-2) executes what was submitted before. The frame boundary is the snapshot, not shared mutable state.
+
 ---
 
 ## Build Targets
@@ -106,6 +121,24 @@ Engine → editor calls route through the nullptr-safe `Luth::EditorHooks` inter
 
 ---
 
+## Render Graph
+
+Each frame the renderer builds a DAG of passes. A pass declares its reads and writes through a `RenderPassBuilder`; the graph solves pipeline barriers, culls unused passes, and computes resource lifetimes. Passes then execute in topological order, with command-buffer recording parallelized across worker threads.
+
+```cpp
+graph.AddPass<GeometryPassData>("GeometryPass",
+    [&](GeometryPassData& data, RG::RenderPassBuilder& builder) {
+        data.depthTex  = builder.WriteDepth(sceneDepth, ...);
+        data.outputTex = builder.Write(sceneColor);
+        data.indirect  = builder.ReadIndirectBuffer(indirectBuffer);
+    },
+    [=](GeometryPassData& data, RG::RenderPassContext& ctx) {
+        // record draw commands on ctx.commandBuffer
+    });
+```
+
+---
+
 ## Rendering — Current Baseline
 
 | System | State |
@@ -113,8 +146,10 @@ Engine → editor calls route through the nullptr-safe `Luth::EditorHooks` inter
 | RenderGraph | DAG compile, barrier injection, dead-pass cull, serial execution; per-pass secondary-cmd recording |
 | Geometry | Clustered Forward+ PBR (Olsson log-slice clusters); slim G-buffer prepass (normal RG16F / roughness R8 / motion RG16F / matID R16U); 3 render-mode variants |
 | Shader | Slang-only stack (one compiler, reflection-driven); Cook-Torrance BRDF shared raster/RT eval via `common/brdf.slang` |
-| Material | `GPUMaterialData` SSBO (Set 2), 8 bindless maps + flag bitfield, JSON `.mat` |
-| Lighting | Clustered Forward+ — 1 directional + clustered point lights; per-view cluster grid + light-index SSBOs (Set 3) |
+| Material | `GPUMaterialData` SSBO (Set 2), 9 bindless maps + flag bitfield, 176 B std430, JSON `.mat` |
+| Shading models | Clear coat, anisotropy, dielectric transmission (IOR + GGX BTDF + Beer-Lambert), Charlie sheen, subsurface scattering (random-walk PT oracle + raster BRDF); present in both raster and path-traced paths |
+| Surface detail | Parallax occlusion mapping (tangent-space height raymarch) + UV-projected decals; authored in the node graph |
+| Lighting | Clustered Forward+ — 1 directional + clustered point and spot lights; per-view cluster grid + light-index SSBOs (Set 3) |
 | Shadows | RT ray-query sun shadows (default) + per-view mask; 4-cascade PSSM CSM retained as an A/B `ShadowingMode` toggle |
 | RT foundation | KHR ray query + acceleration structure (RT-mandatory); per-mesh BLAS (static + skinned refit), per-frame TLAS rebuild on async compute; bindless geometry table (`instanceCustomIndex` → BDA deref) |
 | RT global illumination | ReSTIR DI (Bitterli 2020) + ReSTIR GI (Ouyang 2021) — device-local reservoir reuse, reconnection Jacobian, demodulated + denoised |
@@ -128,9 +163,10 @@ Engine → editor calls route through the nullptr-safe `Luth::EditorHooks` inter
 | AA | TAA (Karis14 YCoCg-clip recipe) + specular AA (Tokuyoshi 2019) |
 | Post-processing | HDR (RGBA16F), bloom, tonemapping (ACES variants + AgX / AgX Punchy), vignette, grain, CA |
 | Bindless | BDA enabled; Set 1 — 16384-texture array + 32-slot sampler array (UPDATE_AFTER_BIND, partially-bound); integer material/texture indices |
-| Shader system | Single-stage shader assets (.vert/.frag/.comp each one artifact + UUID); `ShaderLibrary::LoadEngine` routes engine shaders through the asset pipeline; hot-reload via `FileWatcher` on any stage; SPIRV-Cross reflection |
+| Shader system | Slang shader assets (`.slang`, staged via reflection, one artifact + UUID); `ShaderLibrary::LoadEngine` routes engine shaders through the asset pipeline; hot-reload via `FileWatcher`; SPIRV-Cross reflection |
 | Frame Debugger | GPU timers, pass tree, pipeline state, per-draw replay, texture preview |
 | Mipmaps | `vkCmdBlitImage` chain, per-texture `.meta` settings |
+| Texture compression | Import-time BCn via bc7enc/rgbcx; role-based Auto (BC7 color, BC5 normals), transfer-queue level uploads |
 | Scene serialization | JSON `.luth` format, native file dialogs |
 | Pipeline cache | VkPipelineCache disk persistence + PipelineManager (lazy, keyed by shader+mode) |
 | Skybox / IBL | HDR equirect→cubemap, irradiance convolution, pre-filtered env (5 mips), BRDF LUT, split-sum ambient |
