@@ -9,7 +9,10 @@
 
 namespace Luth::UI
 {
-    bool BeginCollapsingHeader(const char* label, bool defaultOpen, const std::function<void()>& contextMenu)
+    // Shared header body. enabled == nullptr -> plain header (no checkbox). Non-null adds an on/off
+    // checkbox after the caret whose click flips *enabled and syncs the open state to it.
+    static bool BeginCollapsingHeaderImpl(const char* label, bool* enabled, bool defaultOpen,
+                                          const std::function<void()>& contextMenu)
     {
         ImGuiWindow* window = ImGui::GetCurrentWindow();
         if (window->SkipItems) return false;
@@ -20,6 +23,18 @@ namespace Luth::UI
         ImVec2 pos = window->DC.CursorPos;
         ImVec2 size = ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight() + 8.0f);
         ImRect bb(pos, ImVec2(pos.x + size.x, pos.y + size.y));
+
+        // Checkbox occupies the slot just right of the caret; the label shifts to clear it.
+        const bool hasCheck = (enabled != nullptr);
+        const float cbSz = ImGui::GetFontSize();
+        ImRect checkRect;
+        float labelX = bb.Min.x + 28.0f;
+        if (hasCheck)
+        {
+            float cbY = bb.Min.y + (size.y - cbSz) * 0.5f;
+            checkRect = ImRect(ImVec2(bb.Min.x + 28.0f, cbY), ImVec2(bb.Min.x + 28.0f + cbSz, cbY + cbSz));
+            labelX = checkRect.Max.x + 8.0f;
+        }
 
         ImGui::ItemSize(bb);
         if (!ImGui::ItemAdd(bb, id))
@@ -43,7 +58,15 @@ namespace Luth::UI
         bool pressed = ImGui::ButtonBehavior(bb, id, &hovered, &held);
         if (pressed)
         {
-            is_open = !is_open;
+            // A release over the checkbox toggles enable and drives open to match; anywhere else on the
+            // header just collapses (so an enabled group can still be folded away via the caret/label).
+            if (hasCheck && ImGui::IsMouseHoveringRect(checkRect.Min, checkRect.Max))
+            {
+                *enabled = !*enabled;
+                is_open = *enabled;
+            }
+            else
+                is_open = !is_open;
             window->StateStorage.SetInt(id, is_open ? 1 : 0);
         }
 
@@ -77,8 +100,20 @@ namespace Luth::UI
         window->DrawList->AddText(icon_pos, ImGui::GetColorU32(ImGuiCol_Text), icon);
         ImGui::PopFont();
 
+        if (hasCheck)
+        {
+            window->DrawList->AddRectFilled(checkRect.Min, checkRect.Max, ImGui::GetColorU32(ImGuiCol_FrameBg), 3.0f);
+            window->DrawList->AddRect(checkRect.Min, checkRect.Max, ImGui::GetColorU32(ImGuiCol_Border), 3.0f);
+            if (*enabled)
+            {
+                float pad = cbSz * 0.22f;
+                ImGui::RenderCheckMark(window->DrawList, ImVec2(checkRect.Min.x + pad, checkRect.Min.y + pad),
+                                       ImGui::GetColorU32(ImGuiCol_CheckMark), cbSz - pad * 2.0f);
+            }
+        }
+
         ImVec2 text_size = ImGui::CalcTextSize(label);
-        ImVec2 text_pos = ImVec2(bb.Min.x + 28.0f, bb.Min.y + (size.y - text_size.y) * 0.5f);
+        ImVec2 text_pos = ImVec2(labelX, bb.Min.y + (size.y - text_size.y) * 0.5f);
         window->DrawList->AddText(text_pos, ImGui::GetColorU32(ImGuiCol_Text), label);
 
         float handle_height = 10.0f;
@@ -112,6 +147,16 @@ namespace Luth::UI
         }
 
         return is_open;
+    }
+
+    bool BeginCollapsingHeader(const char* label, bool defaultOpen, const std::function<void()>& contextMenu)
+    {
+        return BeginCollapsingHeaderImpl(label, nullptr, defaultOpen, contextMenu);
+    }
+
+    bool BeginCollapsingHeader(const char* label, bool* enabled, bool defaultOpen, const std::function<void()>& contextMenu)
+    {
+        return BeginCollapsingHeaderImpl(label, enabled, defaultOpen, contextMenu);
     }
 
     void EndCollapsingHeader()
