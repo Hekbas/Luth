@@ -282,18 +282,26 @@ namespace Luth
                 });
 
                 DrawSurfaceInput(MapType::Subsurface, "Subsurface", [&]() {
-                    // Mirrors the Emissive row: swatch = diffusion albedo A (texture-modulated when a
-                    // scatter mask is bound), drag = scatter mean-free-path in world units.
+                    // Swatch = diffusion albedo A (texture-modulated when a scatter mask is bound); drags =
+                    // scatter mean-free-path (world units, "Rad") + thin-shell back-scatter depth [0,1] ("Thk",
+                    // thin -> more translucent glow). The thickness map (shared) scales both this and glass thickness.
                     Vec3 ssColor = material.GetSubsurfaceColor();
                     f32  ssRad   = material.GetSubsurfaceRadius();
+                    f32  ssThick = material.GetSubsurfaceThickness();
                     bool changed = false;
                     if (ImGui::ColorEdit3("##SubsurfaceColor", &ssColor.x, ImGuiColorEditFlags_NoInputs)) {
                         material.SetSubsurfaceColor(ssColor); changed = true;
                     }
                     ImGui::SameLine();
-                    ImGui::SetNextItemWidth(-1);
-                    if (ImGui::DragFloat("##ScatterRadius", &ssRad, 0.01f, 0.0f, 10.0f, "%.2f")) {
+                    float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+                    ImGui::SetNextItemWidth(half);
+                    if (ImGui::DragFloat("##SubsurfaceRadius", &ssRad, 0.01f, 0.0f, 10.0f, "Rad %.2f")) {
                         material.SetSubsurfaceRadius(ssRad); changed = true;
+                    }
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::DragFloat("##SubsurfaceThickness", &ssThick, 0.01f, 0.0f, 1.0f, "Thk %.2f")) {
+                        material.SetSubsurfaceThickness(ssThick); changed = true;
                     }
                     if (changed) material.MarkDirty();
                 });
@@ -351,6 +359,9 @@ namespace Luth
         {
             if (UI::BeginProperties("ShadingModelProps"))
             {
+                // Dielectric specular F0 weight (base property; scales the IOR-derived reflectance, metals unaffected).
+                float spec = material.GetSpecular();
+                if (UI::Property("Specular", spec, 0.005f, 0.0f, 1.0f)) { material.SetSpecular(spec); material.MarkDirty(); }
                 float cc = material.GetClearcoat();
                 if (UI::Property("Clear Coat", cc, 0.01f, 0.0f, 1.0f)) { material.SetClearcoat(cc); material.MarkDirty(); }
                 float ccr = material.GetClearcoatRoughness();
@@ -367,11 +378,11 @@ namespace Luth
                 float ior = material.GetIor();
                 if (UI::Property("IOR", ior, 0.005f, 1.0f, 3.0f)) { material.SetIor(ior); material.MarkDirty(); }
                 float th = material.GetThickness();
-                if (UI::Property("Thickness", th, 0.01f, 0.0f, 100.0f)) { material.SetThickness(th); material.MarkDirty(); }
+                if (UI::Property("Glass Thickness", th, 0.01f, 0.0f, 100.0f)) { material.SetThickness(th); material.MarkDirty(); }
                 Vec4 ac(material.GetAttenuationColor(), 1.0f);
-                if (UI::PropertyColor("Absorption Color", ac)) { material.SetAttenuationColor(Vec3(ac)); material.MarkDirty(); }
+                if (UI::PropertyColor("Attenuation Color", ac)) { material.SetAttenuationColor(Vec3(ac)); material.MarkDirty(); }
                 float ad = material.GetAttenuationDistance();
-                if (UI::Property("Absorption Dist", ad, 0.05f, 0.0f, 1000.0f)) { material.SetAttenuationDistance(ad); material.MarkDirty(); }
+                if (UI::Property("Attenuation Dist", ad, 0.05f, 0.0f, 1000.0f)) { material.SetAttenuationDistance(ad); material.MarkDirty(); }
 
                 // Sheen (cloth): a non-black color enables the lobe; roughness follows the coat convention.
                 Vec4 sc(material.GetSheenColor(), 1.0f);

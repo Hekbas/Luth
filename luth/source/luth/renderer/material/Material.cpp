@@ -438,6 +438,7 @@ namespace Luth
             case MapType::Roughness: return "Roughness";
             case MapType::Specular:  return "Specular";
             case MapType::Occlusion:  return "Occlusion";
+            case MapType::Thickness:  return "Thickness";
             case MapType::Height:    return "Height";
             case MapType::Decal:     return "Decal";
             case MapType::Subsurface: return "Subsurface";
