@@ -92,6 +92,23 @@ namespace Luth
             json["graph"] = std::move(g);
         }
 
+        // Declared Blackboard properties: top-level (independent of the node graph) so a declared-but-unwired
+        // property still round-trips. Absent -> empty on load. Keys only when set (unused graphs stay byte-stable).
+        if (!m_Graph.properties.empty())
+        {
+            nlohmann::json pj = nlohmann::json::array();
+            for (const auto& p : m_Graph.properties)
+            {
+                nlohmann::json e = { {"id", p.id}, {"type", static_cast<int>(p.type)}, {"ui", p.uiKind},
+                    {"value", { p.value.x, p.value.y, p.value.z, p.value.w }} };
+                if (!p.name.empty())     e["name"]    = p.name;
+                if (!p.group.empty())    e["group"]   = p.group;
+                if (p.texture.IsValid()) e["texture"] = p.texture.ToString();
+                pj.push_back(std::move(e));
+            }
+            json["properties"] = std::move(pj);
+        }
+
         json["render_mode"] = static_cast<int>(m_RenderMode);
         json["alpha_cutoff"] = m_AlphaCutoff;
         json["blend_src"] = static_cast<int>(m_BlendSrc);
@@ -227,6 +244,23 @@ namespace Luth
                     m_Graph.links.push_back(link);
                 }
         }
+
+        // Declared Blackboard properties (top-level; read independent of the "graph" block so a properties-only
+        // material still restores them). m_Graph was reset above, so an absent array leaves properties empty.
+        if (json.contains("properties") && json["properties"].is_array())
+            for (const auto& e : json["properties"])
+            {
+                MaterialProperty p;
+                p.id     = e.value("id", 0u);
+                p.type   = static_cast<MatPropType>(e.value("type", 0));
+                p.uiKind = static_cast<u8>(e.value("ui", 0));
+                if (e.contains("value") && e["value"].is_array() && e["value"].size() == 4)
+                    p.value = Vec4(e["value"][0], e["value"][1], e["value"][2], e["value"][3]);
+                p.name  = e.value("name",  std::string{});
+                p.group = e.value("group", std::string{});
+                if (e.contains("texture")) p.texture = UUID::FromString(e["texture"].get<std::string>());
+                m_Graph.properties.push_back(p);
+            }
 
         if (json.contains("uniforms"))
             m_CachedUniformJSON = json["uniforms"];

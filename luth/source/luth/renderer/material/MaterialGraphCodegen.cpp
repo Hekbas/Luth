@@ -86,7 +86,8 @@ namespace Luth
             return t == MatNodeType::ConstFloat || t == MatNodeType::ConstColor || t == MatNodeType::Remap
                 || t == MatNodeType::Noise      || t == MatNodeType::Fresnel
                 || t == MatNodeType::Triplanar  || t == MatNodeType::DetailNormal
-                || t == MatNodeType::Parallax   || t == MatNodeType::Decal;
+                || t == MatNodeType::Parallax   || t == MatNodeType::Decal
+                || t == MatNodeType::PropertyRef;
         }
 
         u8 InputCount(MatNodeType t)
@@ -177,6 +178,13 @@ namespace Luth
             {
                 const MatNode* n = byId.at(id);
                 if (!IsValueNode(n->type)) continue;
+                if (n->type == MatNodeType::PropertyRef)
+                {
+                    // Value flows from the referenced Blackboard property (Float broadcasts; Color = rgba).
+                    const MaterialProperty* p = FindProperty(g, n->tex);
+                    params.push_back(p && p->type == MatPropType::Color ? p->value : Vec4(p ? p->value.x : 0.0f));
+                    continue;
+                }
                 params.push_back(n->type == MatNodeType::ConstFloat ? Vec4(n->value.x) : n->value);
             }
             return params;
@@ -251,7 +259,8 @@ namespace Luth
                 {
                     // Const values are per-material data; ConstFloat broadcasts (BuildParams stores float4(x)).
                     case MatNodeType::ConstFloat:
-                    case MatNodeType::ConstColor:    return "fetch.Param(" + std::to_string(paramSlot.at(n.id)) + ")";
+                    case MatNodeType::ConstColor:
+                    case MatNodeType::PropertyRef:   return "fetch.Param(" + std::to_string(paramSlot.at(n.id)) + ")";
                     case MatNodeType::TextureSample:
                     {
                         // A linked UV pin overrides the material's per-map UV-set selection.

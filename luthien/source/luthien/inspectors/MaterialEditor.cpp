@@ -486,80 +486,40 @@ namespace Luth
 
         ImGui::Dummy({ 0, 4 });
 
-        // Exposed graph parameters: named value nodes edited without opening the graph. Value edits land
-        // as per-material data (RefreshParams, no recompile); the TextureSample slot is structure and
-        // recompiles, mirroring the graph panel's split.
-        if (material.HasGraph())
+        // Declared graph properties (Blackboard): the material's exposed inputs, edited without opening the
+        // graph. Property authoring (add / remove / type) lives in the graph panel; the inspector edits the
+        // values, which land as per-material data (RefreshParams, no recompile).
+        if (material.HasGraph() && !material.GetGraph().properties.empty())
         {
-            std::vector<MatNode*> params;   // per-frame walk; pointers must not outlive this Draw
-            for (MatNode& n : material.GetGraphMutable().nodes)
-                if (IsExposableNode(n.type) && !n.name.empty()) params.push_back(&n);
+            std::vector<MaterialProperty*> params;   // per-frame walk; pointers must not outlive this Draw
+            for (MaterialProperty& p : material.GetGraphMutable().properties) params.push_back(&p);
             std::stable_sort(params.begin(), params.end(),
-                [](const MatNode* a, const MatNode* b) { return a->group < b->group; });
+                [](const MaterialProperty* a, const MaterialProperty* b) { return a->group < b->group; });
 
-            if (!params.empty() && UI::BeginCollapsingHeader("Parameters", true))
+            if (UI::BeginCollapsingHeader("Parameters", true))
             {
-                bool valueEdit = false, structureEdit = false;
+                bool valueEdit = false;
 
-                auto drawParam = [&](MatNode& n)
+                auto drawParam = [&](MaterialProperty& p)
                 {
-                    ImGui::PushID((int)n.id);
-                    const char* label = n.name.c_str();
-                    switch (n.type)
+                    ImGui::PushID((int)p.id);
+                    const char* label = p.name.empty() ? "(unnamed)" : p.name.c_str();
+                    switch (p.type)
                     {
-                        case MatNodeType::ConstFloat:
-                            if (n.ui == 1)
+                        case MatPropType::Float:
+                            if (p.uiKind == 1)
                             {
-                                bool b = n.value.x != 0.0f;
-                                if (UI::Property(label, b)) { n.value.x = b ? 1.0f : 0.0f; valueEdit = true; }
+                                bool b = p.value.x != 0.0f;
+                                if (UI::Property(label, b)) { p.value.x = b ? 1.0f : 0.0f; valueEdit = true; }
                             }
-                            else if (UI::Property(label, n.value.x, 0.01f))
+                            else if (UI::Property(label, p.value.x, 0.01f))
                                 valueEdit = true;
                             break;
-                        case MatNodeType::ConstColor:
-                            if (UI::PropertyColor(label, n.value)) valueEdit = true;
+                        case MatPropType::Color:
+                            if (UI::PropertyColor(label, p.value)) valueEdit = true;
                             break;
-                        case MatNodeType::Remap:
-                            if (UI::Property(label, n.value, 0.01f)) valueEdit = true;
-                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("(in min, in max, out min, out max)");
-                            break;
-                        case MatNodeType::TextureSample:
-                        {
-                            static const char* kMap[] = { "Diffuse","Alpha","Normal","Metallic","Roughness","Specular","Occlusion","Emissive","Thickness" };
-                            int t = (n.tex < 9) ? (int)n.tex : 0;
-                            if (UI::PropertyCombo(label, t, kMap, 9)) { n.tex = (u32)t; structureEdit = true; }
-                            break;
-                        }
-                        case MatNodeType::StaticSwitch:
-                        {
-                            bool on = n.value.x != 0.0f;
-                            // Compile-time switch: the state selects the emitted branch, so toggling recompiles.
-                            if (UI::Property(label, on)) { n.value.x = on ? 1.0f : 0.0f; structureEdit = true; }
-                            break;
-                        }
-                        case MatNodeType::Noise:
-                            if (UI::Property(label, n.value, 0.05f)) valueEdit = true;
-                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("(scale, octaves, -, -)");
-                            break;
-                        case MatNodeType::Fresnel:
-                            if (UI::Property(label, n.value.x, 0.05f)) valueEdit = true;
-                            break;
-                        case MatNodeType::Triplanar:
-                            if (UI::Property(label, n.value.x, 0.05f)) valueEdit = true;
-                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("triplanar tiling");
-                            break;
-                        case MatNodeType::DetailNormal:
-                            if (UI::Property(label, n.value.x, 0.02f)) valueEdit = true;
-                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("detail-normal strength");
-                            break;
-                        case MatNodeType::Parallax:
-                            if (UI::Property(label, n.value.x, 0.002f)) valueEdit = true;
-                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("parallax height scale");
-                            break;
-                        case MatNodeType::Decal:
-                            if (UI::Property(label, n.value, 0.005f)) valueEdit = true;
-                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("(offset x, offset y, scale, rotation rad)");
-                            break;
+                        case MatPropType::Texture:
+                            break;   // Commit 3 wires the texture asset slot + gMatTexParams
                         default: break;
                     }
                     ImGui::PopID();
@@ -590,8 +550,7 @@ namespace Luth
                     i = end;
                 }
 
-                if (structureEdit)  { MaterialGraphCodegen::GenerateAndCompile(material); material.MarkDirty(); }
-                else if (valueEdit) { MaterialGraphCodegen::RefreshParams(material);      material.MarkDirty(); }
+                if (valueEdit) { MaterialGraphCodegen::RefreshParams(material); material.MarkDirty(); }
                 UI::EndCollapsingHeader();
                 ImGui::Dummy({ 0, 4 });
             }

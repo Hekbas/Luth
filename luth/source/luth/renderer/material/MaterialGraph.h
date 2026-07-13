@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/core/types/LuthMath.h"
+#include "luth/core/UUID.h"
 
 #include <string>
 #include <vector>
@@ -45,7 +46,8 @@ namespace Luth
         MakeLayer,      // 6 channel inputs -> a MaterialInputs "layer" bundle (Make Material Attributes)
         LayerBlend,     // per-channel mask blend of two layers: in0 bottom, in1 top, in2 float4 mask
         Parallax,       // parallax-occlusion: marches the height map along the tangent view dir -> displaced UV
-        Decal           // UV-space decal: places an RGBA decal over a base layer, alpha-masked + box-confined
+        Decal,          // UV-space decal: places an RGBA decal over a base layer, alpha-masked + box-confined
+        PropertyRef     // references a declared Blackboard value property (tex = property id); resolves to fetch.Param(k)
     };
 
     struct MatNode
@@ -90,11 +92,43 @@ namespace Luth
         u32 toNode   = 0;  u8 toSlot   = 0;   // consumer node + its input slot
     };
 
+    // A declared graph input (Unity Blackboard). A PropertyRef node references a value property by id, so the
+    // value flows through gMatParams (data-only, no recompile on swap); a Texture property feeds a declared
+    // TextureSample through the per-material gMatTexParams index buffer. Authoring data; the codegen reads only
+    // the referenced value/index, never the property name -> naming can't split structure-shared shaders.
+    enum class MatPropType : u8 { Float = 0, Color = 1, Texture = 2 };   // append-only (persists as int)
+
+    struct MaterialProperty
+    {
+        u32         id      = 0;                   // unique within the graph; PropertyRef.tex / flagged TextureSample.tex reference it
+        MatPropType type    = MatPropType::Float;
+        u8          uiKind  = 0;                   // 0 = drag / color; 1 = checkbox (Float 0/1)
+        std::string name;                          // inspector label
+        std::string group;                         // inspector section
+        Vec4        value   = Vec4(0.0f);          // Float (x) / Color (rgba) payload; unused for Texture
+        UUID        texture = UUID::Invalid();     // Texture-type only: assigned texture asset (resolved -> bindless index)
+    };
+
     struct MaterialGraph
     {
         std::vector<MatNode> nodes;
         std::vector<MatLink> links;
+        std::vector<MaterialProperty> properties;   // declared Blackboard inputs; referenced by PropertyRef / declared TextureSample
 
         bool Empty() const { return nodes.empty(); }
     };
+
+    // Highest property id + 1 (ids stay small + positive, never the 0x80000000 declared-texture-ref flag bit).
+    inline u32 NextPropertyId(const MaterialGraph& g)
+    {
+        u32 maxId = 0;
+        for (const auto& p : g.properties) if (p.id > maxId) maxId = p.id;
+        return maxId + 1;
+    }
+
+    inline const MaterialProperty* FindProperty(const MaterialGraph& g, u32 id)
+    {
+        for (const auto& p : g.properties) if (p.id == id) return &p;
+        return nullptr;
+    }
 }
