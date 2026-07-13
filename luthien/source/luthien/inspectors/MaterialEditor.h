@@ -28,6 +28,12 @@ namespace Luth
         nlohmann::json m_UndoSnapshot;
         bool m_HasUndoSnapshot = false;
 
+        // Session-transient feature-reveal state: bits mark optional shading features force-shown for the
+        // material being edited, so controls can be authored up from a zero weight without the group
+        // collapsing. Reset when the edited material changes; never persisted (the weight is authoritative).
+        UUID m_RevealHandle;
+        u32  m_RevealMask = 0;
+
         // Per-MaterialEditor orbit state for the pinned-footer 3D preview.
         UI::ThumbnailPreviewScene::OrbitCamera m_OrbitCam;
 

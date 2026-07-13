@@ -86,7 +86,8 @@ namespace Luth
             return t == MatNodeType::ConstFloat || t == MatNodeType::ConstColor || t == MatNodeType::Remap
                 || t == MatNodeType::Noise      || t == MatNodeType::Fresnel
                 || t == MatNodeType::Triplanar  || t == MatNodeType::DetailNormal
-                || t == MatNodeType::Parallax   || t == MatNodeType::Decal;
+                || t == MatNodeType::Parallax   || t == MatNodeType::Decal
+                || t == MatNodeType::PropertyRef;
         }
 
         u8 InputCount(MatNodeType t)
@@ -94,7 +95,7 @@ namespace Luth
             switch (t)
             {
                 case MatNodeType::MakeLayer:
-                    return 19;   // 6 base + 4 coat/aniso (6-9) + 5 transmission (10-14) + 2 sheen (15-16) + 2 subsurface (17-18)
+                    return 20;   // 6 base + 4 coat/aniso (6-9) + 5 transmission (10-14) + 2 sheen (15-16) + 3 subsurface (17-19)
                 case MatNodeType::Custom:
                     return 4;
                 case MatNodeType::Lerp: case MatNodeType::LayerBlend:
@@ -157,9 +158,9 @@ namespace Luth
                     if (const MatLink* l = Incoming(g, out->id, s)) visit(l->fromNode);
                 // Surface (bundle) slot 6: appended after the channel slots so pre-slot-6 graphs stay order-stable.
                 if (const MatLink* l = Incoming(g, out->id, 6)) visit(l->fromNode);
-                // Ext channels (coat/aniso 7-10 + transmission 11-15 + sheen 16-17 + subsurface 18-19): appended
+                // Ext channels (coat/aniso 7-10 + transmission 11-15 + sheen 16-17 + subsurface 18-20): appended
                 // last, so a pre-ext graph (nothing on those slots) keeps its visit order + structure hash unchanged.
-                for (u8 s = 7; s < 20; ++s)
+                for (u8 s = 7; s < 21; ++s)
                     if (const MatLink* l = Incoming(g, out->id, s)) visit(l->fromNode);
             }
             return order;
@@ -177,9 +178,34 @@ namespace Luth
             {
                 const MatNode* n = byId.at(id);
                 if (!IsValueNode(n->type)) continue;
+                if (n->type == MatNodeType::PropertyRef)
+                {
+                    // Value flows from the referenced Blackboard property (Float broadcasts; Color = rgba).
+                    const MaterialProperty* p = FindProperty(g, n->tex);
+                    params.push_back(p && p->type == MatPropType::Color ? p->value : Vec4(p ? p->value.x : 0.0f));
+                    continue;
+                }
                 params.push_back(n->type == MatNodeType::ConstFloat ? Vec4(n->value.x) : n->value);
             }
             return params;
+        }
+
+        // Referenced declared-texture property ids in canonical order: the per-material texture-slot list the
+        // generated EvalGraph reads via fetch.TexIndex(k). Material resolves each id -> UUID -> bindless index.
+        // invariant: same CanonicalOrder + declared-texture walk as the Lowerer's texParamSlot, else indices desync.
+        std::vector<u32> BuildTexSlots(const MaterialGraph& g)
+        {
+            std::unordered_map<u32, const MatNode*> byId;
+            for (const auto& n : g.nodes) byId[n.id] = &n;
+
+            std::vector<u32> slots;
+            for (u32 id : CanonicalOrder(g))
+            {
+                const MatNode* n = byId.at(id);
+                if (n->type == MatNodeType::TextureSample && IsDeclaredTexRef(n->tex))
+                    slots.push_back(TexRefPropertyId(n->tex));
+            }
+            return slots;
         }
 
         // Lowers a MaterialGraph to the EvalGraph<F> module body: one float4 SSA local per node (named by canonical
@@ -190,8 +216,10 @@ namespace Luth
             std::unordered_map<u32, const MatNode*> byId;
             std::vector<u32> order;                  // canonical post-order (reachable, non-Output)
             std::unordered_map<u32, u32> seq;        // node ID -> SSA index (canonical name, no ID leak)
-            std::unordered_map<u32, u32> paramSlot;  // value-node ID -> param slot k
+            std::unordered_map<u32, u32> paramSlot;     // value-node ID -> gMatParams slot k
+            std::unordered_map<u32, u32> texParamSlot;  // declared-texture TextureSample ID -> gMatTexParams slot
             u32 paramCount = 0;
+            u32 texParamCount = 0;
 
             explicit Lowerer(const MaterialGraph& graph) : g(graph)
             {
@@ -200,7 +228,10 @@ namespace Luth
                 for (u32 i = 0; i < order.size(); ++i)
                 {
                     seq[order[i]] = i;
-                    if (IsValueNode(byId.at(order[i])->type)) paramSlot[order[i]] = paramCount++;
+                    const MatNode* n = byId.at(order[i]);
+                    if (IsValueNode(n->type)) paramSlot[order[i]] = paramCount++;
+                    if (n->type == MatNodeType::TextureSample && IsDeclaredTexRef(n->tex))
+                        texParamSlot[order[i]] = texParamCount++;
                 }
             }
 
@@ -251,9 +282,21 @@ namespace Luth
                 {
                     // Const values are per-material data; ConstFloat broadcasts (BuildParams stores float4(x)).
                     case MatNodeType::ConstFloat:
-                    case MatNodeType::ConstColor:    return "fetch.Param(" + std::to_string(paramSlot.at(n.id)) + ")";
+                    case MatNodeType::ConstColor:
+                    case MatNodeType::PropertyRef:   return "fetch.Param(" + std::to_string(paramSlot.at(n.id)) + ")";
                     case MatNodeType::TextureSample:
                     {
+                        // Declared Blackboard texture: the bindless index comes from the per-material gMatTexParams
+                        // slot (fetch.TexIndex) instead of a fixed GPUMaterialData map field. Both tiers sample the
+                        // same bindless heap, so raster==RT holds exactly as for the fixed-map path.
+                        if (IsDeclaredTexRef(n.tex))
+                        {
+                            const std::string idx = "fetch.TexIndex(" + std::to_string(texParamSlot.at(n.id)) + ")";
+                            if (const MatLink* l = Incoming(g, n.id, 0))
+                                if (seq.count(l->fromNode))
+                                    return "fetch.Sample(" + idx + ", (" + SourceExpr(*byId.at(l->fromNode), l->fromSlot) + ").xy)";
+                            return "fetch.Sample(" + idx + ", uv0)";
+                        }
                         // A linked UV pin overrides the material's per-map UV-set selection.
                         if (const MatLink* l = Incoming(g, n.id, 0))
                             if (seq.count(l->fromNode))
@@ -347,7 +390,8 @@ namespace Luth
                 if (s = OutSrc(n, extBase + 9); !s.empty()) ss << "    " << tgt << ".sheenColor          = " << s << ".rgb;\n";
                 if (s = OutSrc(n, extBase + 10); !s.empty()) ss << "    " << tgt << ".sheenRoughness      = clamp(" << s << ".x, 0.04, 1.0);\n";
                 if (s = OutSrc(n, extBase + 11); !s.empty()) ss << "    " << tgt << ".subsurfaceColor     = " << s << ".rgb;\n";
-                if (s = OutSrc(n, extBase + 12); !s.empty()) ss << "    " << tgt << ".scatterRadius       = max(" << s << ".x, 0.0);\n";
+                if (s = OutSrc(n, extBase + 12); !s.empty()) ss << "    " << tgt << ".subsurfaceRadius    = max(" << s << ".x, 0.0);\n";
+                if (s = OutSrc(n, extBase + 13); !s.empty()) ss << "    " << tgt << ".subsurfaceThickness = max(" << s << ".x, 0.0);\n";
             }
 
             std::string Run(const std::string& fnName)
@@ -420,6 +464,7 @@ namespace Luth
             ss << "    GPUMaterialData m = GetMaterial(i.materialIndex);\n";
             ss << "    RasterFetch rf;\n";
             ss << "    rf.paramBase = i.materialIndex * MAT_GRAPH_STRIDE;\n";
+            ss << "    rf.texBase   = i.materialIndex * MAT_TEX_STRIDE;\n";
             ss << "    rf.worldPos  = i.worldPos;\n";
             ss << "    rf.viewDir   = normalize(ubo.cameraPos - i.worldPos);\n";
             ss << "    rf.time      = ubo.time;\n";
@@ -561,7 +606,15 @@ namespace Luth
                           material.Handle.ToString(), low.paramCount, MAT_GRAPH_STRIDE);
             return UUID::Invalid();
         }
+        // Declared-texture count is bounded by the per-material gMatTexParams stride, mirroring the param guard.
+        if (low.texParamCount > MAT_TEX_STRIDE)
+        {
+            LH_LOG(Renderer, error, "MaterialGraphCodegen: '{}' has {} declared textures (> MAT_TEX_STRIDE {}) - renders stock",
+                          material.Handle.ToString(), low.texParamCount, MAT_TEX_STRIDE);
+            return UUID::Invalid();
+        }
         material.SetGraphParams(BuildParams(material.GetGraph()));
+        material.SetGraphTexSlots(BuildTexSlots(material.GetGraph()));
 
         // Structure key: the canonical module source under a fixed fn name (value-free + ID-free). Structurally
         // identical materials hash equal and share the compiled shader + RT variant; their constants live in data.
@@ -661,12 +714,13 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
         material.SetGraphParams(material.HasGraph() ? BuildParams(material.GetGraph()) : std::vector<Vec4>{});
+        material.SetGraphTexSlots(material.HasGraph() ? BuildTexSlots(material.GetGraph()) : std::vector<u32>{});
     }
 
     const char* MaterialGraphCodegen::ValidateCustomCode(const std::string& code)
     {
         static const char* kBanned[] = {
-            "ddx", "ddy", "fwidth", "discard", "gTextures", "gMaterials", "gMatParams",
+            "ddx", "ddy", "fwidth", "discard", "gTextures", "gMaterials", "gMatParams", "gMatTexParams",
             "RWTexture", "import", "[shader"
         };
         for (const char* b : kBanned)

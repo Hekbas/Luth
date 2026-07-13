@@ -31,6 +31,14 @@ namespace Luth
         m_GPUData.thicknessIndex   = GetIndex(MapType::Thickness);
         m_GPUData.decalIndex       = GetIndex(MapType::Decal);
 
+        // Declared graph textures: resolve each canonical slot's property UUID -> bindless index (mirrors the
+        // fixed maps). Runs per frame, so async-loaded textures resolve next frame; empty for a non-graph material.
+        m_GraphTexParams.assign(m_GraphTexSlots.size(), 0u);
+        for (size_t k = 0; k < m_GraphTexSlots.size(); ++k)
+            if (const MaterialProperty* p = FindProperty(m_Graph, m_GraphTexSlots[k]); p && p->texture.IsValid())
+                if (auto tex = AssetManager::GetAsset<Texture>(p->texture))
+                    m_GraphTexParams[k] = BindlessOrNull(tex->GetBindlessIndex());
+
         // metalness/roughness are direct GPUData fields (set via accessors / deserialize); the legacy
         // u_* uniform channel never reached the GPU (no Set-1 block in pbr). alphaCutoff stays derived.
         m_GPUData.alphaCutoff = (m_RenderMode == RenderMode::Cutout) ? m_AlphaCutoff : 0.0f;
@@ -92,6 +100,23 @@ namespace Luth
             json["graph"] = std::move(g);
         }
 
+        // Declared Blackboard properties: top-level (independent of the node graph) so a declared-but-unwired
+        // property still round-trips. Absent -> empty on load. Keys only when set (unused graphs stay byte-stable).
+        if (!m_Graph.properties.empty())
+        {
+            nlohmann::json pj = nlohmann::json::array();
+            for (const auto& p : m_Graph.properties)
+            {
+                nlohmann::json e = { {"id", p.id}, {"type", static_cast<int>(p.type)}, {"ui", p.uiKind},
+                    {"value", { p.value.x, p.value.y, p.value.z, p.value.w }} };
+                if (!p.name.empty())     e["name"]    = p.name;
+                if (!p.group.empty())    e["group"]   = p.group;
+                if (p.texture.IsValid()) e["texture"] = p.texture.ToString();
+                pj.push_back(std::move(e));
+            }
+            json["properties"] = std::move(pj);
+        }
+
         json["render_mode"] = static_cast<int>(m_RenderMode);
         json["alpha_cutoff"] = m_AlphaCutoff;
         json["blend_src"] = static_cast<int>(m_BlendSrc);
@@ -108,6 +133,9 @@ namespace Luth
         // Metalness/roughness: direct GPUData fields (the u_* uniform channel is dead).
         json["metalness"] = m_GPUData.metalness;
         json["roughness"] = m_GPUData.roughness;
+
+        // Dielectric specular F0 weight: written only when not the physical default (1.0), so pre-feature .mat stays byte-stable.
+        if (m_GPUData.surfaceExt.x != 1.0f) json["specular"] = m_GPUData.surfaceExt.x;
 
         // Shading-model factors: written only when non-default, so materials that use neither stay byte-stable.
         if (m_GPUData.clearcoat != 0.0f)          json["clearcoat"] = m_GPUData.clearcoat;
@@ -137,8 +165,9 @@ namespace Luth
         const Vec4& ss = m_GPUData.subsurface;
         if (ss.x != 0.0f || ss.y != 0.0f || ss.z != 0.0f)
         {
-            json["subsurfaceColor"] = { ss.x, ss.y, ss.z };
-            json["scatterRadius"]   = ss.w;
+            json["subsurfaceColor"]     = { ss.x, ss.y, ss.z };
+            json["subsurfaceRadius"]    = ss.w;
+            json["subsurfaceThickness"] = m_GPUData.surfaceExt.y;
         }
 
         // Serialize Uniforms
@@ -224,6 +253,23 @@ namespace Luth
                 }
         }
 
+        // Declared Blackboard properties (top-level; read independent of the "graph" block so a properties-only
+        // material still restores them). m_Graph was reset above, so an absent array leaves properties empty.
+        if (json.contains("properties") && json["properties"].is_array())
+            for (const auto& e : json["properties"])
+            {
+                MaterialProperty p;
+                p.id     = e.value("id", 0u);
+                p.type   = static_cast<MatPropType>(e.value("type", 0));
+                p.uiKind = static_cast<u8>(e.value("ui", 0));
+                if (e.contains("value") && e["value"].is_array() && e["value"].size() == 4)
+                    p.value = Vec4(e["value"][0], e["value"][1], e["value"][2], e["value"][3]);
+                p.name  = e.value("name",  std::string{});
+                p.group = e.value("group", std::string{});
+                if (e.contains("texture")) p.texture = UUID::FromString(e["texture"].get<std::string>());
+                m_Graph.properties.push_back(p);
+            }
+
         if (json.contains("uniforms"))
             m_CachedUniformJSON = json["uniforms"];
 
@@ -284,11 +330,20 @@ namespace Luth
             m_GPUData.sheen = Vec4(0.0f, 0.0f, 0.0f, json.value("sheenRoughness", 0.0f));
 
         // Subsurface (absent keys => inert black/0, reset explicitly so a reused Material can't inherit prior SSS).
+        // subsurfaceRadius reads the new key, falling back to the legacy scatterRadius so pre-rename .mat files load.
+        f32 subRadius = json.value("subsurfaceRadius", json.value("scatterRadius", 0.0f));
         if (json.contains("subsurfaceColor") && json["subsurfaceColor"].is_array() && json["subsurfaceColor"].size() == 3)
             m_GPUData.subsurface = Vec4(json["subsurfaceColor"][0], json["subsurfaceColor"][1], json["subsurfaceColor"][2],
-                                        json.value("scatterRadius", 0.0f));
+                                        subRadius);
         else
-            m_GPUData.subsurface = Vec4(0.0f, 0.0f, 0.0f, json.value("scatterRadius", 0.0f));
+            m_GPUData.subsurface = Vec4(0.0f, 0.0f, 0.0f, subRadius);
+
+        // Extended surface scalars (surfaceExt): specular default 1.0 (physical). subsurfaceThickness split off the
+        // glass thickness -- migrate the legacy single thickness into it when the new key is absent, so pre-split
+        // materials render identically (one thickness served both glass path-length and SSS back-scatter depth).
+        m_GPUData.surfaceExt = Vec4(json.value("specular", 1.0f),
+                                    json.value("subsurfaceThickness", m_GPUData.thickness),
+                                    0.0f, 0.0f);
 
         m_Maps.clear();
         for (const auto& texJson : json["textures"]) {
@@ -425,6 +480,7 @@ namespace Luth
             case MapType::Roughness: return "Roughness";
             case MapType::Specular:  return "Specular";
             case MapType::Occlusion:  return "Occlusion";
+            case MapType::Thickness:  return "Thickness";
             case MapType::Height:    return "Height";
             case MapType::Decal:     return "Decal";
             case MapType::Subsurface: return "Subsurface";

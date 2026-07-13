@@ -8,6 +8,7 @@
 #include "luthien/widgets/Charts.h"
 #include "luthien/widgets/CollapsingHeader.h"
 #include "luthien/widgets/FilterBox.h"
+#include "luthien/widgets/HelpMarker.h"
 #include "luthien/widgets/InfoTable.h"
 #include "luthien/widgets/InspectorHeader.h"
 #include "luthien/widgets/Properties.h"

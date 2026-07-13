@@ -33,6 +33,9 @@ namespace Luth
         ImGuiWindow* window = ImGui::GetCurrentWindow();
         if (window->SkipItems) return;
 
+        // Feature-reveal state is per-material; drop it when the inspected material changes.
+        if (material.Handle != m_RevealHandle) { m_RevealHandle = material.Handle; m_RevealMask = 0; }
+
         // Header: thumbnail-on-left, name + Shader combo on right.
         // Live 3D preview pinned in the footer.
         ImTextureID headerThumb = UI::ThumbnailCache::Get(material.Handle, AssetType::Material);
@@ -145,135 +148,164 @@ namespace Luth
 
         ImGui::Dummy({ 0, 4 });
 
-        if (UI::BeginCollapsingHeader("Surface Inputs", true))
+        // Shared texture-slot row (drag-drop / Delete-clear / context-menu / UV), reused by every group.
+        // idSuffix disambiguates ImGui IDs when one MapType shows in two groups (the Thickness map lives
+        // in both Transmission and Subsurface). Call only inside an open 4-column map table.
+        const auto& textures = material.GetTextures();
+        auto DrawSurfaceInput = [&](MapType type, const char* label, const char* idSuffix, std::function<void()> drawControl) {
+            ImGui::TableNextRow();
+
+            std::shared_ptr<Texture> texture;
+            bool hasTexture = false;
+            UUID textureUUID = UUID::Invalid();
+            u32 uvIndex = 0;
+
+            for (const auto& texInfo : textures) {
+                if (texInfo.type == type) {
+                    textureUUID = texInfo.Uuid;
+                    uvIndex = texInfo.uvIndex;
+                    if (texInfo.Uuid.IsValid() && !AssetManager::IsLoaded(texInfo.Uuid) && !AssetManager::IsLoading(texInfo.Uuid))
+                        AssetManager::LoadAsync(texInfo.Uuid);
+
+                    if (texture = AssetManager::GetAsset<Texture>(texInfo.Uuid)) {
+                        hasTexture = true;
+                        break;
+                    }
+                }
+            }
+
+            ImGui::PushID(label);
+            ImGui::PushID(idSuffix);
+
+            // Label column
+            ImGui::TableNextColumn();
+            ImGui::AlignTextToFramePadding();
+            bool enabled = material.IsUseMapEnabled(type);
+            ImGui::Text("%s", label);
+
+            // Rows whose factor is authorable without a texture stay live (color/scalar-only workflow).
+            ImGui::BeginDisabled(!enabled && type != MapType::Diffuse && type != MapType::Metalness
+                && type != MapType::Emissive && type != MapType::Subsurface);
+
+            // Texture slot
+            ImGui::TableNextColumn();
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+            std::string textureId = "##Texture_" + std::string(label);
+
+            ImVec2 buttonSize(24, 24);
+            if (hasTexture) {
+                ImGui::ImageButton(textureId.c_str(), UI::GetTextureID(texture), buttonSize, { 0, 0 }, { 1, 1 });
+            }
+            else if (textureUUID.IsValid() && AssetManager::IsLoading(textureUUID)) {
+                ImGui::Button("...", buttonSize);
+            }
+            else {
+                ImGui::Button(textureId.c_str(), buttonSize);
+            }
+            ImGui::PopStyleVar();
+
+            if (ImGui::BeginDragDropTarget()) {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_UUID")) {
+                    const UUID* droppedUUID = static_cast<const UUID*>(payload->Data);
+                    material.SetTexture({ *droppedUUID, type, uvIndex });
+                    material.EnableUseTexture(type, true);
+                    material.EnableUseMap(type, true);
+                    material.MarkDirty();
+                }
+                ImGui::EndDragDropTarget();
+            }
+
+            if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
+                material.SetTexture({ UUID::Invalid(), type, 0 });
+                material.EnableUseTexture(type, false);
+                material.EnableUseMap(type, false);
+                material.MarkDirty();
+            }
+
+            if (hasTexture && ImGui::IsItemHovered()) {
+                ImGui::BeginTooltip();
+                ImGui::Text("%s", texture->GetName().c_str());
+                ImGui::Text("%dx%d", texture->GetWidth(), texture->GetHeight());
+                ImGui::EndTooltip();
+            }
+
+            // Control column
+            ImGui::TableNextColumn();
+            ImGui::PushItemWidth(-1);
+            if (drawControl) drawControl();
+            else ImGui::Dummy(buttonSize);
+            ImGui::PopItemWidth();
+
+            // UV Channel
+            ImGui::TableNextColumn();
+            ImGui::PushItemWidth(-1);
+            int uv = static_cast<int>(uvIndex);
+            std::string uvId = "##UV_" + std::string(label);
+            // Hide step buttons with 0 step
+            if (ImGui::InputInt(uvId.c_str(), &uv, 0, 0)) {
+                if (uv < 0) uv = 0;
+                if (uv > 3) uv = 3;
+                material.SetTexture({ textureUUID, type, static_cast<u32>(uv) });
+                material.MarkDirty();
+            }
+            ImGui::PopItemWidth();
+
+            ImGui::EndDisabled();
+
+            if (ImGui::BeginPopupContextItem("RowContext"))
+            {
+                if (type != MapType::Diffuse) {
+                    if (ImGui::MenuItem(enabled ? "Disable Map" : "Enable Map")) {
+                        material.EnableUseMap(type, !enabled);
+                        material.MarkDirty();
+                    }
+                }
+                if (ImGui::MenuItem("Clear Texture")) {
+                    material.SetTexture({ UUID::Invalid(), type, 0 });
+                    material.EnableUseTexture(type, false);
+                    material.MarkDirty();
+                }
+                ImGui::EndPopup();
+            }
+
+            ImGui::PopID();
+            ImGui::PopID();
+        };
+
+        // Opens the shared 4-column map table (Label | Texture | Control | UV); caller closes with EndTable.
+        auto BeginMapTable = [&](const char* id) -> bool {
+            if (!ImGui::BeginTable(id, 4, ImGuiTableFlags_SizingStretchProp)) return false;
+            ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+            ImGui::TableSetupColumn("Texture", ImGuiTableColumnFlags_WidthFixed, 36.0f);
+            ImGui::TableSetupColumn("Control", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("UV", ImGuiTableColumnFlags_WidthFixed, 30.0f);
+            return true;
+        };
+
+        // Feature-gated group: a checkbox-in-header section whose body shows only when active. active =
+        // weight nonzero OR force-revealed this session; the weight stays the single source of truth the
+        // shader reads. Toggling on seeds a visible default, off zeroes it (both routed through the debounce).
+        auto FeatureGroup = [&](const char* name, u32 bit, bool weightActive,
+                                const std::function<void()>& seedFn, const std::function<void()>& zeroFn,
+                                const std::function<void()>& bodyFn) {
+            bool wasActive = weightActive || (m_RevealMask & bit) != 0;
+            bool en = wasActive;
+            if (UI::BeginCollapsingHeader(name, &en, wasActive)) {
+                bodyFn();
+                UI::EndCollapsingHeader();
+            }
+            if (en != wasActive) {
+                if (en) { m_RevealMask |= bit; seedFn(); }
+                else    { m_RevealMask &= ~bit; zeroFn(); }
+                material.MarkDirty();
+            }
+            ImGui::Dummy({ 0, 4 });
+        };
+
+        if (UI::BeginCollapsingHeader("Base", true))
         {
-            if (ImGui::BeginTable("SurfaceInputsTable", 4, ImGuiTableFlags_SizingStretchProp)) {
-                ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-                ImGui::TableSetupColumn("Texture", ImGuiTableColumnFlags_WidthFixed, 36.0f);
-                ImGui::TableSetupColumn("Control", ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableSetupColumn("UV", ImGuiTableColumnFlags_WidthFixed, 30.0f);
-
-                const auto& textures = material.GetTextures();
-
-                auto DrawSurfaceInput = [&](MapType type, const char* label, std::function<void()> drawControl) {
-                    ImGui::TableNextRow();
-
-                    std::shared_ptr<Texture> texture;
-                    bool hasTexture = false;
-                    UUID textureUUID = UUID::Invalid();
-                    u32 uvIndex = 0;
-
-                    for (const auto& texInfo : textures) {
-                        if (texInfo.type == type) {
-                            textureUUID = texInfo.Uuid;
-                            uvIndex = texInfo.uvIndex;
-                            if (texInfo.Uuid.IsValid() && !AssetManager::IsLoaded(texInfo.Uuid) && !AssetManager::IsLoading(texInfo.Uuid))
-                                AssetManager::LoadAsync(texInfo.Uuid);
-
-                            if (texture = AssetManager::GetAsset<Texture>(texInfo.Uuid)) {
-                                hasTexture = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    ImGui::PushID(label);
-
-                    // Label column
-                    ImGui::TableNextColumn();
-                    ImGui::AlignTextToFramePadding();
-                    bool enabled = material.IsUseMapEnabled(type);
-                    ImGui::Text("%s", label);
-
-                    // Rows whose factor is authorable without a texture stay live (color/scalar-only workflow).
-                    ImGui::BeginDisabled(!enabled && type != MapType::Diffuse && type != MapType::Metalness
-                        && type != MapType::Roughness && type != MapType::Emissive && type != MapType::Subsurface);
-                    
-                    // Texture slot
-                    ImGui::TableNextColumn();
-                    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
-                    std::string textureId = "##Texture_" + std::string(label);
-                    
-                    ImVec2 buttonSize(24, 24);
-                    if (hasTexture) {
-                        ImGui::ImageButton(textureId.c_str(), UI::GetTextureID(texture), buttonSize, { 0, 0 }, { 1, 1 });
-                    }
-                    else if (textureUUID.IsValid() && AssetManager::IsLoading(textureUUID)) {
-                        ImGui::Button("...", buttonSize);
-                    }
-                    else {
-                        ImGui::Button(textureId.c_str(), buttonSize);
-                    }
-                    ImGui::PopStyleVar();
-
-                    if (ImGui::BeginDragDropTarget()) {
-                        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_UUID")) {
-                            const UUID* droppedUUID = static_cast<const UUID*>(payload->Data);
-                            material.SetTexture({ *droppedUUID, type, uvIndex });
-                            material.EnableUseTexture(type, true);
-                            material.EnableUseMap(type, true);
-                            material.MarkDirty();
-                        }
-                        ImGui::EndDragDropTarget();
-                    }
-
-                    if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
-                        material.SetTexture({ UUID::Invalid(), type, 0 });
-                        material.EnableUseTexture(type, false);
-                        material.EnableUseMap(type, false);
-                        material.MarkDirty();
-                    }
-
-                    if (hasTexture && ImGui::IsItemHovered()) {
-                        ImGui::BeginTooltip();
-                        ImGui::Text("%s", texture->GetName().c_str());
-                        ImGui::Text("%dx%d", texture->GetWidth(), texture->GetHeight());
-                        ImGui::EndTooltip();
-                    }
-
-                    // Control column
-                    ImGui::TableNextColumn();
-                    ImGui::PushItemWidth(-1);
-                    if (drawControl) drawControl();
-                    else ImGui::Dummy(buttonSize);
-                    ImGui::PopItemWidth();
-
-                    // UV Channel
-                    ImGui::TableNextColumn();
-                    ImGui::PushItemWidth(-1);
-                    int uv = static_cast<int>(uvIndex);
-                    std::string uvId = "##UV_" + std::string(label);
-                    // Hide step buttons with 0 step
-                    if (ImGui::InputInt(uvId.c_str(), &uv, 0, 0)) {
-                        if (uv < 0) uv = 0;
-                        if (uv > 3) uv = 3;
-                        material.SetTexture({ textureUUID, type, static_cast<u32>(uv) });
-                        material.MarkDirty();
-                    }
-                    ImGui::PopItemWidth();
-
-                    ImGui::EndDisabled();
-
-                    if (ImGui::BeginPopupContextItem("RowContext"))
-                    {
-                        if (type != MapType::Diffuse) {
-                            if (ImGui::MenuItem(enabled ? "Disable Map" : "Enable Map")) {
-                                material.EnableUseMap(type, !enabled);
-                                material.MarkDirty();
-                            }
-                        }
-                        if (ImGui::MenuItem("Clear Texture")) {
-                            material.SetTexture({ UUID::Invalid(), type, 0 });
-                            material.EnableUseTexture(type, false);
-                            material.MarkDirty();
-                        }
-                        ImGui::EndPopup();
-                    }
-
-                    ImGui::PopID();
-                };
-
-                DrawSurfaceInput(MapType::Diffuse, "Albedo", [&]() {
+            if (BeginMapTable("BaseMaps")) {
+                DrawSurfaceInput(MapType::Diffuse, "Albedo", "", [&]() {
                     Vec4 color = material.GetColor();
                     if (ImGui::ColorEdit4("##AlbedoColor", &color.x, ImGuiColorEditFlags_NoInputs)) {
                         material.SetColor(color);
@@ -281,46 +313,35 @@ namespace Luth
                     }
                 });
 
-                DrawSurfaceInput(MapType::Subsurface, "Subsurface", [&]() {
-                    // Mirrors the Emissive row: swatch = diffusion albedo A (texture-modulated when a
-                    // scatter mask is bound), drag = scatter mean-free-path in world units.
-                    Vec3 ssColor = material.GetSubsurfaceColor();
-                    f32  ssRad   = material.GetScatterRadius();
-                    bool changed = false;
-                    if (ImGui::ColorEdit3("##SubsurfaceColor", &ssColor.x, ImGuiColorEditFlags_NoInputs)) {
-                        material.SetSubsurfaceColor(ssColor); changed = true;
-                    }
-                    ImGui::SameLine();
-                    ImGui::SetNextItemWidth(-1);
-                    if (ImGui::DragFloat("##ScatterRadius", &ssRad, 0.01f, 0.0f, 10.0f, "%.2f")) {
-                        material.SetScatterRadius(ssRad); changed = true;
-                    }
-                    if (changed) material.MarkDirty();
-                });
-
-                DrawSurfaceInput(MapType::Normal, "Normal", nullptr);
-
-                DrawSurfaceInput(MapType::Metalness, "Metallic", [&]() {
-                    float met = material.GetMetalness();
-                    if (ImGui::SliderFloat("##Met", &met, 0.0f, 1.0f, "%.2f")) {
-                        material.SetMetalness(met);
-                        material.MarkDirty();
+                // Packed glTF metallic-roughness. While a map is bound+enabled the shader replaces the
+                // scalars (material.slang: roughness = G, metallic = B), so hide the sliders and show the
+                // channel mapping rather than two dead controls.
+                DrawSurfaceInput(MapType::Metalness, "Mask Map", "", [&]() {
+                    bool maskActive = material.GetTextureByType(MapType::Metalness) != nullptr
+                                   && material.IsUseMapEnabled(MapType::Metalness);
+                    if (maskActive) {
+                        ImGui::AlignTextToFramePadding();
+                        ImGui::TextDisabled("G:Rough  B:Metal");
+                        ImGui::SameLine();
+                        UI::HelpMarker("Packed metallic-roughness map. Green = roughness, blue = metallic; "
+                                       "these replace the sliders while the map is bound.");
+                    } else {
+                        float met  = material.GetMetalness();
+                        float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+                        ImGui::SetNextItemWidth(half);
+                        if (ImGui::SliderFloat("##Met", &met, 0.0f, 1.0f, "M %.2f")) { material.SetMetalness(met); material.MarkDirty(); }
+                        ImGui::SameLine();
+                        float ro = material.GetRoughness();
+                        ImGui::SetNextItemWidth(-1);
+                        if (ImGui::SliderFloat("##Rou", &ro, 0.0f, 1.0f, "R %.2f")) { material.SetRoughness(ro); material.MarkDirty(); }
                     }
                 });
 
-                DrawSurfaceInput(MapType::Roughness, "Roughness", [&]() {
-                    float ro = material.GetRoughness();
-                    if (ImGui::SliderFloat("##Rou", &ro, 0.0f, 1.0f, "%.2f")) {
-                        material.SetRoughness(ro);
-                        material.MarkDirty();
-                    }
-                });
-
-                DrawSurfaceInput(MapType::Height, "Height", nullptr);
-                DrawSurfaceInput(MapType::Occlusion, "Occlusion", nullptr);
-                DrawSurfaceInput(MapType::Emissive, "Emissive", [&]() {
-                    // Direct GPUData accessors (like Albedo); the u_* uniform channel never reached
-                    // the GPU. Swatch = LDR factor, drag = HDR strength multiplier (feeds bloom).
+                DrawSurfaceInput(MapType::Normal, "Normal", "", nullptr);
+                DrawSurfaceInput(MapType::Height, "Height", "", nullptr);
+                DrawSurfaceInput(MapType::Occlusion, "Occlusion", "", nullptr);
+                DrawSurfaceInput(MapType::Emissive, "Emissive", "", [&]() {
+                    // Swatch = LDR factor, drag = HDR strength multiplier (feeds bloom).
                     Vec3 emColor = material.GetEmissiveColor();
                     f32  emStr   = material.GetEmissiveStrength();
                     bool changed = false;
@@ -334,50 +355,21 @@ namespace Luth
                     }
                     if (changed) material.MarkDirty();
                 });
-
-                DrawSurfaceInput(MapType::Thickness, "Thickness", nullptr);
-                DrawSurfaceInput(MapType::Decal, "Decal", nullptr);
+                DrawSurfaceInput(MapType::Decal, "Decal", "", nullptr);
 
                 ImGui::EndTable();
             }
-            UI::EndCollapsingHeader();
-        }
 
-        ImGui::Dummy({ 0, 4 });
-
-        // Clear-coat / anisotropy / transmission / sheen shading-model factors (uber path; live data).
-        // Subsurface authoring moved to its Surface Inputs row (map x color x radius, like Emissive).
-        if (UI::BeginCollapsingHeader("Shading Model", true))
-        {
-            if (UI::BeginProperties("ShadingModelProps"))
+            // Always-on dielectric scalars (no map). Specular scales the IOR-derived F0; IOR drives that
+            // F0 for every surface plus refraction, so it lives in Base rather than under Transmission.
+            if (UI::BeginProperties("BaseScalars"))
             {
-                float cc = material.GetClearcoat();
-                if (UI::Property("Clear Coat", cc, 0.01f, 0.0f, 1.0f)) { material.SetClearcoat(cc); material.MarkDirty(); }
-                float ccr = material.GetClearcoatRoughness();
-                if (UI::Property("Coat Roughness", ccr, 0.01f, 0.0f, 1.0f)) { material.SetClearcoatRoughness(ccr); material.MarkDirty(); }
-                float an = material.GetAnisotropy();
-                if (UI::Property("Anisotropy", an, 0.01f, -1.0f, 1.0f)) { material.SetAnisotropy(an); material.MarkDirty(); }
-                float ar = material.GetAnisotropyRotation();
-                if (UI::Property("Aniso Rotation", ar, 0.005f, 0.0f, 1.0f)) { material.SetAnisotropyRotation(ar); material.MarkDirty(); }
-
-                // Glass: transmission implies RenderMode::Transparent/Fade for the raster viewport (TLAS masks
-                // key on RenderMode); the PathTrace reference refracts regardless of mode.
-                float tr = material.GetTransmission();
-                if (UI::Property("Transmission", tr, 0.01f, 0.0f, 1.0f)) { material.SetTransmission(tr); material.MarkDirty(); }
+                float spec = material.GetSpecular();
+                if (UI::Property("Specular", spec, 0.005f, 0.0f, 1.0f)) { material.SetSpecular(spec); material.MarkDirty(); }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Dielectric specular F0 weight. 1 = physical; scales the IOR-derived base reflectance. Metals ignore it.");
                 float ior = material.GetIor();
                 if (UI::Property("IOR", ior, 0.005f, 1.0f, 3.0f)) { material.SetIor(ior); material.MarkDirty(); }
-                float th = material.GetThickness();
-                if (UI::Property("Thickness", th, 0.01f, 0.0f, 100.0f)) { material.SetThickness(th); material.MarkDirty(); }
-                Vec4 ac(material.GetAttenuationColor(), 1.0f);
-                if (UI::PropertyColor("Absorption Color", ac)) { material.SetAttenuationColor(Vec3(ac)); material.MarkDirty(); }
-                float ad = material.GetAttenuationDistance();
-                if (UI::Property("Absorption Dist", ad, 0.05f, 0.0f, 1000.0f)) { material.SetAttenuationDistance(ad); material.MarkDirty(); }
-
-                // Sheen (cloth): a non-black color enables the lobe; roughness follows the coat convention.
-                Vec4 sc(material.GetSheenColor(), 1.0f);
-                if (UI::PropertyColor("Sheen Color", sc)) { material.SetSheenColor(Vec3(sc)); material.MarkDirty(); }
-                float shr = material.GetSheenRoughness();
-                if (UI::Property("Sheen Roughness", shr, 0.01f, 0.0f, 1.0f)) { material.SetSheenRoughness(shr); material.MarkDirty(); }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Index of refraction. Drives dielectric F0 for every surface and refraction for transmissive ones (1.5 = common dielectric).");
                 UI::EndProperties();
             }
             UI::EndCollapsingHeader();
@@ -385,79 +377,149 @@ namespace Luth
 
         ImGui::Dummy({ 0, 4 });
 
-        // Exposed graph parameters: named value nodes edited without opening the graph. Value edits land
-        // as per-material data (RefreshParams, no recompile); the TextureSample slot is structure and
-        // recompiles, mirroring the graph panel's split.
-        if (material.HasGraph())
+        // Optional shading-model lobes, each shown only when in use (see FeatureGroup). Bits index m_RevealMask.
+        constexpr u32 kFeatClearcoat    = 1u << 0;
+        constexpr u32 kFeatAnisotropy   = 1u << 1;
+        constexpr u32 kFeatTransmission = 1u << 2;
+        constexpr u32 kFeatSheen        = 1u << 3;
+        constexpr u32 kFeatSubsurface   = 1u << 4;
+
+        FeatureGroup("Clear Coat", kFeatClearcoat, material.GetClearcoat() != 0.0f,
+            [&]() { material.SetClearcoat(1.0f); },
+            [&]() { material.SetClearcoat(0.0f); material.SetClearcoatRoughness(0.0f); },
+            [&]() {
+                if (UI::BeginProperties("CoatProps")) {
+                    float cc = material.GetClearcoat();
+                    if (UI::Property("Weight", cc, 0.01f, 0.0f, 1.0f)) { material.SetClearcoat(cc); material.MarkDirty(); }
+                    float ccr = material.GetClearcoatRoughness();
+                    if (UI::Property("Roughness", ccr, 0.01f, 0.0f, 1.0f)) { material.SetClearcoatRoughness(ccr); material.MarkDirty(); }
+                    UI::EndProperties();
+                }
+            });
+
+        FeatureGroup("Anisotropy", kFeatAnisotropy, material.GetAnisotropy() != 0.0f,
+            [&]() { material.SetAnisotropy(0.5f); },
+            [&]() { material.SetAnisotropy(0.0f); material.SetAnisotropyRotation(0.0f); },
+            [&]() {
+                if (UI::BeginProperties("AnisoProps")) {
+                    float an = material.GetAnisotropy();
+                    if (UI::Property("Strength", an, 0.01f, -1.0f, 1.0f)) { material.SetAnisotropy(an); material.MarkDirty(); }
+                    float ar = material.GetAnisotropyRotation();
+                    if (UI::Property("Rotation", ar, 0.005f, 0.0f, 1.0f)) { material.SetAnisotropyRotation(ar); material.MarkDirty(); }
+                    UI::EndProperties();
+                }
+            });
+
+        FeatureGroup("Transmission", kFeatTransmission, material.GetTransmission() != 0.0f,
+            [&]() { material.SetTransmission(1.0f); },
+            [&]() { material.SetTransmission(0.0f); },
+            [&]() {
+                // Raster refraction needs a transparent render mode (TLAS masks key on it); PathTrace refracts regardless.
+                if (material.GetRenderMode() == Material::RenderMode::Opaque ||
+                    material.GetRenderMode() == Material::RenderMode::Cutout) {
+                    ImGui::TextDisabled("Set Render Mode to Transparent/Fade");
+                    ImGui::SameLine();
+                    UI::HelpMarker("Raster refraction requires a transparent render mode. The path-traced reference refracts regardless.");
+                }
+                if (UI::BeginProperties("TransProps")) {
+                    float tr = material.GetTransmission();
+                    if (UI::Property("Transmission", tr, 0.01f, 0.0f, 1.0f)) { material.SetTransmission(tr); material.MarkDirty(); }
+                    float th = material.GetThickness();
+                    if (UI::Property("Glass Thickness", th, 0.01f, 0.0f, 100.0f)) { material.SetThickness(th); material.MarkDirty(); }
+                    Vec4 ac(material.GetAttenuationColor(), 1.0f);
+                    if (UI::PropertyColor("Attenuation Color", ac)) { material.SetAttenuationColor(Vec3(ac)); material.MarkDirty(); }
+                    float ad = material.GetAttenuationDistance();
+                    if (UI::Property("Attenuation Dist", ad, 0.05f, 0.0f, 1000.0f)) { material.SetAttenuationDistance(ad); material.MarkDirty(); }
+                    UI::EndProperties();
+                }
+                if (BeginMapTable("TransMaps")) {
+                    DrawSurfaceInput(MapType::Thickness, "Thickness", "glass", nullptr);
+                    ImGui::EndTable();
+                }
+            });
+
+        Vec3 shc = material.GetSheenColor();
+        FeatureGroup("Sheen", kFeatSheen, (shc.x > 0.0f || shc.y > 0.0f || shc.z > 0.0f),
+            [&]() { material.SetSheenColor(Vec3(0.5f)); },
+            [&]() { material.SetSheenColor(Vec3(0.0f)); },
+            [&]() {
+                if (UI::BeginProperties("SheenProps")) {
+                    Vec4 sc(material.GetSheenColor(), 1.0f);
+                    if (UI::PropertyColor("Color", sc)) { material.SetSheenColor(Vec3(sc)); material.MarkDirty(); }
+                    float shr = material.GetSheenRoughness();
+                    if (UI::Property("Roughness", shr, 0.01f, 0.0f, 1.0f)) { material.SetSheenRoughness(shr); material.MarkDirty(); }
+                    UI::EndProperties();
+                }
+            });
+
+        Vec3 ssc = material.GetSubsurfaceColor();
+        FeatureGroup("Subsurface", kFeatSubsurface, (ssc.x > 0.0f || ssc.y > 0.0f || ssc.z > 0.0f),
+            [&]() { material.SetSubsurfaceColor(Vec3(0.8f)); if (material.GetSubsurfaceRadius() == 0.0f) material.SetSubsurfaceRadius(0.5f); },
+            [&]() { material.SetSubsurfaceColor(Vec3(0.0f)); },
+            [&]() {
+                if (material.GetTransmission() > 0.0f) {
+                    ImGui::TextDisabled("Suppressed while Transmission > 0");
+                    ImGui::SameLine();
+                    UI::HelpMarker("Subsurface and transmission are mutually exclusive; the shader fades subsurface out as transmission rises.");
+                }
+                if (BeginMapTable("SubsurfaceMaps")) {
+                    DrawSurfaceInput(MapType::Subsurface, "Scatter Mask", "", [&]() {
+                        // Swatch = diffusion albedo (texture-modulated when a scatter mask is bound).
+                        Vec3 c = material.GetSubsurfaceColor();
+                        if (ImGui::ColorEdit3("##SubsurfaceColor", &c.x, ImGuiColorEditFlags_NoInputs)) {
+                            material.SetSubsurfaceColor(c); material.MarkDirty();
+                        }
+                    });
+                    DrawSurfaceInput(MapType::Thickness, "Thickness", "sss", nullptr);
+                    ImGui::EndTable();
+                }
+                if (UI::BeginProperties("SubsurfaceProps")) {
+                    f32 ssRad = material.GetSubsurfaceRadius();
+                    if (UI::Property("Radius", ssRad, 0.01f, 0.0f, 10.0f)) { material.SetSubsurfaceRadius(ssRad); material.MarkDirty(); }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Scatter mean-free-path in world units. 0 collapses the effect.");
+                    f32 ssThick = material.GetSubsurfaceThickness();
+                    if (UI::Property("Thickness", ssThick, 0.01f, 0.0f, 1.0f)) { material.SetSubsurfaceThickness(ssThick); material.MarkDirty(); }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Thin-shell back-scatter depth [0,1]; thinner reads as more translucent glow.");
+                    UI::EndProperties();
+                }
+            });
+
+        ImGui::Dummy({ 0, 4 });
+
+        // Declared graph properties (Blackboard): the material's exposed inputs, edited without opening the
+        // graph. Property authoring (add / remove / type) lives in the graph panel; the inspector edits the
+        // values, which land as per-material data (RefreshParams, no recompile).
+        if (material.HasGraph() && !material.GetGraph().properties.empty())
         {
-            std::vector<MatNode*> params;   // per-frame walk; pointers must not outlive this Draw
-            for (MatNode& n : material.GetGraphMutable().nodes)
-                if (IsExposableNode(n.type) && !n.name.empty()) params.push_back(&n);
+            std::vector<MaterialProperty*> params;   // per-frame walk; pointers must not outlive this Draw
+            for (MaterialProperty& p : material.GetGraphMutable().properties) params.push_back(&p);
             std::stable_sort(params.begin(), params.end(),
-                [](const MatNode* a, const MatNode* b) { return a->group < b->group; });
+                [](const MaterialProperty* a, const MaterialProperty* b) { return a->group < b->group; });
 
-            if (!params.empty() && UI::BeginCollapsingHeader("Parameters", true))
+            if (UI::BeginCollapsingHeader("Parameters", true))
             {
-                bool valueEdit = false, structureEdit = false;
+                bool valueEdit = false;
 
-                auto drawParam = [&](MatNode& n)
+                auto drawParam = [&](MaterialProperty& p)
                 {
-                    ImGui::PushID((int)n.id);
-                    const char* label = n.name.c_str();
-                    switch (n.type)
+                    ImGui::PushID((int)p.id);
+                    const char* label = p.name.empty() ? "(unnamed)" : p.name.c_str();
+                    switch (p.type)
                     {
-                        case MatNodeType::ConstFloat:
-                            if (n.ui == 1)
+                        case MatPropType::Float:
+                            if (p.uiKind == 1)
                             {
-                                bool b = n.value.x != 0.0f;
-                                if (UI::Property(label, b)) { n.value.x = b ? 1.0f : 0.0f; valueEdit = true; }
+                                bool b = p.value.x != 0.0f;
+                                if (UI::Property(label, b)) { p.value.x = b ? 1.0f : 0.0f; valueEdit = true; }
                             }
-                            else if (UI::Property(label, n.value.x, 0.01f))
+                            else if (UI::Property(label, p.value.x, 0.01f))
                                 valueEdit = true;
                             break;
-                        case MatNodeType::ConstColor:
-                            if (UI::PropertyColor(label, n.value)) valueEdit = true;
+                        case MatPropType::Color:
+                            if (UI::PropertyColor(label, p.value)) valueEdit = true;
                             break;
-                        case MatNodeType::Remap:
-                            if (UI::Property(label, n.value, 0.01f)) valueEdit = true;
-                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("(in min, in max, out min, out max)");
-                            break;
-                        case MatNodeType::TextureSample:
-                        {
-                            static const char* kMap[] = { "Diffuse","Alpha","Normal","Metallic","Roughness","Specular","Occlusion","Emissive","Thickness" };
-                            int t = (n.tex < 9) ? (int)n.tex : 0;
-                            if (UI::PropertyCombo(label, t, kMap, 9)) { n.tex = (u32)t; structureEdit = true; }
-                            break;
-                        }
-                        case MatNodeType::StaticSwitch:
-                        {
-                            bool on = n.value.x != 0.0f;
-                            // Compile-time switch: the state selects the emitted branch, so toggling recompiles.
-                            if (UI::Property(label, on)) { n.value.x = on ? 1.0f : 0.0f; structureEdit = true; }
-                            break;
-                        }
-                        case MatNodeType::Noise:
-                            if (UI::Property(label, n.value, 0.05f)) valueEdit = true;
-                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("(scale, octaves, -, -)");
-                            break;
-                        case MatNodeType::Fresnel:
-                            if (UI::Property(label, n.value.x, 0.05f)) valueEdit = true;
-                            break;
-                        case MatNodeType::Triplanar:
-                            if (UI::Property(label, n.value.x, 0.05f)) valueEdit = true;
-                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("triplanar tiling");
-                            break;
-                        case MatNodeType::DetailNormal:
-                            if (UI::Property(label, n.value.x, 0.02f)) valueEdit = true;
-                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("detail-normal strength");
-                            break;
-                        case MatNodeType::Parallax:
-                            if (UI::Property(label, n.value.x, 0.002f)) valueEdit = true;
-                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("parallax height scale");
-                            break;
-                        case MatNodeType::Decal:
-                            if (UI::Property(label, n.value, 0.005f)) valueEdit = true;
-                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("(offset x, offset y, scale, rotation rad)");
+                        case MatPropType::Texture:
+                            if (UI::PropertyAsset(label, p.texture, AssetType::Texture).committed) valueEdit = true;
                             break;
                         default: break;
                     }
@@ -489,16 +551,25 @@ namespace Luth
                     i = end;
                 }
 
-                if (structureEdit)  { MaterialGraphCodegen::GenerateAndCompile(material); material.MarkDirty(); }
-                else if (valueEdit) { MaterialGraphCodegen::RefreshParams(material);      material.MarkDirty(); }
+                if (valueEdit) { MaterialGraphCodegen::RefreshParams(material); material.MarkDirty(); }
                 UI::EndCollapsingHeader();
                 ImGui::Dummy({ 0, 4 });
             }
         }
 
+        // Advanced: raw material-set uniforms for custom shaders. Stock PBR reads the bindless SSBO and
+        // declares no Set-1 block, so the pre-scan finds nothing and the section stays hidden; metalness/
+        // roughness are surfaced first-class in Base, so they are skipped here.
         if (auto shader = material.GetShader())
         {
-            if (UI::BeginCollapsingHeader("Properties", true))
+            u32 advancedCount = 0;
+            for (const auto& [buffName, buffer] : shader->GetBuffers()) {
+                if (buffer.Set != 1) continue;
+                for (const auto& [name, uniform] : buffer.Uniforms)
+                    if (name != "u_Metalness" && name != "u_Roughness") ++advancedCount;
+            }
+
+            if (advancedCount > 0 && UI::BeginCollapsingHeader("Advanced"))
             {
                 if (UI::BeginProperties()) {
                     for (const auto& [buffName, buffer] : shader->GetBuffers())
@@ -507,7 +578,6 @@ namespace Luth
 
                         for (const auto& [name, uniform] : buffer.Uniforms)
                         {
-                            // Skip uniforms already displayed in Surface Inputs
                             if (name == "u_Metalness" || name == "u_Roughness")
                                 continue;
 

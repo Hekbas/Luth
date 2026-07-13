@@ -107,7 +107,7 @@ bool SampleBSDF(float3 V, HitSurface s, SurfaceBRDF surf, inout uint seed, out f
 {
     transmitted = false;
     bool   anisoActive = abs(surf.anisotropy) > 1.0e-3;
-    float3 F0    = lerp(float3(0.04), s.baseColor, s.metalness);
+    float3 F0    = lerp(float3(surf.dielectricF0), s.baseColor, s.metalness);
     float  wDiff = Luminance((1.0 - s.metalness) * s.baseColor);
     float  wSpec = Luminance(F0);
     float  NoV   = max(dot(s.ns, V), 1.0e-4);
@@ -313,10 +313,10 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
         float3 V = -rd;
         // Shared BRDF surface (base + clear-coat + anisotropy) from the hit; bitangent from tangent x tSign.
         SurfaceBRDF surf = MakeSurfaceBRDF(s.ns, s.T, cross(s.ns, s.T) * s.tSign, s.hasTangent,
-                                           s.baseColor, s.metalness, s.roughness,
+                                           s.baseColor, s.metalness, s.roughness, s.specular,
                                            s.clearcoat, s.clearcoatRoughness, s.anisotropy, s.anisotropyRotation,
                                            s.transmission, s.ior, s.frontFace, s.sheenColor, s.sheenRoughness,
-                                           s.subsurfaceColor, s.scatterRadius, s.thickness);
+                                           s.subsurfaceColor, s.subsurfaceRadius, s.subsurfaceThickness);
         float3 contrib = throughput * (s.emission + DirectLighting(x, V, s, surf, seed));
         // Firefly clamp INDIRECT contributions only (primary direct/emission stays unbiased).
         if (bounce > 0u)
@@ -341,7 +341,7 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
             {
                 // Subsurface entry seeds the scattering medium (Chiang albedo -> sigma); the back-face exit
                 // clears it. sigmaS > 0 is what routes the medium block above into the scatter walk.
-                SssSigma sg = SssAlbedoToSigma(surf.subsurfaceColor, surf.scatterRadius);
+                SssSigma sg = SssAlbedoToSigma(surf.subsurfaceColor, surf.subsurfaceRadius);
                 sigmaS = inMedium ? sg.sigmaS : float3(0.0);
                 sigmaA = inMedium ? sg.sigmaA : float3(0.0);
             }

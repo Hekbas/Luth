@@ -13,6 +13,7 @@ public struct PreviewMaterialUBO
 {
     public GPUMaterialData m;
     public float4          params[MAT_GRAPH_STRIDE];
+    public uint4           texParams[MAT_TEX_STRIDE / 4];   // declared-texture bindless indices, 4 per uint4 (std140-packed)
 }
 [[vk::binding(0, 0)]] public ConstantBuffer<PreviewMaterialUBO> gPreview;
 
@@ -31,6 +32,7 @@ public struct PreviewFetch : ITexFetch
     public float4 Sample(uint index, float2 uv) { return gTextures[NonUniformResourceIndex(index)].Sample(uv); }
     public float4 SampleLod(uint index, float2 uv, float lod) { return gTextures[NonUniformResourceIndex(index)].SampleLevel(uv, lod); }
     public float4 Param(uint slot) { return gPreview.params[slot]; }
+    public uint TexIndex(uint slot) { return gPreview.texParams[slot >> 2][slot & 3]; }   // base 0 (single previewed material)
     public float3 WorldPos() { return worldPos; }
     public float3 ViewDir()  { return viewDir; }
     public float  Time()     { return time; }

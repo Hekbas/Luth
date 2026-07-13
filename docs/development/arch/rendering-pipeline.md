@@ -71,7 +71,7 @@
 
 > **Material node graph + bounded surface (`slang-material` #157, v3.2.5–v3.2.8 + v3.7.3).** The material system is a
 > **bounded surface** (Filament model): `common/material.slang` fixes the `MaterialInputs` contract (baseColor / normal /
-> metallic / roughness / occlusion / emissive) and one generic decode `EvalMaterialChannels<F : ITexFetch>`; the fetch
+> metallic / roughness / specular / occlusion / emissive) and one generic decode `EvalMaterialChannels<F : ITexFetch>`; the fetch
 > policy is the **two-tier eval** — `RasterFetch` (auto-mip `Sample`) vs `RayFetch` (`SampleLevel 0`) vs the editor-only
 > `PreviewFetch` (UBO). Authoring is a channel-routing node graph (`MaterialGraph` — `MatNode`/`MatLink` PODs on
 > `Material`, persisted in the `.mat` `"graph"` key) whose **derivative-free vocabulary** makes the same generated body
@@ -118,6 +118,35 @@
 > apart at authoring via the editor's `AddLink` type guard (the vendored `AllowedLink` lacks slot indices).
 > invariant: Output slot-6 + the effects import are emitted append-only, so a pre-slot-6 graph's canonical
 > source is byte-identical and its structure hash / RT variant never churn.
+>
+> **Surface terminology (`material-authoring-redesign`).** Canonical names, defined by what the BRDF actually computes:
+> - **Dielectric F0 / `specular`** — non-metal normal-incidence reflectance `((ior-1)/(ior+1))^2` scaled by the
+>   `specular` weight [0,1] (glTF `KHR_materials_specular` / Filament `reflectance`), computed once in `MakeSurfaceBRDF`
+>   as `SurfaceBRDF.dielectricF0`. `ior=1.5, specular=1` reproduces the historical 0.04 bit-for-bit; the clear-coat keeps
+>   its own fixed 0.04 (IOR-1.5 lacquer), never the base `ior`.
+> - **Transmission vs translucency vs subsurface** are three distinct concepts: *transmission* = refraction through solid
+>   glass (weight + `ior`, Walter BTDF, `attenuationColor`/`attenuationDistance` Beer-Lambert over `thickness`);
+>   *translucency* = the SSS thin-shell back-scatter glow (no separate field — driven by the subsurface channels);
+>   *subsurface scattering* = volumetric diffusion (`subsurfaceColor` albedo A + `subsurfaceRadius` mean-free-path; PT
+>   random-walk oracle). SSS folds off when transmission > 0, so a material is glass *or* SSS, never both.
+> - **`thickness` is split** — `thickness` = glass volume (world units, glTF thicknessFactor); `subsurfaceThickness` = SSS
+>   thin-shell depth [0,1]. One thickness map scales both. `GPUMaterialData` 160→176 B (`surfaceExt` vec4 = specular +
+>   subsurfaceThickness). `scatterRadius` renamed to `subsurfaceRadius`.
+
+> **Graph-declared inputs (`material-authoring-redesign`, v3.13.0).** The node graph gains a first-class
+> **property list** (`MaterialGraph::properties`) — a Unity-Blackboard front-end over the existing
+> params-as-data path. A `PropertyRef` node references a value property and lowers to the same `fetch.Param(k)`
+> slot (the canonical source is independent of *which* property, so swapping is a value edit, not a recompile).
+> Declared **texture** inputs lift the fixed-8-map ceiling: a per-material `gMatTexParams` SSBO — a second
+> instance of the `gMatParams` primitive (Set 2 b2 / Set 3 b2, tagged-heap Onion region, reclaimed by
+> `FreeTag(N-2)`, no fixed pool) — holds bindless indices resolved per frame from each property's UUID (the
+> fixed-map lifecycle), reached through a new `ITexFetch::TexIndex(slot)` accessor so codegen emits
+> `fetch.Sample(fetch.TexIndex(k), uv)`. invariant: the generated body touches per-material data only through
+> `fetch.*` (never a bare SSBO), so raster==RT==PT holds by construction — every tier samples the same bindless
+> `gTextures[]`. `MatNode::tex` high bit flags a declared-texture ref vs a fixed `MapType`. `.mat` gains a
+> top-level `properties` array (decoupled from the graph so declared-but-unwired properties persist); the
+> inspector Parameters section iterates properties. The deferred `subsurfaceThickness` Output/MakeLayer pin
+> (slot 20/19) also landed here — append-only, hash-stable.
 
 > **Clear-coat + anisotropy (`shading-models`, v3.12.0).** `MaterialInputs` + `brdf.slang` gain a clear-coat
 > second lobe (fixed IOR 1.5 -> F0 = 0.04, own roughness) and anisotropic GGX (Filament `alpha_t/alpha_b` from a
@@ -393,7 +422,7 @@ VRAM and multiply by active view count (Scene + Game panels).
 
 | Buffer | Size |
 |--------|------|
-| Material SSBO | 16384 × 80B = 1.25 MB |
+| Material SSBO | 16384 × 176B = 2.75 MB |
 | Light SSBO + Cluster grid + Light index (Set 3) | per-view, dynamic from `GPUTaggedPageAllocator` (replaced the 64-light UBO in `forward-plus`) |
 | Global UBO | view/proj + prevViewProj + IBL/GTAO/RT/restir params ≈ <1 KB |
 | CSM shadow array | 2048² × D32 × 4 cascades = 64 MB (raster path; RT sun-shadow R8 mask is default) |

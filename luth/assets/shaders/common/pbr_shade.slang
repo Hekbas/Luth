@@ -147,10 +147,10 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
     float2 screenUv = fragCoord.xy / ubo.viewportSize;
 
     // Shared BRDF surface (base + clear-coat + anisotropy); T/B from the interpolated tangent frame.
-    SurfaceBRDF surf = MakeSurfaceBRDF(N, i.T, i.B, true, albedo.rgb, metallic, roughness,
+    SurfaceBRDF surf = MakeSurfaceBRDF(N, i.T, i.B, true, albedo.rgb, metallic, roughness, mi.specular,
                                        mi.clearcoat, ccRough, mi.anisotropy, mi.anisotropyRotation,
                                        mi.transmission, mi.ior, true, mi.sheenColor, mi.sheenRoughness,
-                                       mi.subsurfaceColor, mi.scatterRadius, mi.thickness);
+                                       mi.subsurfaceColor, mi.subsurfaceRadius, mi.subsurfaceThickness);
 
     // Directional light + shadow (cascade PCF or RT mask).
     ShadowResult sr = ComputeShadow(i.worldPos, N, screenUv);
@@ -179,7 +179,7 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
     // out so the denoiser never sees the roughness/view response) and the per-pixel F0.
     if (ubo.restirParams.z > 0.0)
     {
-        float3 F0  = lerp(float3(0.04), albedo.rgb, metallic);
+        float3 F0  = lerp(float3(surf.dielectricF0), albedo.rgb, metallic);
         float  NoV = max(dot(N, V), 1.0e-4);
         Lo += diSpecular.Sample(screenUv).rgb * (DiSpecRho(NoV, roughness) * ubo.restirParams.z) * F0;
     }

@@ -56,6 +56,7 @@ public float4 EvalTransparentSurfaceColor(uint materialIndex, uint shadeMode, fl
     GPUMaterialData m = GetMaterial(materialIndex);
     RasterFetch rf;
     rf.paramBase = materialIndex * MAT_GRAPH_STRIDE;
+    rf.texBase   = materialIndex * MAT_TEX_STRIDE;
     rf.worldPos  = worldPos;
     rf.viewDir   = normalize(ubo.cameraPos - worldPos);
     rf.time      = ubo.time;
@@ -87,10 +88,10 @@ public float4 EvalTransparentSurfaceColor(uint materialIndex, uint shadeMode, fl
     float3 Lo = float3(0.0);
 
     // Shared BRDF surface (base + clear-coat + anisotropy); transparent skips the opaque spec-AA pass.
-    SurfaceBRDF surf = MakeSurfaceBRDF(nrm, T, B, true, mi.baseColor.rgb, mi.metallic, mi.roughness,
+    SurfaceBRDF surf = MakeSurfaceBRDF(nrm, T, B, true, mi.baseColor.rgb, mi.metallic, mi.roughness, mi.specular,
                                        mi.clearcoat, mi.clearcoatRoughness, mi.anisotropy, mi.anisotropyRotation,
                                        mi.transmission, mi.ior, frontFacing, mi.sheenColor, mi.sheenRoughness,
-                                       mi.subsurfaceColor, mi.scatterRadius, mi.thickness);
+                                       mi.subsurfaceColor, mi.subsurfaceRadius, mi.subsurfaceThickness);
 
     float sunVis = (ubo.rtShadowParams.x > 0.5) ? TraceSunShadow(worldPos, nrm)
                                                 : ComputeShadowCSM(worldPos, nrm).shadow;

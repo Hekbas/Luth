@@ -139,6 +139,24 @@ Named editor layouts. Each workspace pairs an ImGui dock-state file (`<name>.ini
 - **Resource mode:** Material editor, Model viewer, Texture editor (wrap/filter/mipmap settings)
 - Template `DrawComponent<T>()` pattern for each component type
 
+### Material Inspector (MaterialEditor)
+
+`luthien/inspectors/MaterialEditor.cpp` draws the resource-mode inspector for `Material` assets. It runs on the **single primary** material (outside `MultiEditScope`), so every control is a plain setter + `MarkDirty()`; a debounced tail snapshots JSON and pushes one `MaterialSnapshotCommand` per edit burst (undo), then autosaves. A pinned 3D preview footer orbits the live material.
+
+**Section taxonomy (top to bottom):**
+
+| Section | Contents |
+|---|---|
+| Surface Settings | render mode, cutoff (Cutout), blend factors (Transparent/Fade), face cull |
+| Base | Albedo, Mask Map, Normal, Height, Occlusion, Emissive, Decal (map rows) + Specular, IOR (scalars) |
+| Clear Coat / Anisotropy / Transmission / Sheen / Subsurface | feature-gated groups (below) |
+| Parameters | graph-exposed named nodes (graph materials only) |
+| Advanced | raw material-set shader uniforms; hidden unless a custom shader declares any |
+
+**Feature gating: the weight is the single source of truth.** Optional lobes live in checkbox-in-header groups (`UI::BeginCollapsingHeader(label, bool* enabled, ...)`). A feature is *active* when its representative weight is nonzero **or** force-revealed this session (`m_RevealMask`, a per-material transient bit set reset on material switch). Checking the header seeds a visible default (so the lobe both appears and renders); unchecking zeroes it. Nothing persists an enable flag: the shader's contract is "nonzero weight = lobe on, zero = fast path" (`brdf.slang`), so a persisted bit would be a second source of truth the GPU can't see. The transient reveal only lets the user author up from zero without the group collapsing mid-edit.
+
+**Mask Map (packed metallic-roughness).** One texture slot bound to `MapType::Metalness` feeds `GPUMaterialData::metalRoughIndex` (glTF packs both channels). While that map is bound and enabled the shader **replaces** the scalars (`material.slang`: roughness = G, metallic = B), so the inspector hides the Metallic/Roughness sliders and shows the channel mapping instead of two dead controls. There is no separate roughness texture slot: `MapType::Roughness` feeds no GPU index. A legacy `.mat` that stored a roughness texture round-trips harmlessly (it was already unsampled) and is not auto-migrated onto the packed slot, since a standalone roughness map is not glTF-packed.
+
 ### ProjectPanel — Asset Browser
 - **Left:** Directory tree (recursive folders)
 - **Right:** File grid with type-based icons and thumbnails

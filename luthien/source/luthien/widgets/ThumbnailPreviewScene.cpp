@@ -115,6 +115,7 @@ namespace Luth::UI::ThumbnailPreviewScene
         {
             GPUMaterialData m;
             Vec4 params[MAT_GRAPH_STRIDE];
+            u32  texParams[MAT_TEX_STRIDE];   // matches uint4 texParams[MAT_TEX_STRIDE/4] (16 contiguous uints, std140)
         };
 
         // One host-visible UBO + its static descriptor set (set 0). Per inspector ring slot (synced by the
@@ -318,6 +319,8 @@ namespace Luth::UI::ThumbnailPreviewScene
             data.m = mat->GetGPUData();
             const auto& gp = mat->GetGraphParams();
             for (size_t k = 0; k < gp.size() && k < MAT_GRAPH_STRIDE; ++k) data.params[k] = gp[k];
+            const auto& gt = mat->GetGraphTexParams();
+            for (size_t k = 0; k < gt.size() && k < MAT_TEX_STRIDE; ++k) data.texParams[k] = gt[k];
             std::memcpy(ubo.mapped, &data, sizeof(data));
         }
 

@@ -4,7 +4,7 @@
 // Resource-agnostic: bindings (raster set 1/2 vs RT set 4/3) + the ITexFetch impls live in
 // material_bindings_{raster,rt}.slang so one decode serves both set layouts. see arch/rendering-pipeline.md
 
-// 160 B std430, field-identical to C++ Material.h GPUMaterialData (MaterialLayoutGuard cross-checks).
+// 176 B std430, field-identical to C++ Material.h GPUMaterialData (MaterialLayoutGuard cross-checks).
 public struct GPUMaterialData
 {
     public float4 color;
@@ -19,7 +19,8 @@ public struct GPUMaterialData
     public float  ior, transmission, thickness;     // dielectric IOR (>=1); transmission [0,1]; glTF thicknessFactor (raster Beer-Lambert proxy)
     public float4 attenuation;                       // rgb = attenuationColor (linear), a = attenuationDistance (0 = off)
     public float4 sheen;                             // rgb = sheenColor (linear, 0 = no sheen), a = sheenRoughness (perceptual)
-    public float4 subsurface;                        // rgb = subsurfaceColor (linear diffusion albedo A, 0 = no SSS), a = scatterRadius (mfp, world units)
+    public float4 subsurface;                        // rgb = subsurfaceColor (linear diffusion albedo A, 0 = no SSS), a = subsurfaceRadius (mfp, world units)
+    public float4 surfaceExt;                        // x = specular (dielectric F0 weight [0,1]); y = subsurfaceThickness (SSS thin-shell depth [0,1]); zw reserved
 }
 
 public static const uint FLAG_HAS_NORMAL     = (1u << 0);
@@ -48,6 +49,11 @@ public uint GraphVariant(uint flags) { return (flags >> GRAPH_VARIANT_SHIFT) & 0
 // the fetch policy's paramBase = materialIndex * MAT_GRAPH_STRIDE indexes gMatParams, so drift cross-corrupts.
 public static const uint MAT_GRAPH_STRIDE = 16u;
 
+// Per-material declared-texture stride (uint bindless indices/material). invariant: matches C++ MAT_TEX_STRIDE;
+// texBase = materialIndex * MAT_TEX_STRIDE indexes gMatTexParams. Lifts the fixed-8-map ceiling: a declared
+// TextureSample samples gTextures[gMatTexParams[texBase + slot]] via fetch.TexIndex.
+public static const uint MAT_TEX_STRIDE = 16u;
+
 // Bounded surface (Filament model, no escape hatch); derivative/screen-space ops excluded by construction.
 public struct MaterialInputs
 {
@@ -55,17 +61,19 @@ public struct MaterialInputs
     public float3 normal;      // tangent-space normal, [-1,1], identity (0,0,1); caller applies the TBN + facing
     public float  metallic;
     public float  roughness;   // clamped [0.04, 1]; zero roughness -> NaN in GGX
+    public float  specular;    // dielectric F0 weight [0,1] (scales the IOR-derived base reflectance; metals unaffected)
     public float  occlusion;   // baked AO map term (screen-space AO is the caller's business)
     public float3 emissive;
     public float  clearcoat, clearcoatRoughness;   // coat weight [0,1]; coat roughness clamped [0.04,1]
     public float  anisotropy, anisotropyRotation;  // [-1,1] mesh-tangent aligned; rotation turns [0,1]
-    public float  transmission, ior, thickness;    // dielectric transmission [0,1]; IOR [1,4]; thickness (raster path-length)
+    public float  transmission, ior, thickness;    // dielectric transmission [0,1]; IOR [1,4]; glass thickness (world units, raster path-length)
     public float3 attenuationColor;                // Beer-Lambert interior tint (linear)
     public float  attenuationDistance;             // distance at which transmittance == attenuationColor (0 = off)
     public float3 sheenColor;                      // production-sheen reflectance (linear, 0 = no sheen)
     public float  sheenRoughness;                  // sheen lobe roughness (perceptual; eval clamps [0.04,1])
     public float3 subsurfaceColor;                 // SSS diffusion surface albedo A (linear, per-RGB; 0 = no SSS -> fast path)
-    public float  scatterRadius;                   // SSS mean-free-path (world units; the diffusion-profile width)
+    public float  subsurfaceRadius;                // SSS mean-free-path (world units; the diffusion-profile width)
+    public float  subsurfaceThickness;             // SSS thin-shell back-scatter depth [0,1] (thin -> more translucent glow)
 }
 
 // The two-tier seam: raster auto-mips (derivatives), RT samples LOD 0 (no derivatives at a ray hit).
@@ -75,6 +83,9 @@ public interface ITexFetch
     // Per-material graph constant, paramBase-relative slot. Stock decode never calls it; generated
     // EvalGraph bodies read their canonical const slots through it (gMatParams, bound per tier).
     float4 Param(uint slot);
+    // Per-material declared-texture bindless index, texBase-relative slot. Generated EvalGraph bodies feed it
+    // to Sample for graph-declared textures (beyond the fixed 8 map fields); stock decode never calls it.
+    uint TexIndex(uint slot);
     // Per-tier surface context for graph input nodes (WorldPos/ViewDir/Time/Fresnel). Stock decode never
     // calls these; decode sites that can host graphs fill them (__init zeroes cover every stock site).
     float3 WorldPos();
@@ -116,6 +127,7 @@ public MaterialInputs EvalMaterialChannels<F : ITexFetch>(GPUMaterialData m, flo
         mi.metallic  = mr.b;
     }
     mi.roughness = clamp(mi.roughness, 0.04, 1.0);
+    mi.specular  = clamp(m.surfaceExt.x, 0.0, 1.0);   // dielectric F0 weight; the F0 lerp targets albedo at metallic=1, so metals ignore it
 
     mi.occlusion = 1.0;
     if ((m.flags & FLAG_HAS_OCCLUSION) != 0u)
@@ -132,9 +144,14 @@ public MaterialInputs EvalMaterialChannels<F : ITexFetch>(GPUMaterialData m, flo
     // attenuationDistance <= 0 disables interior absorption. Filled identically on both tiers. see arch/rendering-pipeline.md
     mi.transmission        = clamp(m.transmission, 0.0, 1.0);
     mi.ior                 = clamp(m.ior, 1.0, 4.0);
-    mi.thickness           = max(m.thickness, 0.0);
+    mi.thickness           = max(m.thickness, 0.0);        // glass volume (world units); raster Beer-Lambert path length
+    mi.subsurfaceThickness = max(m.surfaceExt.y, 0.0);     // SSS thin-shell depth; separate quantity, but shares the thickness map below
     if ((m.flags & FLAG_HAS_THICKNESS) != 0u)
-        mi.thickness *= fetch.Sample(m.thicknessIndex, uv0).r;   // UV0, like emissive (no UV-set bit)
+    {
+        float tMap = fetch.Sample(m.thicknessIndex, uv0).r;   // UV0, like emissive (no UV-set bit); one map scales both thicknesses
+        mi.thickness           *= tMap;
+        mi.subsurfaceThickness *= tMap;
+    }
     mi.attenuationColor    = clamp(m.attenuation.rgb, 0.0, 1.0);
     mi.attenuationDistance = m.attenuation.a;
 
@@ -150,7 +167,7 @@ public MaterialInputs EvalMaterialChannels<F : ITexFetch>(GPUMaterialData m, flo
     if ((m.flags & FLAG_HAS_SUBSURFACE) != 0u)
         mi.subsurfaceColor *= fetch.Sample(m.subsurfaceIndex, uv0).rgb;
     mi.subsurfaceColor = mi.subsurfaceColor * (1.0 - mi.metallic) * (1.0 - mi.transmission);
-    mi.scatterRadius   = max(m.subsurface.a, 0.0);
+    mi.subsurfaceRadius = max(m.subsurface.a, 0.0);
 
     mi.normal = float3(0.0, 0.0, 1.0);
     return mi;
@@ -231,17 +248,19 @@ public struct HitSurface
     public float3 baseColor;
     public float3 emission;
     public float  metalness, roughness, ao;
+    public float  specular;   // dielectric F0 weight [0,1] (base reflectance; the F0 lerp targets albedo at metallic=1)
     public float3 T;          // world tangent, Gram-Schmidt vs pre-perturb ns (valid iff hasTangent)
     public float  tSign;      // bitangent handedness
     public bool   hasTangent;
     public float  clearcoat, clearcoatRoughness, anisotropy, anisotropyRotation;
-    public float  transmission, ior, thickness;
+    public float  transmission, ior;   // glass thickness unused at RT hits (medium absorption uses the geometric ray length)
     public float3 attenuationColor;
     public float  attenuationDistance;
     public float3 sheenColor;
     public float  sheenRoughness;
     public float3 subsurfaceColor;
-    public float  scatterRadius;
+    public float  subsurfaceRadius;
+    public float  subsurfaceThickness;   // SSS thin-shell back-scatter depth [0,1]
     public bool   frontFace;   // ray hit the outward (entering) side; from the un-faced geometric normal
 }
 

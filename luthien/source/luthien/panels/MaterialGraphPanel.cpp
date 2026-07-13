@@ -33,16 +33,16 @@ namespace Luth
         const char* kIn_BaseUV[]  = { "Base", "UV" };
         const char* kIn_BTM[]     = { "Bottom", "Top", "Mask" };
         const char* kOut_Layer[]  = { "Layer" };
-        // Ext channels appended to Output (after Surface, slots 7-19) and MakeLayer (slots 6-18): clear-coat/
+        // Ext channels appended to Output (after Surface, slots 7-20) and MakeLayer (slots 6-19): clear-coat/
         // aniso, dielectric transmission (Transmission/IOR/Thickness/AttenColor/AttenDist), sheen, then subsurface.
         const char* kIn_Out20[]   = { "BaseColor", "Metallic", "Roughness", "Normal", "AO", "Emissive",
                                       "Surface", "ClearCoat", "CoatRough", "Anisotropy", "AnisoRot",
                                       "Transmission", "IOR", "Thickness", "AttenColor", "AttenDist",
-                                      "Sheen", "SheenRough", "Subsurface", "ScatterRad" };
+                                      "Sheen", "SheenRough", "Subsurface", "ScatterRad", "ScatterThick" };
         const char* kIn_Layer19[] = { "BaseColor", "Metallic", "Roughness", "Normal", "AO", "Emissive",
                                       "ClearCoat", "CoatRough", "Anisotropy", "AnisoRot",
                                       "Transmission", "IOR", "Thickness", "AttenColor", "AttenDist",
-                                      "Sheen", "SheenRough", "Subsurface", "ScatterRad" };
+                                      "Sheen", "SheenRough", "Subsurface", "ScatterRad", "ScatterThick" };
 
         struct TypeInfo
         {
@@ -61,7 +61,7 @@ namespace Luth
             { "Lerp",     IM_COL32( 90, 90, 90,255), kIn_ABT,  3, kOut_1,     1 },  // Lerp
             { "Remap",    IM_COL32( 90, 90, 90,255), kIn_In,   1, kOut_1,     1 },  // Remap
             { "Split",    IM_COL32( 90, 80,110,255), kIn_RGBA, 1, kOut_Split, 4 },  // Split
-            { "Output",   IM_COL32(120, 70, 70,255), kIn_Out20,20, nullptr,   0 },  // Output (slot 6 = Surface; 7-10 coat/aniso; 11-15 transmission; 16-17 sheen; 18-19 subsurface)
+            { "Output",   IM_COL32(120, 70, 70,255), kIn_Out20,21, nullptr,   0 },  // Output (slot 6 = Surface; 7-10 coat/aniso; 11-15 transmission; 16-17 sheen; 18-20 subsurface)
             { "Switch",   IM_COL32( 70,110,110,255), kIn_OffOn,2, kOut_1,     1 },  // StaticSwitch
             { "Subtract", IM_COL32( 90, 90, 90,255), kIn_AB,   2, kOut_1,     1 },  // Subtract
             { "Divide",   IM_COL32( 90, 90, 90,255), kIn_AB,   2, kOut_1,     1 },  // Divide
@@ -81,10 +81,11 @@ namespace Luth
             { "Custom",   IM_COL32(110, 70,110,255), kIn_ABCD, 4, kOut_1,     1 },  // Custom
             { "Triplanar",    IM_COL32( 70,120, 90,255), nullptr,     0, kOut_1,     1 },  // Triplanar
             { "Detail Normal",IM_COL32( 80,110,110,255), kIn_BaseDet, 2, kOut_1,     1 },  // DetailNormal
-            { "Make Layer",   IM_COL32( 90,120, 90,255), kIn_Layer19,19, kOut_Layer, 1 },  // MakeLayer (6 channels + 4 coat/aniso + 5 transmission + 2 sheen + 2 subsurface)
+            { "Make Layer",   IM_COL32( 90,120, 90,255), kIn_Layer19,20, kOut_Layer, 1 },  // MakeLayer (6 channels + 4 coat/aniso + 5 transmission + 2 sheen + 3 subsurface)
             { "Layer Blend",  IM_COL32( 90,120, 90,255), kIn_BTM,     3, kOut_Layer, 1 },  // LayerBlend
             { "Parallax",     IM_COL32( 70,120,100,255), kIn_UV,      1, kOut_1,     1 },  // Parallax (UV pin optional)
             { "Decal",        IM_COL32(100,120, 80,255), kIn_BaseUV,  2, kOut_Layer, 1 },  // Decal (Base layer + optional UV)
+            { "Property",     IM_COL32( 70, 90,120,255), nullptr,     0, kOut_1,     1 },  // PropertyRef (references a Blackboard value property)
         };
         constexpr size_t kTypeCount = sizeof(kTypes) / sizeof(kTypes[0]);
 
@@ -108,7 +109,7 @@ namespace Luth
             static ImU32 out20[] = { kValuePinCol, kValuePinCol, kValuePinCol, kValuePinCol, kValuePinCol,
                                      kValuePinCol, kLayerPinCol, kValuePinCol, kValuePinCol, kValuePinCol, kValuePinCol,
                                      kValuePinCol, kValuePinCol, kValuePinCol, kValuePinCol, kValuePinCol,
-                                     kValuePinCol, kValuePinCol, kValuePinCol, kValuePinCol };
+                                     kValuePinCol, kValuePinCol, kValuePinCol, kValuePinCol, kValuePinCol };
             static ImU32 decal[] = { kLayerPinCol, kValuePinCol };
             if (t == MatNodeType::LayerBlend) return layerBlend;
             if (t == MatNodeType::Decal)      return decal;
@@ -185,6 +186,93 @@ namespace Luth
             return b == std::string::npos ? std::string{} : s.substr(b, e - b + 1);
         }
 
+        // Blackboard CRUD: declare graph inputs (value properties) referenced by PropertyRef nodes (+ declared
+        // TextureSample). Value/type/add/remove re-read gMatParams (RefreshParams); name/group only needs saving.
+        NodeEdit DrawProperties(MaterialGraph& g)
+        {
+            NodeEdit e;
+            if (ImGui::SmallButton("+ Float"))
+            { g.properties.push_back({ NextPropertyId(g), MatPropType::Float, 0, "Float", "", Vec4(0.0f), UUID::Invalid() }); e.value = true; }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("+ Color"))
+            { g.properties.push_back({ NextPropertyId(g), MatPropType::Color, 0, "Color", "", Vec4(1.0f), UUID::Invalid() }); e.value = true; }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("+ Texture"))
+            { g.properties.push_back({ NextPropertyId(g), MatPropType::Texture, 0, "Texture", "", Vec4(0.0f), UUID::Invalid() }); e.value = true; }
+
+            int removeIdx = -1;
+            for (size_t i = 0; i < g.properties.size(); ++i)
+            {
+                MaterialProperty& p = g.properties[i];
+                ImGui::PushID((int)p.id);
+                ImGui::Separator();
+
+                char nameBuf[64] = {}; snprintf(nameBuf, sizeof(nameBuf), "%s", p.name.c_str());
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                if (ImGui::InputTextWithHint("##pn", "name...", nameBuf, sizeof(nameBuf))) p.name = nameBuf;
+                if (ImGui::IsItemDeactivatedAfterEdit()) { p.name = Trimmed(p.name); e.meta = true; }
+
+                char grpBuf[64] = {}; snprintf(grpBuf, sizeof(grpBuf), "%s", p.group.c_str());
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                if (ImGui::InputTextWithHint("##pg", "group...", grpBuf, sizeof(grpBuf))) p.group = grpBuf;
+                if (ImGui::IsItemDeactivatedAfterEdit()) { p.group = Trimmed(p.group); e.meta = true; }
+
+                // Float<->Color is a data-only reinterpret of the gMatParams slot (no recompile). Texture props
+                // are created in Commit 3's CRUD and stay Texture.
+                if (p.type != MatPropType::Texture)
+                {
+                    static const char* kTy[] = { "Float", "Color" };
+                    int ty = (int)p.type;
+                    if (ImGui::Combo("Type", &ty, kTy, 2)) { p.type = (MatPropType)ty; e.value = true; }
+                }
+
+                if (p.type == MatPropType::Float)
+                {
+                    bool cb = p.uiKind == 1;
+                    if (ImGui::Checkbox("0/1", &cb)) { p.uiKind = cb ? 1 : 0; e.meta = true; }
+                    ImGui::DragFloat("##pv", &p.value.x, 0.01f);
+                    e.value |= ImGui::IsItemDeactivatedAfterEdit();
+                }
+                else if (p.type == MatPropType::Color)
+                {
+                    ImGui::ColorEdit4("##pv", &p.value.x, ImGuiColorEditFlags_AlphaBar);
+                    e.value |= ImGui::IsItemDeactivatedAfterEdit();
+                }
+                else if (p.type == MatPropType::Texture)
+                {
+                    // Self-contained texture slot (UI::PropertyAsset needs a BeginProperties context; the canvas
+                    // pane is raw ImGui). Drop a texture from the Project panel; right-click to clear.
+                    std::string texName = "None";
+                    if (p.texture.IsValid())
+                    {
+                        const auto& meta = AssetDatabase::GetMetadata(p.texture);
+                        texName = meta.Path.empty() ? "Texture" : meta.Path.filename().string();
+                    }
+                    ImGui::Button((texName + "##t").c_str(), ImVec2(-FLT_MIN, 0.0f));
+                    if (ImGui::BeginDragDropTarget())
+                    {
+                        if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("ASSET_UUID"))
+                        {
+                            const UUID dropped = *static_cast<const UUID*>(pl->Data);
+                            if (AssetDatabase::GetMetadata(dropped).Type == AssetType::Texture) { p.texture = dropped; e.value = true; }
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    if (ImGui::BeginPopupContextItem())
+                    { if (ImGui::MenuItem("Clear")) { p.texture = UUID::Invalid(); e.value = true; } ImGui::EndPopup(); }
+                }
+
+                if (ImGui::SmallButton("Remove")) removeIdx = (int)i;
+                ImGui::PopID();
+            }
+            if (removeIdx >= 0)
+            {
+                g.properties.erase(g.properties.begin() + removeIdx);   // a referencing PropertyRef now reads 0
+                e.value = true;
+            }
+            return e;
+        }
+
         // Name/group/checkbox fields that expose a value node as a named Inspector parameter. Metadata is
         // codegen-blind (never enters the canonical source), so naming can't split structure-shared shaders.
         void DrawExposeFields(const MaterialGraph& g, MatNode& n, NodeEdit& e)
@@ -245,8 +333,27 @@ namespace Luth
                 case MatNodeType::TextureSample:
                 {
                     static const char* kMap[] = { "Diffuse","Alpha","Normal","Metallic","Roughness","Specular","Occlusion","Emissive","Thickness" };
-                    int t = (n.tex < 9) ? (int)n.tex : 0;
-                    if (ImGui::Combo("Map", &t, kMap, 9)) { n.tex = (u32)t; e.structure = true; }
+                    std::string preview = "Diffuse";
+                    if (IsDeclaredTexRef(n.tex))
+                    {
+                        const MaterialProperty* p = FindProperty(g, TexRefPropertyId(n.tex));
+                        preview = p ? (p->name.empty() ? "(unnamed)" : p->name) : "(missing)";
+                    }
+                    else if (n.tex < 9) preview = kMap[n.tex];
+                    if (ImGui::BeginCombo("Map", preview.c_str()))
+                    {
+                        for (int t = 0; t < 9; ++t)
+                            if (ImGui::Selectable(kMap[t], !IsDeclaredTexRef(n.tex) && (int)n.tex == t)) { n.tex = (u32)t; e.structure = true; }
+                        // Declared Blackboard textures (lifts the fixed-map ceiling).
+                        for (const auto& p : g.properties)
+                            if (p.type == MatPropType::Texture)
+                            {
+                                const bool sel = IsDeclaredTexRef(n.tex) && TexRefPropertyId(n.tex) == p.id;
+                                const std::string lbl = "* " + (p.name.empty() ? std::string("(unnamed)") : p.name);
+                                if (ImGui::Selectable(lbl.c_str(), sel)) { n.tex = MakeTexRef(p.id); e.structure = true; }
+                            }
+                        ImGui::EndCombo();
+                    }
                     break;
                 }
                 case MatNodeType::StaticSwitch:
@@ -318,6 +425,24 @@ namespace Luth
                     if (ImGui::DragFloat("Rotation", &deg, 0.5f, -360.0f, 360.0f, "%.0f deg"))
                         n.value.w = deg * (Math::Pi<f32> / 180.0f);
                     e.value |= ImGui::IsItemDeactivatedAfterEdit();
+                    break;
+                }
+                case MatNodeType::PropertyRef:
+                {
+                    // References a declared Blackboard value property; the value flows via gMatParams (data swap).
+                    if (g.properties.empty()) { ImGui::TextDisabled("No properties.\nAdd one in Properties."); break; }
+                    const MaterialProperty* cur = FindProperty(g, n.tex);
+                    const char* preview = cur ? (cur->name.empty() ? "(unnamed)" : cur->name.c_str()) : "(none)";
+                    if (ImGui::BeginCombo("Property", preview))
+                    {
+                        for (const auto& p : g.properties)
+                        {
+                            if (p.type == MatPropType::Texture) continue;   // texture props feed TextureSample
+                            const char* nm = p.name.empty() ? "(unnamed)" : p.name.c_str();
+                            if (ImGui::Selectable(nm, p.id == n.tex)) { n.tex = p.id; e.value = true; }
+                        }
+                        ImGui::EndCombo();
+                    }
                     break;
                 }
                 default:
@@ -445,7 +570,12 @@ namespace Luth
             case MatNodeType::TextureSample:
             {
                 static const char* kMap[] = { "Diffuse","Alpha","Normal","Metallic","Roughness","Specular","Occlusion","Emissive","Thickness" };
-                snprintf(buf, sizeof(buf), "%s", kMap[n.tex < 9 ? n.tex : 0]);
+                if (IsDeclaredTexRef(n.tex))
+                {
+                    const MaterialProperty* p = FindProperty(*graph, TexRefPropertyId(n.tex));
+                    snprintf(buf, sizeof(buf), "*%s", p && !p->name.empty() ? p->name.c_str() : "tex");
+                }
+                else snprintf(buf, sizeof(buf), "%s", kMap[n.tex < 9 ? n.tex : 0]);
                 break;
             }
             case MatNodeType::StaticSwitch: snprintf(buf, sizeof(buf), "%s", n.value.x != 0.0f ? "On" : "Off"); break;
@@ -590,6 +720,15 @@ namespace Luth
         // Left: parameters for the selected node. Right: the graph canvas.
         ImGui::BeginChild("##ParamPane", ImVec2(210.0f, 0.0f), true);
         {
+            // Blackboard: declared graph inputs, referenced by PropertyRef nodes (+ declared TextureSample).
+            if (ImGui::CollapsingHeader("Properties"))
+            {
+                NodeEdit pe = DrawProperties(graph);
+                if (pe.value) valueEdit = true;
+                if (pe.meta)  metaEdit  = true;
+            }
+            ImGui::Separator();
+
             int selNode = -1;
             for (size_t i = 0; i < m_Delegate.selected.size(); ++i)
                 if (m_Delegate.selected[i]) { selNode = (int)i; break; }
