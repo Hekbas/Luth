@@ -255,7 +255,7 @@ Agreed forward order (2026-06-14) — dependency-clean, **params as the keystone
 
 - **`surface-detail` (v3.11.0):** `parallax-occlusion` first (adds the `TangentViewDir` fetch getter, foundation), then `decals` (UV-space; blood/grime, Bhaal-thematic).
 - **`shading-models` (v3.12.0):** `clear-coat`+`anisotropy`, then `dielectric-transmission` (RT refraction, closes the transparent-as-opaque gap), `sheen-cloth`, `subsurface-skin`; each extends `MaterialInputs` + `brdf.slang`, raster==RT.
-- **`material-authoring-redesign` (v3.13.0, in flight):** consolidation over the locked surface (not a rewrite) — terminology (dielectric F0 via IOR + `specular`, `thickness` split into glass + `subsurfaceThickness`, `scatterRadius`→`subsurfaceRadius`, glossary) → inspector IA → graph-declared (Blackboard) inputs. Terminology effort shipped on-branch; inserted before virtual-texturing.
+- **`material-authoring-redesign` (v3.13.0, in flight):** consolidation over the locked surface (not a rewrite) — terminology (dielectric F0 via IOR + `specular`, `thickness` split into glass + `subsurfaceThickness`, `scatterRadius`→`subsurfaceRadius`, glossary) → inspector IA → graph-declared (Blackboard) inputs. Terminology + inspector-IA efforts shipped on-branch (HDRP-style regroup, packed Mask Map, feature-gated lobes); graph-declared inputs remain; inserted before virtual-texturing.
 - **`virtual-texturing` (v3.14.0):** separable XL capstone; may spin out as its own series.
 - **`hair` deferred out of arc** to the character vertical (asset-gated on hair geometry/cards).
 - **Fable5** drives the BRDF/BTDF derivation + raster==RT seam on each shading-model effort; normal model for surface-detail plumbing (Fable5 verify pass on POM's raymarch).
