@@ -133,6 +133,21 @@
 >   thin-shell depth [0,1]. One thickness map scales both. `GPUMaterialData` 160→176 B (`surfaceExt` vec4 = specular +
 >   subsurfaceThickness). `scatterRadius` renamed to `subsurfaceRadius`.
 
+> **Graph-declared inputs (`material-authoring-redesign`, v3.13.0).** The node graph gains a first-class
+> **property list** (`MaterialGraph::properties`) — a Unity-Blackboard front-end over the existing
+> params-as-data path. A `PropertyRef` node references a value property and lowers to the same `fetch.Param(k)`
+> slot (the canonical source is independent of *which* property, so swapping is a value edit, not a recompile).
+> Declared **texture** inputs lift the fixed-8-map ceiling: a per-material `gMatTexParams` SSBO — a second
+> instance of the `gMatParams` primitive (Set 2 b2 / Set 3 b2, tagged-heap Onion region, reclaimed by
+> `FreeTag(N-2)`, no fixed pool) — holds bindless indices resolved per frame from each property's UUID (the
+> fixed-map lifecycle), reached through a new `ITexFetch::TexIndex(slot)` accessor so codegen emits
+> `fetch.Sample(fetch.TexIndex(k), uv)`. invariant: the generated body touches per-material data only through
+> `fetch.*` (never a bare SSBO), so raster==RT==PT holds by construction — every tier samples the same bindless
+> `gTextures[]`. `MatNode::tex` high bit flags a declared-texture ref vs a fixed `MapType`. `.mat` gains a
+> top-level `properties` array (decoupled from the graph so declared-but-unwired properties persist); the
+> inspector Parameters section iterates properties. The deferred `subsurfaceThickness` Output/MakeLayer pin
+> (slot 20/19) also landed here — append-only, hash-stable.
+
 > **Clear-coat + anisotropy (`shading-models`, v3.12.0).** `MaterialInputs` + `brdf.slang` gain a clear-coat
 > second lobe (fixed IOR 1.5 -> F0 = 0.04, own roughness) and anisotropic GGX (Filament `alpha_t/alpha_b` from a
 > `[-1,1]` param over the mesh tangent, rotatable). All shading routes through one `SurfaceBRDF` built by
