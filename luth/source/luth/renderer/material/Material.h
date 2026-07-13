@@ -119,6 +119,11 @@ namespace Luth
     inline constexpr u32 MAT_GRAPH_STRIDE = 16;
     static_assert(sizeof(Vec4) == 16, "gMatParams is StructuredBuffer<float4> - Vec4 must be 16 B std430");
 
+    // Per-material declared-texture stride (u32 bindless indices/material). invariant: matches material.slang
+    // MAT_TEX_STRIDE; the fetch policy's texBase = materialIndex * MAT_TEX_STRIDE indexes gMatTexParams. Bounds
+    // declared textures (overflow renders stock, mirroring the value-node cap).
+    inline constexpr u32 MAT_TEX_STRIDE = 16;
+
     class Material : public Asset
     {
     public:
@@ -161,6 +166,11 @@ namespace Luth
         // fetch.Param(k). Rebuilt off-frame on edit, memcpy'd into gMatParams each frame; empty for non-graph.
         const std::vector<Vec4>& GetGraphParams() const { return m_GraphParams; }
         void SetGraphParams(std::vector<Vec4> params) { m_GraphParams = std::move(params); }
+
+        // Declared-texture property ids in canonical codegen order (structure-derived, set at codegen); resolved
+        // per frame to bindless indices in m_GraphTexParams, memcpy'd into gMatTexParams. Empty for non-graph.
+        void SetGraphTexSlots(std::vector<u32> slots) { m_GraphTexSlots = std::move(slots); }
+        const std::vector<u32>& GetGraphTexParams() const { return m_GraphTexParams; }
 
         // Map management
         void AddTexture(const MapInfo& texture) { m_Maps.push_back(texture); }
@@ -344,6 +354,8 @@ namespace Luth
         MaterialGraph m_Graph;                      // authoring source; empty = plain material
         u32 m_GraphVariant = 0;                     // RT eval-variant (0 = stock); packed into flags 8-15
         std::vector<Vec4> m_GraphParams;            // codegen-ordered graph constants (gMatParams upload source)
+        std::vector<u32>  m_GraphTexSlots;          // canonical slot -> declared-texture property id (structure-derived)
+        std::vector<u32>  m_GraphTexParams;         // per-frame resolved bindless indices (gMatTexParams upload source)
         std::vector<uint8_t> m_UniformStorage;
         // Temporary storage for deserialization if shader is not loaded yet
         nlohmann::json m_CachedUniformJSON;

@@ -56,6 +56,7 @@ public float4 EvalTransparentSurfaceColor(uint materialIndex, uint shadeMode, fl
     GPUMaterialData m = GetMaterial(materialIndex);
     RasterFetch rf;
     rf.paramBase = materialIndex * MAT_GRAPH_STRIDE;
+    rf.texBase   = materialIndex * MAT_TEX_STRIDE;
     rf.worldPos  = worldPos;
     rf.viewDir   = normalize(ubo.cameraPos - worldPos);
     rf.time      = ubo.time;

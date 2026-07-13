@@ -196,6 +196,9 @@ namespace Luth
             ImGui::SameLine();
             if (ImGui::SmallButton("+ Color"))
             { g.properties.push_back({ NextPropertyId(g), MatPropType::Color, 0, "Color", "", Vec4(1.0f), UUID::Invalid() }); e.value = true; }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("+ Texture"))
+            { g.properties.push_back({ NextPropertyId(g), MatPropType::Texture, 0, "Texture", "", Vec4(0.0f), UUID::Invalid() }); e.value = true; }
 
             int removeIdx = -1;
             for (size_t i = 0; i < g.properties.size(); ++i)
@@ -234,6 +237,29 @@ namespace Luth
                 {
                     ImGui::ColorEdit4("##pv", &p.value.x, ImGuiColorEditFlags_AlphaBar);
                     e.value |= ImGui::IsItemDeactivatedAfterEdit();
+                }
+                else if (p.type == MatPropType::Texture)
+                {
+                    // Self-contained texture slot (UI::PropertyAsset needs a BeginProperties context; the canvas
+                    // pane is raw ImGui). Drop a texture from the Project panel; right-click to clear.
+                    std::string texName = "None";
+                    if (p.texture.IsValid())
+                    {
+                        const auto& meta = AssetDatabase::GetMetadata(p.texture);
+                        texName = meta.Path.empty() ? "Texture" : meta.Path.filename().string();
+                    }
+                    ImGui::Button((texName + "##t").c_str(), ImVec2(-FLT_MIN, 0.0f));
+                    if (ImGui::BeginDragDropTarget())
+                    {
+                        if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("ASSET_UUID"))
+                        {
+                            const UUID dropped = *static_cast<const UUID*>(pl->Data);
+                            if (AssetDatabase::GetMetadata(dropped).Type == AssetType::Texture) { p.texture = dropped; e.value = true; }
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    if (ImGui::BeginPopupContextItem())
+                    { if (ImGui::MenuItem("Clear")) { p.texture = UUID::Invalid(); e.value = true; } ImGui::EndPopup(); }
                 }
 
                 if (ImGui::SmallButton("Remove")) removeIdx = (int)i;
@@ -307,8 +333,27 @@ namespace Luth
                 case MatNodeType::TextureSample:
                 {
                     static const char* kMap[] = { "Diffuse","Alpha","Normal","Metallic","Roughness","Specular","Occlusion","Emissive","Thickness" };
-                    int t = (n.tex < 9) ? (int)n.tex : 0;
-                    if (ImGui::Combo("Map", &t, kMap, 9)) { n.tex = (u32)t; e.structure = true; }
+                    std::string preview = "Diffuse";
+                    if (IsDeclaredTexRef(n.tex))
+                    {
+                        const MaterialProperty* p = FindProperty(g, TexRefPropertyId(n.tex));
+                        preview = p ? (p->name.empty() ? "(unnamed)" : p->name) : "(missing)";
+                    }
+                    else if (n.tex < 9) preview = kMap[n.tex];
+                    if (ImGui::BeginCombo("Map", preview.c_str()))
+                    {
+                        for (int t = 0; t < 9; ++t)
+                            if (ImGui::Selectable(kMap[t], !IsDeclaredTexRef(n.tex) && (int)n.tex == t)) { n.tex = (u32)t; e.structure = true; }
+                        // Declared Blackboard textures (lifts the fixed-map ceiling).
+                        for (const auto& p : g.properties)
+                            if (p.type == MatPropType::Texture)
+                            {
+                                const bool sel = IsDeclaredTexRef(n.tex) && TexRefPropertyId(n.tex) == p.id;
+                                const std::string lbl = "* " + (p.name.empty() ? std::string("(unnamed)") : p.name);
+                                if (ImGui::Selectable(lbl.c_str(), sel)) { n.tex = MakeTexRef(p.id); e.structure = true; }
+                            }
+                        ImGui::EndCombo();
+                    }
                     break;
                 }
                 case MatNodeType::StaticSwitch:
@@ -525,7 +570,12 @@ namespace Luth
             case MatNodeType::TextureSample:
             {
                 static const char* kMap[] = { "Diffuse","Alpha","Normal","Metallic","Roughness","Specular","Occlusion","Emissive","Thickness" };
-                snprintf(buf, sizeof(buf), "%s", kMap[n.tex < 9 ? n.tex : 0]);
+                if (IsDeclaredTexRef(n.tex))
+                {
+                    const MaterialProperty* p = FindProperty(*graph, TexRefPropertyId(n.tex));
+                    snprintf(buf, sizeof(buf), "*%s", p && !p->name.empty() ? p->name.c_str() : "tex");
+                }
+                else snprintf(buf, sizeof(buf), "%s", kMap[n.tex < 9 ? n.tex : 0]);
                 break;
             }
             case MatNodeType::StaticSwitch: snprintf(buf, sizeof(buf), "%s", n.value.x != 0.0f ? "On" : "Off"); break;

@@ -519,7 +519,8 @@ namespace Luth
                             if (UI::PropertyColor(label, p.value)) valueEdit = true;
                             break;
                         case MatPropType::Texture:
-                            break;   // Commit 3 wires the texture asset slot + gMatTexParams
+                            if (UI::PropertyAsset(label, p.texture, AssetType::Texture).committed) valueEdit = true;
+                            break;
                         default: break;
                     }
                     ImGui::PopID();

@@ -49,6 +49,11 @@ public uint GraphVariant(uint flags) { return (flags >> GRAPH_VARIANT_SHIFT) & 0
 // the fetch policy's paramBase = materialIndex * MAT_GRAPH_STRIDE indexes gMatParams, so drift cross-corrupts.
 public static const uint MAT_GRAPH_STRIDE = 16u;
 
+// Per-material declared-texture stride (uint bindless indices/material). invariant: matches C++ MAT_TEX_STRIDE;
+// texBase = materialIndex * MAT_TEX_STRIDE indexes gMatTexParams. Lifts the fixed-8-map ceiling: a declared
+// TextureSample samples gTextures[gMatTexParams[texBase + slot]] via fetch.TexIndex.
+public static const uint MAT_TEX_STRIDE = 16u;
+
 // Bounded surface (Filament model, no escape hatch); derivative/screen-space ops excluded by construction.
 public struct MaterialInputs
 {
@@ -78,6 +83,9 @@ public interface ITexFetch
     // Per-material graph constant, paramBase-relative slot. Stock decode never calls it; generated
     // EvalGraph bodies read their canonical const slots through it (gMatParams, bound per tier).
     float4 Param(uint slot);
+    // Per-material declared-texture bindless index, texBase-relative slot. Generated EvalGraph bodies feed it
+    // to Sample for graph-declared textures (beyond the fixed 8 map fields); stock decode never calls it.
+    uint TexIndex(uint slot);
     // Per-tier surface context for graph input nodes (WorldPos/ViewDir/Time/Fresnel). Stock decode never
     // calls these; decode sites that can host graphs fill them (__init zeroes cover every stock site).
     float3 WorldPos();

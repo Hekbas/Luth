@@ -31,6 +31,14 @@ namespace Luth
         m_GPUData.thicknessIndex   = GetIndex(MapType::Thickness);
         m_GPUData.decalIndex       = GetIndex(MapType::Decal);
 
+        // Declared graph textures: resolve each canonical slot's property UUID -> bindless index (mirrors the
+        // fixed maps). Runs per frame, so async-loaded textures resolve next frame; empty for a non-graph material.
+        m_GraphTexParams.assign(m_GraphTexSlots.size(), 0u);
+        for (size_t k = 0; k < m_GraphTexSlots.size(); ++k)
+            if (const MaterialProperty* p = FindProperty(m_Graph, m_GraphTexSlots[k]); p && p->texture.IsValid())
+                if (auto tex = AssetManager::GetAsset<Texture>(p->texture))
+                    m_GraphTexParams[k] = BindlessOrNull(tex->GetBindlessIndex());
+
         // metalness/roughness are direct GPUData fields (set via accessors / deserialize); the legacy
         // u_* uniform channel never reached the GPU (no Set-1 block in pbr). alphaCutoff stays derived.
         m_GPUData.alphaCutoff = (m_RenderMode == RenderMode::Cutout) ? m_AlphaCutoff : 0.0f;

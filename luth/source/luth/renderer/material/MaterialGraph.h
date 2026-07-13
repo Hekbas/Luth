@@ -131,4 +131,11 @@ namespace Luth
         for (const auto& p : g.properties) if (p.id == id) return &p;
         return nullptr;
     }
+
+    // A TextureSample node's `tex`: 0..8 = a fixed MapType slot; high bit set = a declared texture property
+    // (id = tex & ~kTexPropFlag). One node type sources both the fixed maps and Blackboard-declared textures.
+    inline constexpr u32 kTexPropFlag = 0x80000000u;
+    inline bool IsDeclaredTexRef(u32 tex)  { return (tex & kTexPropFlag) != 0u; }
+    inline u32  TexRefPropertyId(u32 tex)  { return tex & ~kTexPropFlag; }
+    inline u32  MakeTexRef(u32 propertyId) { return kTexPropFlag | propertyId; }
 }

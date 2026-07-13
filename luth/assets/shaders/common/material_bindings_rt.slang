@@ -7,21 +7,24 @@ import globals;              // ubo.time for graph context; every RT consumer bi
 
 [[vk::binding(0, 3)]] StructuredBuffer<GPUMaterialData> gMaterials;
 [[vk::binding(1, 3)]] StructuredBuffer<float4>          gMatParams;   // shares MaterialSystem's set (binding 1); same buffer raster sees at set 2
+[[vk::binding(2, 3)]] StructuredBuffer<uint>            gMatTexParams; // declared-texture bindless indices; same buffer raster sees at set 2 binding 2
 [[vk::binding(0, 4)]] Sampler2D                         gTextures[];
 
 public struct RayFetch : ITexFetch
 {
     public uint   paramBase;     // = materialSlot * MAT_GRAPH_STRIDE; set per hit before EvalGraphVariant
+    public uint   texBase;       // = materialSlot * MAT_TEX_STRIDE; indexes gMatTexParams for declared textures
     public float3 worldPos;      // graph context, filled by FetchHitSurface from the hit
     public float3 viewDir;
     public float  time;
     public float  ndotv;
     public float3 worldNormal;   // Triplanar blend weights; FetchHitSurface fills it with the smooth hit normal
     public float3 tangentViewDir; // tangent-space view dir (parallax); FetchHitSurface fills from the hit TBN
-    public __init() { paramBase = 0; worldPos = float3(0.0); viewDir = float3(0.0, 0.0, 1.0); time = 0.0; ndotv = 1.0; worldNormal = float3(0.0, 0.0, 1.0); tangentViewDir = float3(0.0, 0.0, 1.0); }
+    public __init() { paramBase = 0; texBase = 0; worldPos = float3(0.0); viewDir = float3(0.0, 0.0, 1.0); time = 0.0; ndotv = 1.0; worldNormal = float3(0.0, 0.0, 1.0); tangentViewDir = float3(0.0, 0.0, 1.0); }
     public float4 Sample(uint index, float2 uv) { return gTextures[NonUniformResourceIndex(index)].SampleLevel(uv, 0.0); }
     public float4 SampleLod(uint index, float2 uv, float lod) { return gTextures[NonUniformResourceIndex(index)].SampleLevel(uv, lod); }
     public float4 Param(uint slot) { return gMatParams[paramBase + slot]; }
+    public uint TexIndex(uint slot) { return gMatTexParams[texBase + slot]; }
     public float3 WorldPos() { return worldPos; }
     public float3 ViewDir()  { return viewDir; }
     public float  Time()     { return time; }
@@ -38,6 +41,7 @@ public HitSurface FetchHitSurface(GtGeomEntry* geomTable, uint customIndex, uint
     GPUMaterialData m = gMaterials[g.materialSlot];
     RayFetch rf;
     rf.paramBase = g.materialSlot * MAT_GRAPH_STRIDE;
+    rf.texBase   = g.materialSlot * MAT_TEX_STRIDE;
     rf.worldPos  = hitPos;
     rf.viewDir   = -rayDir;
     rf.time      = ubo.time;

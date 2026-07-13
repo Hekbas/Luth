@@ -190,6 +190,24 @@ namespace Luth
             return params;
         }
 
+        // Referenced declared-texture property ids in canonical order: the per-material texture-slot list the
+        // generated EvalGraph reads via fetch.TexIndex(k). Material resolves each id -> UUID -> bindless index.
+        // invariant: same CanonicalOrder + declared-texture walk as the Lowerer's texParamSlot, else indices desync.
+        std::vector<u32> BuildTexSlots(const MaterialGraph& g)
+        {
+            std::unordered_map<u32, const MatNode*> byId;
+            for (const auto& n : g.nodes) byId[n.id] = &n;
+
+            std::vector<u32> slots;
+            for (u32 id : CanonicalOrder(g))
+            {
+                const MatNode* n = byId.at(id);
+                if (n->type == MatNodeType::TextureSample && IsDeclaredTexRef(n->tex))
+                    slots.push_back(TexRefPropertyId(n->tex));
+            }
+            return slots;
+        }
+
         // Lowers a MaterialGraph to the EvalGraph<F> module body: one float4 SSA local per node (named by canonical
         // visit order, not node ID), value constants read from per-material data (fetch.Param), not baked literals.
         struct Lowerer
@@ -198,8 +216,10 @@ namespace Luth
             std::unordered_map<u32, const MatNode*> byId;
             std::vector<u32> order;                  // canonical post-order (reachable, non-Output)
             std::unordered_map<u32, u32> seq;        // node ID -> SSA index (canonical name, no ID leak)
-            std::unordered_map<u32, u32> paramSlot;  // value-node ID -> param slot k
+            std::unordered_map<u32, u32> paramSlot;     // value-node ID -> gMatParams slot k
+            std::unordered_map<u32, u32> texParamSlot;  // declared-texture TextureSample ID -> gMatTexParams slot
             u32 paramCount = 0;
+            u32 texParamCount = 0;
 
             explicit Lowerer(const MaterialGraph& graph) : g(graph)
             {
@@ -208,7 +228,10 @@ namespace Luth
                 for (u32 i = 0; i < order.size(); ++i)
                 {
                     seq[order[i]] = i;
-                    if (IsValueNode(byId.at(order[i])->type)) paramSlot[order[i]] = paramCount++;
+                    const MatNode* n = byId.at(order[i]);
+                    if (IsValueNode(n->type)) paramSlot[order[i]] = paramCount++;
+                    if (n->type == MatNodeType::TextureSample && IsDeclaredTexRef(n->tex))
+                        texParamSlot[order[i]] = texParamCount++;
                 }
             }
 
@@ -263,6 +286,17 @@ namespace Luth
                     case MatNodeType::PropertyRef:   return "fetch.Param(" + std::to_string(paramSlot.at(n.id)) + ")";
                     case MatNodeType::TextureSample:
                     {
+                        // Declared Blackboard texture: the bindless index comes from the per-material gMatTexParams
+                        // slot (fetch.TexIndex) instead of a fixed GPUMaterialData map field. Both tiers sample the
+                        // same bindless heap, so raster==RT holds exactly as for the fixed-map path.
+                        if (IsDeclaredTexRef(n.tex))
+                        {
+                            const std::string idx = "fetch.TexIndex(" + std::to_string(texParamSlot.at(n.id)) + ")";
+                            if (const MatLink* l = Incoming(g, n.id, 0))
+                                if (seq.count(l->fromNode))
+                                    return "fetch.Sample(" + idx + ", (" + SourceExpr(*byId.at(l->fromNode), l->fromSlot) + ").xy)";
+                            return "fetch.Sample(" + idx + ", uv0)";
+                        }
                         // A linked UV pin overrides the material's per-map UV-set selection.
                         if (const MatLink* l = Incoming(g, n.id, 0))
                             if (seq.count(l->fromNode))
@@ -430,6 +464,7 @@ namespace Luth
             ss << "    GPUMaterialData m = GetMaterial(i.materialIndex);\n";
             ss << "    RasterFetch rf;\n";
             ss << "    rf.paramBase = i.materialIndex * MAT_GRAPH_STRIDE;\n";
+            ss << "    rf.texBase   = i.materialIndex * MAT_TEX_STRIDE;\n";
             ss << "    rf.worldPos  = i.worldPos;\n";
             ss << "    rf.viewDir   = normalize(ubo.cameraPos - i.worldPos);\n";
             ss << "    rf.time      = ubo.time;\n";
@@ -571,7 +606,15 @@ namespace Luth
                           material.Handle.ToString(), low.paramCount, MAT_GRAPH_STRIDE);
             return UUID::Invalid();
         }
+        // Declared-texture count is bounded by the per-material gMatTexParams stride, mirroring the param guard.
+        if (low.texParamCount > MAT_TEX_STRIDE)
+        {
+            LH_LOG(Renderer, error, "MaterialGraphCodegen: '{}' has {} declared textures (> MAT_TEX_STRIDE {}) - renders stock",
+                          material.Handle.ToString(), low.texParamCount, MAT_TEX_STRIDE);
+            return UUID::Invalid();
+        }
         material.SetGraphParams(BuildParams(material.GetGraph()));
+        material.SetGraphTexSlots(BuildTexSlots(material.GetGraph()));
 
         // Structure key: the canonical module source under a fixed fn name (value-free + ID-free). Structurally
         // identical materials hash equal and share the compiled shader + RT variant; their constants live in data.
@@ -671,12 +714,13 @@ namespace Luth
     {
         LH_PROFILE_FUNCTION();
         material.SetGraphParams(material.HasGraph() ? BuildParams(material.GetGraph()) : std::vector<Vec4>{});
+        material.SetGraphTexSlots(material.HasGraph() ? BuildTexSlots(material.GetGraph()) : std::vector<u32>{});
     }
 
     const char* MaterialGraphCodegen::ValidateCustomCode(const std::string& code)
     {
         static const char* kBanned[] = {
-            "ddx", "ddy", "fwidth", "discard", "gTextures", "gMaterials", "gMatParams",
+            "ddx", "ddy", "fwidth", "discard", "gTextures", "gMaterials", "gMatParams", "gMatTexParams",
             "RWTexture", "import", "[shader"
         };
         for (const char* b : kBanned)
