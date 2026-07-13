@@ -347,7 +347,7 @@ namespace Luth
                 if (s = OutSrc(n, extBase + 9); !s.empty()) ss << "    " << tgt << ".sheenColor          = " << s << ".rgb;\n";
                 if (s = OutSrc(n, extBase + 10); !s.empty()) ss << "    " << tgt << ".sheenRoughness      = clamp(" << s << ".x, 0.04, 1.0);\n";
                 if (s = OutSrc(n, extBase + 11); !s.empty()) ss << "    " << tgt << ".subsurfaceColor     = " << s << ".rgb;\n";
-                if (s = OutSrc(n, extBase + 12); !s.empty()) ss << "    " << tgt << ".scatterRadius       = max(" << s << ".x, 0.0);\n";
+                if (s = OutSrc(n, extBase + 12); !s.empty()) ss << "    " << tgt << ".subsurfaceRadius    = max(" << s << ".x, 0.0);\n";
             }
 
             std::string Run(const std::string& fnName)

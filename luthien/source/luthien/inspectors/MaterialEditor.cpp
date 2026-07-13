@@ -285,7 +285,7 @@ namespace Luth
                     // Mirrors the Emissive row: swatch = diffusion albedo A (texture-modulated when a
                     // scatter mask is bound), drag = scatter mean-free-path in world units.
                     Vec3 ssColor = material.GetSubsurfaceColor();
-                    f32  ssRad   = material.GetScatterRadius();
+                    f32  ssRad   = material.GetSubsurfaceRadius();
                     bool changed = false;
                     if (ImGui::ColorEdit3("##SubsurfaceColor", &ssColor.x, ImGuiColorEditFlags_NoInputs)) {
                         material.SetSubsurfaceColor(ssColor); changed = true;
@@ -293,7 +293,7 @@ namespace Luth
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(-1);
                     if (ImGui::DragFloat("##ScatterRadius", &ssRad, 0.01f, 0.0f, 10.0f, "%.2f")) {
-                        material.SetScatterRadius(ssRad); changed = true;
+                        material.SetSubsurfaceRadius(ssRad); changed = true;
                     }
                     if (changed) material.MarkDirty();
                 });

@@ -27,6 +27,17 @@ public float3 F_Schlick(float cosT, float3 F0)
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosT, 0.0, 1.0), 5.0);
 }
 
+// Dielectric normal-incidence reflectance from IOR: F0 = ((n-1)/(n+1))^2. Ratio-of-products form (not the
+// square of the quotient) so ior==1.5 lands on the 0.04 literal bit-for-bit under a correctly-rounded fp32
+// divide -- keeps default materials unchanged. The `specular` weight [0,1] then scales this (metals ignore it,
+// the base F0 lerp targets albedo). invariant: default (ior 1.5, specular 1) == the old hardcoded 0.04.
+public float DielectricF0FromIor(float ior)
+{
+    float dm = ior - 1.0;
+    float dp = ior + 1.0;
+    return (dm * dm) / (dp * dp);
+}
+
 // Exact unpolarized dielectric Fresnel. cosI = cosine on the incident side (clamped >0); eta = n_i/n_t
 // (relative IOR along the incident side: entering = 1/ior, exiting = ior). Returns 1 beyond the critical
 // angle (total internal reflection) -- the branch that keeps interior bounces energy-correct.
@@ -125,10 +136,10 @@ public float E_Sheen(float NoV, float sheenRoughness)
 }
 
 // f(V,L)*NdotL*radiance: the shared evaluate-at-surface-point seam (radiance=1 yields f*NdotL).
-public float3 EvalBRDFTimesNdotL(float3 L, float3 radiance, float3 V, float3 N, float3 albedo, float metallic, float roughness)
+public float3 EvalBRDFTimesNdotL(float3 L, float3 radiance, float3 V, float3 N, float3 albedo, float metallic, float roughness, float dielectricF0)
 {
     float3 H  = normalize(V + L);
-    float3 F0 = lerp(float3(0.04), albedo, metallic);
+    float3 F0 = lerp(float3(dielectricF0), albedo, metallic);
     float  D  = D_GGX(N, H, roughness);
     float  G  = G_Smith(N, V, L, roughness);
     float3 F  = F_Schlick(max(dot(H, V), 0.0), F0);
@@ -146,6 +157,7 @@ public struct SurfaceBRDF
     public float3 N, T, B;    // T/B pre-rotated by anisotropyRotation, orthonormalized vs N
     public float3 albedo;
     public float  metallic, roughness;
+    public float  dielectricF0;   // IOR-derived base reflectance x specular weight; the F0 lerp targets albedo at metallic=1
     public float  clearcoat, clearcoatRoughness;
     public float  anisotropy;   // 0 (or tangentless mesh) -> isotropic fast path
     public float  transmission; // dielectric transmission weight [0,1]; 0 = legacy fast paths
@@ -153,26 +165,27 @@ public struct SurfaceBRDF
     public float3 sheenColor;   // production-sheen reflectance (linear); 0 = legacy fast paths
     public float  sheenRoughness;
     public float3 subsurfaceColor;  // SSS diffusion surface albedo A (linear, per-RGB); 0 = legacy fast paths
-    public float  scatterRadius;    // SSS mean-free-path (world units)
-    public float  thickness;        // SSS translucency path-length proxy (glTF thicknessFactor); thin -> more glow
+    public float  subsurfaceRadius; // SSS mean-free-path (world units)
+    public float  subsurfaceThickness;  // SSS thin-shell back-scatter depth [0,1]; thin -> more glow
 }
 
 // Build the shading frame once: Gram-Schmidt the tangent vs the (perturbed) N, restore the mesh handedness
 // from the passed bitangent, rotate in the T/B plane. Zeroes anisotropy when no usable tangent exists.
 public SurfaceBRDF MakeSurfaceBRDF(float3 N, float3 T, float3 B, bool hasTangent, float3 albedo,
-                                   float metallic, float roughness, float clearcoat,
+                                   float metallic, float roughness, float specular, float clearcoat,
                                    float clearcoatRoughness, float anisotropy, float anisotropyRotation,
                                    float transmission, float ior, bool frontFace,
                                    float3 sheenColor, float sheenRoughness,
-                                   float3 subsurfaceColor, float scatterRadius, float thickness)
+                                   float3 subsurfaceColor, float subsurfaceRadius, float subsurfaceThickness)
 {
     SurfaceBRDF s;
     s.N = N; s.albedo = albedo; s.metallic = metallic; s.roughness = roughness;
+    s.dielectricF0 = specular * DielectricF0FromIor(ior);   // 0.04 at the ior=1.5 / specular=1 default (bit-exact)
     s.clearcoat = clearcoat; s.clearcoatRoughness = clearcoatRoughness;
     s.transmission = transmission;
     s.relEta = frontFace ? (1.0 / max(ior, 1.0)) : max(ior, 1.0);   // enter: 1/ior, exit: ior
     s.sheenColor = sheenColor; s.sheenRoughness = sheenRoughness;
-    s.subsurfaceColor = subsurfaceColor; s.scatterRadius = scatterRadius; s.thickness = thickness;
+    s.subsurfaceColor = subsurfaceColor; s.subsurfaceRadius = subsurfaceRadius; s.subsurfaceThickness = subsurfaceThickness;
 
     float3 To = T - dot(T, N) * N;                       // project the tangent onto the surface plane
     bool   ok = hasTangent && dot(To, To) > 1.0e-8;
@@ -191,7 +204,7 @@ public SurfaceBRDF MakeSurfaceBRDF(float3 N, float3 T, float3 B, bool hasTangent
 // ---- Subsurface scattering (skin / wax / marble): local diffusion approx + the PT random-walk inversion ----
 // Burley Eq.5 (searchlight) shape s(A) = 1.85 - A + 7|A-0.8|^3 -- monotone-decreasing, so the per-channel
 // profile width A/s(A) is widest for the brightest channel (red bleeds furthest) under one scalar radius.
-static const float kSssWrap    = 0.5;   // scatterRadius (world units) -> [0,1] terminator-wrap scale (tuning)
+static const float kSssWrap    = 0.5;   // subsurfaceRadius (world units) -> [0,1] terminator-wrap scale (tuning)
 static const float kSssDistort = 0.3;   // back-scatter light-bend toward N (Frostbite distortion, tuning)
 static const float kSssPower   = 4.0;   // back-scatter view falloff exponent (tuning)
 
@@ -202,7 +215,7 @@ float3 SssProfileShape(float3 A) { return 1.85 - A + 7.0 * pow(abs(A - 0.8), 3.0
 float3 SssWrapDiffuse(float3 L, SurfaceBRDF s)
 {
     float  NdotL = dot(s.N, L);
-    float3 w  = saturate(kSssWrap * s.scatterRadius) * (s.subsurfaceColor / max(SssProfileShape(s.subsurfaceColor), 1.0e-3));
+    float3 w  = saturate(kSssWrap * s.subsurfaceRadius) * (s.subsurfaceColor / max(SssProfileShape(s.subsurfaceColor), 1.0e-3));
     float3 Cw = saturate((NdotL + w) / (1.0 + w));
     return s.subsurfaceColor * max(Cw - saturate(NdotL), float3(0.0)) / kPi;
 }
@@ -213,7 +226,7 @@ float3 SssTranslucency(float3 L, float3 V, SurfaceBRDF s)
 {
     float3 Ht   = normalize(L + s.N * kSssDistort);
     float  back = pow(saturate(dot(V, -Ht)), kSssPower);
-    return s.subsurfaceColor * (back * (1.0 - saturate(s.thickness)));
+    return s.subsurfaceColor * (back * (1.0 - saturate(s.subsurfaceThickness)));
 }
 
 // Chiang 2016 reparameterization for the PT random walk: surface albedo A -> single-scatter albedo alpha +
@@ -240,7 +253,7 @@ public float3 EvalSurfBRDFTimesNdotL(float3 L, float3 radiance, float3 V, Surfac
     float sssW        = max(s.subsurfaceColor.r, max(s.subsurfaceColor.g, s.subsurfaceColor.b));
     bool  sssActive   = sssW > 0.0;
     if (!anisoActive && s.clearcoat <= 0.0 && !glassActive && sheenW <= 0.0 && !sssActive)
-        return EvalBRDFTimesNdotL(L, radiance, V, s.N, s.albedo, s.metallic, s.roughness);
+        return EvalBRDFTimesNdotL(L, radiance, V, s.N, s.albedo, s.metallic, s.roughness, s.dielectricF0);
 
     float NdotL = dot(s.N, L);
     // Below the horizon only subsurface contributes (wrap past the terminator + back-lit translucency); the
@@ -253,7 +266,7 @@ public float3 EvalSurfBRDFTimesNdotL(float3 L, float3 radiance, float3 V, Surfac
     float  NoV = max(dot(s.N, V), 1.0e-4);
     float  NoH = max(dot(s.N, H), 0.0);
     float  HoV = max(dot(H, V), 0.0);
-    float3 F0  = lerp(float3(0.04), s.albedo, s.metallic);
+    float3 F0  = lerp(float3(s.dielectricF0), s.albedo, s.metallic);
     float3 F   = F_Schlick(HoV, F0);
     float  tw  = 0.0;
     if (glassActive)

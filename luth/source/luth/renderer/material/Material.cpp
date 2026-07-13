@@ -109,6 +109,9 @@ namespace Luth
         json["metalness"] = m_GPUData.metalness;
         json["roughness"] = m_GPUData.roughness;
 
+        // Dielectric specular F0 weight: written only when not the physical default (1.0), so pre-feature .mat stays byte-stable.
+        if (m_GPUData.surfaceExt.x != 1.0f) json["specular"] = m_GPUData.surfaceExt.x;
+
         // Shading-model factors: written only when non-default, so materials that use neither stay byte-stable.
         if (m_GPUData.clearcoat != 0.0f)          json["clearcoat"] = m_GPUData.clearcoat;
         if (m_GPUData.clearcoatRoughness != 0.0f) json["clearcoat_roughness"] = m_GPUData.clearcoatRoughness;
@@ -137,8 +140,9 @@ namespace Luth
         const Vec4& ss = m_GPUData.subsurface;
         if (ss.x != 0.0f || ss.y != 0.0f || ss.z != 0.0f)
         {
-            json["subsurfaceColor"] = { ss.x, ss.y, ss.z };
-            json["scatterRadius"]   = ss.w;
+            json["subsurfaceColor"]     = { ss.x, ss.y, ss.z };
+            json["subsurfaceRadius"]    = ss.w;
+            json["subsurfaceThickness"] = m_GPUData.surfaceExt.y;
         }
 
         // Serialize Uniforms
@@ -284,11 +288,20 @@ namespace Luth
             m_GPUData.sheen = Vec4(0.0f, 0.0f, 0.0f, json.value("sheenRoughness", 0.0f));
 
         // Subsurface (absent keys => inert black/0, reset explicitly so a reused Material can't inherit prior SSS).
+        // subsurfaceRadius reads the new key, falling back to the legacy scatterRadius so pre-rename .mat files load.
+        f32 subRadius = json.value("subsurfaceRadius", json.value("scatterRadius", 0.0f));
         if (json.contains("subsurfaceColor") && json["subsurfaceColor"].is_array() && json["subsurfaceColor"].size() == 3)
             m_GPUData.subsurface = Vec4(json["subsurfaceColor"][0], json["subsurfaceColor"][1], json["subsurfaceColor"][2],
-                                        json.value("scatterRadius", 0.0f));
+                                        subRadius);
         else
-            m_GPUData.subsurface = Vec4(0.0f, 0.0f, 0.0f, json.value("scatterRadius", 0.0f));
+            m_GPUData.subsurface = Vec4(0.0f, 0.0f, 0.0f, subRadius);
+
+        // Extended surface scalars (surfaceExt): specular default 1.0 (physical). subsurfaceThickness split off the
+        // glass thickness -- migrate the legacy single thickness into it when the new key is absent, so pre-split
+        // materials render identically (one thickness served both glass path-length and SSS back-scatter depth).
+        m_GPUData.surfaceExt = Vec4(json.value("specular", 1.0f),
+                                    json.value("subsurfaceThickness", m_GPUData.thickness),
+                                    0.0f, 0.0f);
 
         m_Maps.clear();
         for (const auto& texJson : json["textures"]) {

@@ -102,12 +102,17 @@ namespace Luth
         Vec4 sheen = { 0.0f, 0.0f, 0.0f, 0.0f };
 
         // Subsurface (SSS). subsurface@144 vec4: rgb = subsurfaceColor (linear diffusion albedo A, 0 = no
-        // SSS -> BRDF fast path), a = scatterRadius (mean-free-path, world units). Struct rounds to 160.
+        // SSS -> BRDF fast path), a = subsurfaceRadius (mean-free-path, world units).
         Vec4 subsurface = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+        // Extended surface scalars. surfaceExt@160 vec4: x = specular (dielectric F0 weight [0,1], default 1
+        // = identity; scales the IOR-derived base reflectance), y = subsurfaceThickness (SSS thin-shell depth
+        // [0,1], split off the glass thickness above), zw reserved. Struct rounds to 176.
+        Vec4 surfaceExt = { 1.0f, 0.0f, 0.0f, 0.0f };
     };
     // std430 layout must stay byte-identical to material.slang's GPUMaterialData; MaterialLayoutGuard
     // cross-checks the field offsets at init; a desync silently corrupts every material index > 0.
-    static_assert(sizeof(GPUMaterialData) == 160, "GPUMaterialData std430 layout must stay 160 B");
+    static_assert(sizeof(GPUMaterialData) == 176, "GPUMaterialData std430 layout must stay 176 B");
 
     // Per-material graph-constant stride (float4 slots/material). invariant: matches material.slang MAT_GRAPH_STRIDE;
     // shader paramBase = materialIndex * MAT_GRAPH_STRIDE indexes gMatParams; drift cross-corrupts. Bounds value nodes.
@@ -297,11 +302,19 @@ namespace Luth
         f32  GetSheenRoughness() const { return m_GPUData.sheen.w; }
         void SetSheenRoughness(f32 r) { m_GPUData.sheen.w = r; }
 
-        // Subsurface (SSS) factors (direct GPUData fields). subsurfaceColor = subsurface.rgb, scatterRadius = subsurface.a.
+        // Subsurface (SSS) factors (direct GPUData fields). subsurfaceColor = subsurface.rgb, subsurfaceRadius = subsurface.a,
+        // subsurfaceThickness = surfaceExt.y (thin-shell back-scatter depth, split from the glass thickness factor).
         Vec3 GetSubsurfaceColor() const { return Vec3(m_GPUData.subsurface); }
         void SetSubsurfaceColor(const Vec3& c) { m_GPUData.subsurface.x = c.x; m_GPUData.subsurface.y = c.y; m_GPUData.subsurface.z = c.z; }
-        f32  GetScatterRadius() const { return m_GPUData.subsurface.w; }
-        void SetScatterRadius(f32 r) { m_GPUData.subsurface.w = r; }
+        f32  GetSubsurfaceRadius() const { return m_GPUData.subsurface.w; }
+        void SetSubsurfaceRadius(f32 r) { m_GPUData.subsurface.w = r; }
+        f32  GetSubsurfaceThickness() const { return m_GPUData.surfaceExt.y; }
+        void SetSubsurfaceThickness(f32 t) { m_GPUData.surfaceExt.y = t; }
+
+        // Dielectric specular F0 weight [0,1] (direct GPUData field; surfaceExt.x). Scales the IOR-derived base
+        // reflectance; 1 = physical default (no attenuation), metals unaffected (the F0 lerp targets albedo).
+        f32  GetSpecular() const { return m_GPUData.surfaceExt.x; }
+        void SetSpecular(f32 s) { m_GPUData.surfaceExt.x = s; }
 
         // GPU Data Access
         const GPUMaterialData& GetGPUData() const { return m_GPUData; }
