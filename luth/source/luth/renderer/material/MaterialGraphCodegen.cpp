@@ -94,7 +94,7 @@ namespace Luth
             switch (t)
             {
                 case MatNodeType::MakeLayer:
-                    return 19;   // 6 base + 4 coat/aniso (6-9) + 5 transmission (10-14) + 2 sheen (15-16) + 2 subsurface (17-18)
+                    return 20;   // 6 base + 4 coat/aniso (6-9) + 5 transmission (10-14) + 2 sheen (15-16) + 3 subsurface (17-19)
                 case MatNodeType::Custom:
                     return 4;
                 case MatNodeType::Lerp: case MatNodeType::LayerBlend:
@@ -157,9 +157,9 @@ namespace Luth
                     if (const MatLink* l = Incoming(g, out->id, s)) visit(l->fromNode);
                 // Surface (bundle) slot 6: appended after the channel slots so pre-slot-6 graphs stay order-stable.
                 if (const MatLink* l = Incoming(g, out->id, 6)) visit(l->fromNode);
-                // Ext channels (coat/aniso 7-10 + transmission 11-15 + sheen 16-17 + subsurface 18-19): appended
+                // Ext channels (coat/aniso 7-10 + transmission 11-15 + sheen 16-17 + subsurface 18-20): appended
                 // last, so a pre-ext graph (nothing on those slots) keeps its visit order + structure hash unchanged.
-                for (u8 s = 7; s < 20; ++s)
+                for (u8 s = 7; s < 21; ++s)
                     if (const MatLink* l = Incoming(g, out->id, s)) visit(l->fromNode);
             }
             return order;
@@ -348,6 +348,7 @@ namespace Luth
                 if (s = OutSrc(n, extBase + 10); !s.empty()) ss << "    " << tgt << ".sheenRoughness      = clamp(" << s << ".x, 0.04, 1.0);\n";
                 if (s = OutSrc(n, extBase + 11); !s.empty()) ss << "    " << tgt << ".subsurfaceColor     = " << s << ".rgb;\n";
                 if (s = OutSrc(n, extBase + 12); !s.empty()) ss << "    " << tgt << ".subsurfaceRadius    = max(" << s << ".x, 0.0);\n";
+                if (s = OutSrc(n, extBase + 13); !s.empty()) ss << "    " << tgt << ".subsurfaceThickness = max(" << s << ".x, 0.0);\n";
             }
 
             std::string Run(const std::string& fnName)
