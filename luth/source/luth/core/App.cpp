@@ -35,6 +35,10 @@
 #include "luth/memory/GPUTaggedPageAllocator.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/scene/systems/AnimationSystem.h"
+#include "luth/scene/SceneSerializer.h"
+#include "luth/scene/Components.h"
+#include "luth/renderer/material/Material.h"
+#include "luth/tools/ScreenshotHarness.h"
 #include "luth/core/time/Timer.h"
 
 #include <Jolt/Jolt.h>
@@ -221,6 +225,16 @@ namespace Luth
             if (auto* h = EditorHooks::Get()) h->ShowProjectLauncher();
         }
 
+        // Capture mode loads its scene explicitly: there is no editor to restore lastSceneUUID, and the
+        // requested scene has to win regardless. Must follow LoadProject so asset UUIDs resolve.
+        if (m_Harness.IsActive())
+        {
+            if (LoadScene(m_Harness.scenePath))
+                m_ScreenshotHarness = std::make_unique<ScreenshotHarness>(m_Harness);
+            else
+                m_Running = false;
+        }
+
         EventBus::Subscribe<WindowResizeEvent>(BusType::MainThread, [this](Event& e) {
             OnWindowResize(static_cast<WindowResizeEvent&>(e));
         });
@@ -374,6 +388,11 @@ namespace Luth
                     cp.gizmoFogColor          = viewState.gizmoFogColor;
                     cp.gizmoWindColor         = viewState.gizmoWindColor;
                 }
+
+                // Capture mode owns the primary camera; until the scene resolves, cp stays default and the
+                // frame renders an empty view, which is fine because those frames are not captured.
+                if (m_ScreenshotHarness) m_ScreenshotHarness->ResolveCamera(cp);
+
                 rs->SetCameraParams(cp);
             }
 
@@ -420,6 +439,11 @@ namespace Luth
             // PickingSystem reads back the EntityID texture written by the render stage, so it must follow
             // RenderReady. EndFrame is a no-op today (Submit + Present happens inside the render stage).
             SystemRegistry::Update<PickingSystem>();
+
+            // Same placement rationale as picking: the render stage has finished writing the view's targets.
+            if (m_ScreenshotHarness && m_ScreenshotHarness->CaptureIfReady())
+                m_Running = false;
+
             Renderer::EndFrame();
 
             // ---- Advance Frame ----
@@ -559,6 +583,15 @@ namespace Luth
 
         if (auto* h = EditorHooks::Get()) h->OnProjectChanged();
 
+        // RenderPipeline::Initialize ran before any project existed, so IBL is still the dummy-cubemap
+        // fallback. The editor re-bakes via OnProjectChanged; without hooks nothing does, leaving a
+        // headless runtime with no ambient and no skybox.
+        if (!EditorHooks::Get())
+        {
+            if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
+                rs->ReloadSkybox(FileSystem::ResolveAsset("textures/environment.hdr"));
+        }
+
         // Notify systems that depend on project paths (e.g. shader hot-reload watcher)
         if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
             rs->OnProjectLoaded();
@@ -574,6 +607,41 @@ namespace Luth
     }
 
     // ---- Utility ----
+
+    // Engine-side scene open. The editor has its own path through Editor::OpenScene; this exists so a
+    // hookless runtime can load a scene at all.
+    bool App::LoadScene(const fs::path& scenePath)
+    {
+        if (!fs::exists(scenePath)) {
+            LH_CORE_ERROR("Scene not found: {}", scenePath.string());
+            return false;
+        }
+        if (!SceneSerializer::Load(*m_Scene, scenePath)) {
+            LH_CORE_ERROR("Failed to load scene: {}", scenePath.string());
+            return false;
+        }
+
+        // Deserializing only records UUIDs; AssetManager::GetAsset is a pure cache lookup and never
+        // triggers a load, so without this kick nothing the scene references ever streams in. The editor
+        // does the same walk in Editor::OpenScene.
+        auto view = m_Scene->GetAllEntitiesWith<Component::MeshRenderer>();
+        for (auto entity : view) {
+            const auto& mr = view.get<Component::MeshRenderer>(entity);
+            if (mr.ModelUUID.IsValid())
+                AssetManager::LoadAsync(mr.ModelUUID);
+            if (mr.MaterialUUID.IsValid()) {
+                auto mat = std::static_pointer_cast<Material>(AssetManager::LoadImmediate(mr.MaterialUUID));
+                if (mat) {
+                    for (const auto& mapInfo : mat->GetTextures())
+                        if (mapInfo.Uuid.IsValid())
+                            AssetManager::LoadAsync(mapInfo.Uuid);
+                }
+            }
+        }
+
+        LH_CORE_INFO("Scene loaded: '{}'", scenePath.string());
+        return true;
+    }
 
     // Flags are "--name value" pairs; the project is still selected positionally by the .luthproj scan in
     // the ctor, so it needs no flag of its own. Unknown tokens are ignored rather than fatal: argv also

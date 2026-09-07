@@ -51,6 +51,9 @@ namespace Luth
         // editor refresh in the right order; see LoadProject's body for the full sequence.
         void LoadProject(const std::filesystem::path& luthprojPath);
 
+        // Deserialize a scene into m_Scene. Must follow LoadProject so asset UUIDs resolve.
+        bool LoadScene(const std::filesystem::path& scenePath);
+
         // Stage entry points dispatched onto worker fibers from Run().
         // GameStage: Transform/Animation systems + CaptureSnapshot.
         // RenderStage: RenderingSystem record + submit.
@@ -65,6 +68,8 @@ namespace Luth
         FrameData m_FrameData;
 
         HarnessSpec m_Harness;
+        // Non-null only in capture mode; drives the offscreen view and stops the loop once written.
+        std::unique_ptr<class ScreenshotHarness> m_ScreenshotHarness;
 
         bool m_Running = true;
         bool m_ProjectLoaded = false;

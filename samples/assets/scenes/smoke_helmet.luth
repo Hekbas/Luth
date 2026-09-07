@@ -1,0 +1,84 @@
+{
+    "version": 1,
+    "entities": [
+        {
+            "active": true,
+            "directionalLight": {
+                "cascadeBlendWidth": 0.20000000298023224,
+                "castShadows": true,
+                "color": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "debugVisualizeCascades": false,
+                "intensity": 1.0,
+                "shadowBias": [
+                    0.004999999888241291,
+                    0.00800000037997961,
+                    0.012000000104308128,
+                    0.019999999552965164
+                ],
+                "shadowDistance": 200.0,
+                "shadowNormalBias": [
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "shadowOrthoSize": 200.0,
+                "splitLambda": 0.5,
+                "stabilizeCascades": true
+            },
+            "parent": "",
+            "tag": "Directional Light",
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    -45.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "uuid": "0d48eaa5-4c4b-4042-ace4-deac9a0758d4"
+        },
+        {
+            "active": true,
+            "meshRenderer": {
+                "isSkinned": false,
+                "materialUUID": "1e1ff722-ad98-43c4-9152-05402163cb7a",
+                "meshIndex": 0,
+                "modelUUID": "59a2612b-7241-45dd-9419-67d7e92f410f"
+            },
+            "parent": "",
+            "tag": "DamagedHelmet",
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "uuid": "b1a7c3e4-0000-4000-8000-000000000001"
+        }
+    ]
+}
