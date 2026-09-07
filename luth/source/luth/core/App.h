@@ -29,6 +29,10 @@ namespace Luth
         void Run();
         void Close();
 
+        // 0 = success, 1 = capture failed, 2 = captured but the engine logged errors. Only meaningful
+        // in capture mode; an interactive run always returns 0.
+        int GetExitCode() const { return m_ExitCode; }
+
         // Fills m_Harness as a side effect; the returned WindowSpec carries any window-affecting flags.
         WindowSpec ParseCommandLineArgs(int argc, char** argv);
         Window& GetWindow() { return *m_Window; }
@@ -70,6 +74,8 @@ namespace Luth
         HarnessSpec m_Harness;
         // Non-null only in capture mode; drives the offscreen view and stops the loop once written.
         std::unique_ptr<class ScreenshotHarness> m_ScreenshotHarness;
+        std::unique_ptr<class JsonLogSink>       m_JsonLog;
+        int m_ExitCode = 0;
 
         bool m_Running = true;
         bool m_ProjectLoaded = false;

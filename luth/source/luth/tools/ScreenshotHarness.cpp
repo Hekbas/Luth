@@ -149,10 +149,14 @@ namespace Luth
         // framed from any distance. The editor hides this because its sliders start elsewhere.
         out.enableVolumetricFog = false;
 
-        // Editor furniture would otherwise land in the output: the primary view draws the grid by default.
         if (!m_Resolved) {
-            if (auto* rs = SystemRegistry::GetSystem<RenderingSystem>())
+            if (auto* rs = SystemRegistry::GetSystem<RenderingSystem>()) {
+                // Editor furniture would otherwise land in the output.
                 rs->SetGridVisible(false);
+                // RenderingSystem is constructed with a hardcoded 1280x720 default and only ever resized
+                // by the editor's viewport, so a headless run must ask for the capture size itself.
+                rs->Resize(m_Spec.width, m_Spec.height);
+            }
             m_Resolved = true;
         }
         return true;

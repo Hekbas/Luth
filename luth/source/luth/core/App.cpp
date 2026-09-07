@@ -37,6 +37,7 @@
 #include "luth/scene/systems/AnimationSystem.h"
 #include "luth/scene/SceneSerializer.h"
 #include "luth/scene/Components.h"
+#include "luth/core/diagnostics/JsonLogSink.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/tools/ScreenshotHarness.h"
 #include "luth/core/time/Timer.h"
@@ -145,6 +146,15 @@ namespace Luth
 
     App::App(int argc, char** argv)
     {
+        // Parsed first so the JSON log sink can attach before any subsystem logs; the WindowSpec it
+        // returns is consumed further down, once the renderer is ready for a window.
+        WindowSpec ws = ParseCommandLineArgs(argc, argv);
+        if (!m_Harness.logPath.empty())
+        {
+            m_JsonLog = std::make_unique<JsonLogSink>();
+            Log::AddSink(m_JsonLog.get());
+        }
+
         // Core systems
         Memory::MemoryTracker::Init();
         Memory::TaggedPageAllocator::Get().Init();
@@ -171,7 +181,6 @@ namespace Luth
         AssetDatabase::ClearDirtyAssets();
 
         // Window + Renderer
-        WindowSpec ws = ParseCommandLineArgs(argc, argv);
         SetAppTitle(ws);
         m_Window = Window::Create(ws);
         Input::Init();
@@ -230,9 +239,14 @@ namespace Luth
         if (m_Harness.IsActive())
         {
             if (LoadScene(m_Harness.scenePath))
+            {
                 m_ScreenshotHarness = std::make_unique<ScreenshotHarness>(m_Harness);
+            }
             else
-                m_Running = false;
+            {
+                m_ExitCode = 1;
+                m_Running  = false;
+            }
         }
 
         EventBus::Subscribe<WindowResizeEvent>(BusType::MainThread, [this](Event& e) {
@@ -442,7 +456,10 @@ namespace Luth
 
             // Same placement rationale as picking: the render stage has finished writing the view's targets.
             if (m_ScreenshotHarness && m_ScreenshotHarness->CaptureIfReady())
+            {
+                if (m_ScreenshotHarness->Failed()) m_ExitCode = 1;
                 m_Running = false;
+            }
 
             Renderer::EndFrame();
 
@@ -454,6 +471,14 @@ namespace Luth
 
         OnShutdown();
         Close();
+
+        // After Close so teardown errors are counted; the exit code is final once Run returns.
+        if (m_JsonLog)
+        {
+            if (m_ExitCode == 0 && m_JsonLog->ErrorCount() > 0)
+                m_ExitCode = 2;
+            m_JsonLog->Flush(m_Harness.logPath);
+        }
     }
 
     // ---- Stage entry points ----
