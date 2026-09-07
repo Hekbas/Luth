@@ -49,6 +49,7 @@ namespace Luth
         // Set hints BEFORE creating the window
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+        glfwWindowHint(GLFW_VISIBLE, spec.Hidden ? GLFW_FALSE : GLFW_TRUE);
 
         GLFWmonitor* monitor = spec.Fullscreen ? glfwGetPrimaryMonitor() : nullptr;
 

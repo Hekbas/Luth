@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/core/types/LuthTypes.h"
+#include "luth/core/HarnessSpec.h"
 #include "luth/platform/Window.h"
 #include "luth/events/EventBus.h"
 #include "luth/events/AppEvent.h"
@@ -28,8 +29,10 @@ namespace Luth
         void Run();
         void Close();
 
+        // Fills m_Harness as a side effect; the returned WindowSpec carries any window-affecting flags.
         WindowSpec ParseCommandLineArgs(int argc, char** argv);
         Window& GetWindow() { return *m_Window; }
+        const HarnessSpec& GetHarnessSpec() const { return m_Harness; }
 
     protected:
         virtual void OnInit() {}
@@ -60,6 +63,8 @@ namespace Luth
 
         // Frame Pipelining
         FrameData m_FrameData;
+
+        HarnessSpec m_Harness;
 
         bool m_Running = true;
         bool m_ProjectLoaded = false;

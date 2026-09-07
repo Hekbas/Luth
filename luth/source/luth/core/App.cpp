@@ -41,6 +41,9 @@
 #include <Jolt/Core/Factory.h>
 #include <Jolt/RegisterTypes.h>
 
+#include <cstring>
+#include <cstdlib>
+
 namespace Luth
 {
     namespace
@@ -572,9 +575,41 @@ namespace Luth
 
     // ---- Utility ----
 
+    // Flags are "--name value" pairs; the project is still selected positionally by the .luthproj scan in
+    // the ctor, so it needs no flag of its own. Unknown tokens are ignored rather than fatal: argv also
+    // carries that positional path.
     WindowSpec App::ParseCommandLineArgs(int argc, char** argv)
     {
         WindowSpec spec;
+
+        auto wantsValue = [&](int i, const char* name) {
+            return std::strcmp(argv[i], name) == 0 && i + 1 < argc;
+        };
+        auto toU32 = [](const char* s, u32 fallback) -> u32 {
+            char* end = nullptr;
+            const unsigned long v = std::strtoul(s, &end, 10);
+            return (end && *end == '\0' && v > 0) ? static_cast<u32>(v) : fallback;
+        };
+
+        for (int i = 1; i < argc; ++i)
+        {
+            if      (wantsValue(i, "--scene"))  m_Harness.scenePath = argv[++i];
+            else if (wantsValue(i, "--shot"))   m_Harness.shotPath  = argv[++i];
+            else if (wantsValue(i, "--log"))    m_Harness.logPath   = argv[++i];
+            else if (wantsValue(i, "--width"))  m_Harness.width  = toU32(argv[++i], m_Harness.width);
+            else if (wantsValue(i, "--height")) m_Harness.height = toU32(argv[++i], m_Harness.height);
+            else if (wantsValue(i, "--frames")) m_Harness.warmupFrames = toU32(argv[++i], m_Harness.warmupFrames);
+        }
+
+        // Match the swapchain to the capture size so the unused primary view stays cheap, and keep the
+        // window off-screen: nobody is looking at it, and a visible flash would be noise in CI.
+        if (m_Harness.IsActive())
+        {
+            spec.Width  = m_Harness.width;
+            spec.Height = m_Harness.height;
+            spec.Hidden = true;
+        }
+
         return spec;
     }
 

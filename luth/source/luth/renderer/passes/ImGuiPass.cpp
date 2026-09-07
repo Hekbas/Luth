@@ -56,7 +56,13 @@ namespace Luth
             {
                 m_System.GetFrameDebugger().BeginCapturePass(ctx.passIndex, "ImGuiPass", "Backbuffer", false,
                     { "imgui", 0, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false, false, true });
-                ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), ctx.commandBuffer);
+                // ImGui::CreateContext lives in the editor, so a hookless runtime (LuthShot) has none and
+                // GetDrawData would deref a null GImGui. The pass still has to run: it owns the backbuffer
+                // import and the Present transition, so skipping it would strand the swapchain.
+                if (ImGui::GetCurrentContext()) {
+                    if (ImDrawData* drawData = ImGui::GetDrawData())
+                        ImGui_ImplVulkan_RenderDrawData(drawData, ctx.commandBuffer);
+                }
                 m_System.GetFrameDebugger().EndCapturePass();
             }
         );

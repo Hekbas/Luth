@@ -16,6 +16,9 @@ namespace Luth
         u32 Height = 900;
         bool VSync = false;
         bool Fullscreen = false;
+        // Offscreen tooling (LuthShot) still needs a real surface for the swapchain, so the window is
+        // created hidden rather than skipped; GLFW gives a valid surface either way.
+        bool Hidden = false;
     };
 
     class Window
