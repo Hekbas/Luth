@@ -72,10 +72,15 @@ namespace Luth
         FrameData m_FrameData;
 
         HarnessSpec m_Harness;
-        // Non-null only in capture mode; drives the offscreen view and stops the loop once written.
+        // Non-null in capture OR benchmark mode: it owns camera resolution and the offscreen resize
+        // that both jobs need, and writes the PNG only when --shot asked for one.
         std::unique_ptr<class ScreenshotHarness> m_ScreenshotHarness;
+        // Non-null only with --bench; owns the loop length when present, since the measurement window
+        // outlives the single frame a capture needs.
+        std::unique_ptr<class FrameBenchmark>    m_FrameBenchmark;
         std::unique_ptr<class JsonLogSink>       m_JsonLog;
-        int m_ExitCode = 0;
+        int  m_ExitCode = 0;
+        bool m_ShotDone = false;
 
         bool m_Running = true;
         bool m_ProjectLoaded = false;

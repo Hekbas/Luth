@@ -40,6 +40,7 @@
 #include "luth/core/diagnostics/JsonLogSink.h"
 #include "luth/renderer/material/Material.h"
 #include "luth/tools/ScreenshotHarness.h"
+#include "luth/tools/FrameBenchmark.h"
 #include "luth/core/time/Timer.h"
 
 #include <Jolt/Jolt.h>
@@ -185,6 +186,9 @@ namespace Luth
         m_Window = Window::Create(ws);
         Input::Init();
 
+        // Must precede Renderer::Init: the swapchain reads the preference when it first creates itself.
+        VulkanSwapchain::SetPreferredPresentMode(m_Harness.presentMode);
+
         Renderer::Init(m_Window->GetNativeWindow());
         Renderer::SetFrameData(&m_FrameData);
         ShaderLibrary::Init();
@@ -241,6 +245,8 @@ namespace Luth
             if (LoadScene(m_Harness.scenePath))
             {
                 m_ScreenshotHarness = std::make_unique<ScreenshotHarness>(m_Harness);
+                if (m_Harness.WantsBenchmark())
+                    m_FrameBenchmark = std::make_unique<FrameBenchmark>(m_Harness);
             }
             else
             {
@@ -455,10 +461,14 @@ namespace Luth
             SystemRegistry::Update<PickingSystem>();
 
             // Same placement rationale as picking: the render stage has finished writing the view's targets.
-            if (m_ScreenshotHarness && m_ScreenshotHarness->CaptureIfReady())
+            // With --bench the capture no longer ends the run: the measurement window outlives it, so the
+            // PNG lands at its warmup point and the benchmark keeps going.
+            if (m_ScreenshotHarness && m_Harness.WantsCapture() && !m_ShotDone
+                && m_ScreenshotHarness->CaptureIfReady())
             {
                 if (m_ScreenshotHarness->Failed()) m_ExitCode = 1;
-                m_Running = false;
+                m_ShotDone = true;
+                if (!m_FrameBenchmark) m_Running = false;
             }
 
             Renderer::EndFrame();
@@ -466,11 +476,26 @@ namespace Luth
             // ---- Advance Frame ----
             m_FrameData.Advance();
             EmitFrameProfilingPlots();   // plot the frame's accumulated counters before they reset
+
+            // Reads the same per-frame counters EmitFrameProfilingPlots does, so it must land before
+            // the reset below. Held shut until the camera resolves and streaming settles, so the
+            // window covers steady state rather than the load ramp.
+            if (m_FrameBenchmark)
+            {
+                const bool ready = m_ScreenshotHarness && m_ScreenshotHarness->IsResolved()
+                                && !AssetManager::AnyLoading();
+                if (m_FrameBenchmark->Sample(ready)) m_Running = false;
+            }
+
             JobSystem::ResetFrameStats();
         }
 
         OnShutdown();
         Close();
+
+        // Serializes buffered rows only, so it is safe after teardown and belongs with the log flush.
+        if (m_FrameBenchmark && !m_FrameBenchmark->Write() && m_ExitCode == 0)
+            m_ExitCode = 1;
 
         // After Close so teardown errors are counted; the exit code is final once Run returns.
         if (m_JsonLog)
@@ -684,15 +709,30 @@ namespace Luth
             return (end && *end == '\0' && v > 0) ? static_cast<u32>(v) : fallback;
         };
 
+        auto toPresent = [](const char* s, PresentMode fallback) -> PresentMode {
+            if (std::strcmp(s, "immediate") == 0) return PresentMode::Immediate;
+            if (std::strcmp(s, "mailbox")   == 0) return PresentMode::Mailbox;
+            if (std::strcmp(s, "fifo")      == 0) return PresentMode::Fifo;
+            return fallback;
+        };
+
         for (int i = 1; i < argc; ++i)
         {
             if      (wantsValue(i, "--scene"))  m_Harness.scenePath = argv[++i];
             else if (wantsValue(i, "--shot"))   m_Harness.shotPath  = argv[++i];
             else if (wantsValue(i, "--log"))    m_Harness.logPath   = argv[++i];
+            else if (wantsValue(i, "--bench"))  m_Harness.benchPath = argv[++i];
             else if (wantsValue(i, "--width"))  m_Harness.width  = toU32(argv[++i], m_Harness.width);
             else if (wantsValue(i, "--height")) m_Harness.height = toU32(argv[++i], m_Harness.height);
             else if (wantsValue(i, "--frames")) m_Harness.warmupFrames = toU32(argv[++i], m_Harness.warmupFrames);
+            else if (wantsValue(i, "--bench-frames")) m_Harness.benchFrames = toU32(argv[++i], m_Harness.benchFrames);
+            else if (wantsValue(i, "--present")) m_Harness.presentMode = toPresent(argv[++i], m_Harness.presentMode);
         }
+
+        // A benchmark measures render work, so default it off the presentation engine: Mailbox would
+        // otherwise charge frame pacing to acquire and flatter or distort the numbers.
+        if (m_Harness.WantsBenchmark() && m_Harness.presentMode == PresentMode::Default)
+            m_Harness.presentMode = PresentMode::Immediate;
 
         // Match the swapchain to the capture size so the unused primary view stays cheap, and keep the
         // window off-screen: nobody is looking at it, and a visible flash would be noise in CI.

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/core/types/LuthTypes.h"
+#include "luth/platform/Window.h"
 #include <vulkan/vulkan.h>
 #include <vector>
 
@@ -30,6 +31,10 @@ namespace Luth
         // time means the CPU is stalling on the presentation engine (vsync / present-bound).
         static f64 GetLastAcquireMs();
         static f64 GetLastPresentMs();
+
+        // Set before Init (LuthShot --present); unsupported requests fall back to Fifo. Static because
+        // the swapchain is built from a raw window handle inside Renderer::Init, with no spec to thread.
+        static void SetPreferredPresentMode(PresentMode mode);
 
         VkFormat GetImageFormat() const { return m_ImageFormat; }
         VkExtent2D GetExtent() const { return m_Extent; }

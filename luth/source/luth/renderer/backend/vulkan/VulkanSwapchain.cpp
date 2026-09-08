@@ -61,6 +61,20 @@ namespace Luth
         CreateImageViews();
     }
 
+    // Written once from App before Renderer::Init, read on every swapchain (re)create thereafter.
+    static PresentMode s_PreferredPresentMode = PresentMode::Default;
+    void VulkanSwapchain::SetPreferredPresentMode(PresentMode mode) { s_PreferredPresentMode = mode; }
+
+    static const char* PresentModeName(VkPresentModeKHR m)
+    {
+        switch (m) {
+            case VK_PRESENT_MODE_IMMEDIATE_KHR: return "Immediate";
+            case VK_PRESENT_MODE_MAILBOX_KHR:   return "Mailbox";
+            case VK_PRESENT_MODE_FIFO_KHR:      return "Fifo";
+            default:                            return "?";
+        }
+    }
+
     void VulkanSwapchain::CreateSurface()
     {
         if (glfwCreateWindowSurface(VulkanContext::Get().GetInstance(), (GLFWwindow*)m_WindowHandle, nullptr, &m_Surface) != VK_SUCCESS) {
@@ -108,13 +122,23 @@ namespace Luth
         }
         m_ImageFormat = surfaceFormat.format;
 
-        // Choose Present Mode (Prefer Mailbox)
+        // Choose Present Mode. Fifo is the only mode the spec guarantees, so it is both the default
+        // seed and the fallback for any request the driver does not advertise.
         VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
-        for (const auto& availablePresentMode : presentModes) {
-            if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
-                presentMode = availablePresentMode;
-                break;
-            }
+        {
+            auto supports = [&](VkPresentModeKHR m) {
+                return std::find(presentModes.begin(), presentModes.end(), m) != presentModes.end();
+            };
+            const PresentMode want = s_PreferredPresentMode;
+            if (want == PresentMode::Immediate && supports(VK_PRESENT_MODE_IMMEDIATE_KHR))
+                presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+            else if (want == PresentMode::Fifo)
+                presentMode = VK_PRESENT_MODE_FIFO_KHR;
+            else if (want != PresentMode::Fifo && supports(VK_PRESENT_MODE_MAILBOX_KHR))
+                presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+
+            if (want != PresentMode::Default)
+                LH_LOG(Renderer, info, "Swapchain present mode: {}", PresentModeName(presentMode));
         }
 
         // Extent

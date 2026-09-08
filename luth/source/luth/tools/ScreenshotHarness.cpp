@@ -131,6 +131,20 @@ namespace Luth
         return true;
     }
 
+    // An empty scene has no bounds to frame, which is a hard error for a screenshot but a legitimate
+    // request for a benchmark: the fixed per-frame cost of this pipeline is what an empty-scene run is
+    // measuring. Park the camera at the origin looking down -Z so the view is well-formed.
+    bool ScreenshotHarness::DefaultCamera(CameraParams& out)
+    {
+        const float aspect = static_cast<float>(m_Spec.width) / static_cast<float>(m_Spec.height);
+        out.position   = Vec3(0.0f, 1.0f, 5.0f);
+        out.view       = Math::LookAt(out.position, Vec3(0.0f, 1.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0f));
+        out.projection = Math::Perspective(Math::Radians(45.0f), aspect, 0.1f, 1000.0f);
+        out.nearZ      = 0.1f;
+        out.farZ       = 1000.0f;
+        return true;
+    }
+
     bool ScreenshotHarness::ResolveCamera(CameraParams& out)
     {
         if (m_Failed) return false;
@@ -138,11 +152,19 @@ namespace Luth
         if (!BuildCamera(out)) {
             // Expected while assets are still streaming; only a scene that never resolves is an error.
             if (++m_WaitFrames > k_MaxWaitFrames) {
-                LH_CORE_ERROR("ScreenshotHarness: no Camera entity and no drawable geometry after {} frames",
-                              k_MaxWaitFrames);
-                m_Failed = true;
+                if (m_Spec.WantsBenchmark() && !m_Spec.WantsCapture()) {
+                    if (!m_Resolved)
+                        LH_CORE_INFO("ScreenshotHarness: empty scene; benchmarking with the default camera");
+                    DefaultCamera(out);
+                }
+                else {
+                    LH_CORE_ERROR("ScreenshotHarness: no Camera entity and no drawable geometry after {} frames",
+                                  k_MaxWaitFrames);
+                    m_Failed = true;
+                    return false;
+                }
             }
-            return false;
+            else return false;
         }
 
         // CameraParams defaults volumetric fog on, and the engine's default density swallows a scene
