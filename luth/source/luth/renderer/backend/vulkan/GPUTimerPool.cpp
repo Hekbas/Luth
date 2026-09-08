@@ -142,19 +142,31 @@ namespace Luth
         outTimesMs.resize(passCount);
         if (result == VK_SUCCESS)
         {
+            u64 spanBegin = UINT64_MAX;
+            u64 spanEnd   = 0;
             for (u32 i = 0; i < passCount; i++)
             {
                 u64 begin = timestamps[i * 2];
                 u64 end   = timestamps[i * 2 + 1];
                 // Convert ticks to milliseconds: ticks * ns_per_tick / 1e6
                 outTimesMs[i] = static_cast<float>((end - begin) * (double)m_TimestampPeriod / 1e6);
+
+                // A pass whose queue never ran leaves a zeroed query; folding that into the span would
+                // stretch it back to tick 0.
+                if (begin == 0 || end == 0) continue;
+                spanBegin = std::min(spanBegin, begin);
+                spanEnd   = std::max(spanEnd, end);
             }
+            m_LastSpanMs = (spanEnd > spanBegin)
+                ? static_cast<float>((spanEnd - spanBegin) * (double)m_TimestampPeriod / 1e6)
+                : -1.0f;
         }
         else
         {
             // Results not ready or error: fill with -1
             for (u32 i = 0; i < passCount; i++)
                 outTimesMs[i] = -1.0f;
+            m_LastSpanMs = -1.0f;
         }
 
         m_FrameCounter++;

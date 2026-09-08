@@ -41,6 +41,12 @@ namespace Luth
         // Read results from 2 frames ago. Fills outTimesMs with per-pass durations in milliseconds.
         void ReadResults(u32 passCount, std::vector<float>& outTimesMs);
 
+        // Elapsed GPU time for the frame ReadResults last decoded: earliest begin to latest end across
+        // every pass, on every queue. Summing per-pass times answers a different question -- async
+        // compute overlaps graphics, so the sum overstates elapsed time, while barrier bubbles between
+        // passes make it understate. Only this span compares meaningfully against a CPU frame time.
+        float LastSpanMs() const { return m_LastSpanMs; }
+
         // Pipeline statistics (graphics passes only; async-compute queues can't run graphics stat
         // queries). Begin/End bracket the pass on the graphics primary and span its secondary via
         // inheritedQueries. Runtime-toggled + off by default; no-op when the device lacks support.
@@ -60,6 +66,7 @@ namespace Luth
         u32   m_MaxPasses      = 0;
         u64   m_FrameCounter   = 0;
         float m_TimestampPeriod = 0.0f;
+        float m_LastSpanMs     = -1.0f;
         bool  m_Initialized    = false;
         bool  m_StatsSupported = false;
 

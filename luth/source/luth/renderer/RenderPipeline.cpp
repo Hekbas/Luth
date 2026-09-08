@@ -668,6 +668,7 @@ namespace Luth
             timerIdx++;
         }
         m_GraphSnapshot.totalGpuTimeMs = totalMs;
+        m_GraphSnapshot.gpuSpanMs      = m_GPUTimers.LastSpanMs();
         m_GraphSnapshot.totalStats = total;
 
         // Wire the archive sink for this capture. The sink copies each tracked RT after the pass that writes it.

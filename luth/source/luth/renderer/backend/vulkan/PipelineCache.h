@@ -32,6 +32,11 @@ namespace Luth
         static void RecordCompile(f64 ms);
         static CompileStats ConsumeFrameStats();   // returns + zeroes the per-frame accumulators
 
+        // Monotonic lifetime count. Non-destructive, unlike ConsumeFrameStats, which the Tracy plots
+        // already own: a second consumer would race them for the same values. A benchmark watches this
+        // instead, because frames that compile a PSO are cold-cache outliers, not steady state.
+        static u64 TotalCompiles();
+
     private:
         static VkPipelineCache s_Cache;
     };

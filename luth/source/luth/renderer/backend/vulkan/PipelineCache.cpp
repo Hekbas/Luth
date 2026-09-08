@@ -124,9 +124,14 @@ namespace Luth
     static std::atomic<u64> s_CompileTotalNs{ 0 };
     static std::atomic<u64> s_CompileMaxNs{ 0 };
 
+    // Never reset, so a consumer can diff it across frames without fighting ConsumeFrameStats.
+    static std::atomic<u64> s_CompileTotal{ 0 };
+    u64 PipelineCache::TotalCompiles() { return s_CompileTotal.load(std::memory_order_relaxed); }
+
     void PipelineCache::RecordCompile(f64 ms)
     {
         const u64 ns = static_cast<u64>(ms * 1.0e6);
+        s_CompileTotal.fetch_add(1, std::memory_order_relaxed);
         s_CompileCount.fetch_add(1, std::memory_order_relaxed);
         s_CompileTotalNs.fetch_add(ns, std::memory_order_relaxed);
         for (u64 prev = s_CompileMaxNs.load(std::memory_order_relaxed);
