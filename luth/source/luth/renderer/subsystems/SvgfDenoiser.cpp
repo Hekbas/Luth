@@ -675,7 +675,7 @@ namespace Luth
         // current-frame inputs (DI/depth/normal/motion) come in through the RG; the curr history images
         // are imported here and their handles (hColor/hMom) thread into the moments read.
         struct ReprojData {
-            RG::ResourceHandle di, depth, normal, motion;
+            RG::ResourceHandle di, depth, normal, motion, matId;
             RG::ResourceHandle color, mom;
         };
         RG::ResourceHandle hColor{}, hMom{};
@@ -687,6 +687,10 @@ namespace Luth
                 if (in.depth.IsValid())  data.depth  = builder.ReadStorageImage(in.depth);
                 if (in.normal.IsValid()) data.normal = builder.ReadStorageImage(in.normal);
                 if (in.motion.IsValid()) data.motion = builder.ReadStorageImage(in.motion);
+                // b10 matID is bound for every channel, so it must be declared for every channel too:
+                // the slim pass leaves it COLOR_ATTACHMENT_OPTIMAL and only this read moves it to the
+                // SHADER_READ_ONLY the descriptor claims (VUID 09600).
+                if (in.materialID.IsValid()) data.matId = builder.ReadStorageImage(in.materialID);
 
                 ViewResources* vr = m_Pipeline->GetCurrentViewResources();
                 ChannelRefs c = Resolve(m_Channel, *vr);
@@ -804,12 +808,13 @@ namespace Luth
                     data.out   = builder.WriteStorageImage(hA[outPar]);
                     hA[outPar] = data.out;
 
-                    if (isFinal)
-                    {
-                        data.den = importTex(*c.denoised, "SvgfDenoised");
-                        data.den = builder.WriteStorageImage(data.den);
-                        hDen     = data.den;
-                    }
+                    // b4 svgfDenoised is bound on EVERY level (only the final one stores, via writeFinal),
+                    // so every level must declare it or the non-final dispatches see it still in the
+                    // SHADER_READ_ONLY the previous frame's consumer left, against a GENERAL descriptor.
+                    if (!hDen.IsValid())
+                        hDen = importTex(*c.denoised, "SvgfDenoised");
+                    data.den = builder.WriteStorageImage(hDen);
+                    hDen     = data.den;
                 },
                 [this, apc, inPar](AtrousData&, RG::RenderPassContext& ctx) {
                     VkCommandBuffer cmd = ctx.commandBuffer;

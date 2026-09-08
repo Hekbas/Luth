@@ -553,6 +553,64 @@ namespace Luth
         vr.volInScatterHistA   = makeVolume(TextureFormat::RGBA16F);
         vr.volInScatterHistB   = makeVolume(TextureFormat::RGBA16F);
 
+        // Name every per-view target so a validation layout/format complaint identifies it instead of
+        // printing a bare VkImage handle (RG transients are already named by RenderResourceCache).
+        {
+            auto name = [](const std::shared_ptr<Texture>& t, const char* n) { if (t) t->SetDebugName(n); };
+            auto namePair = [&](std::shared_ptr<Texture>* a, const char* n) {
+                char buf[64];
+                for (u32 i = 0; i < 2; ++i) { std::snprintf(buf, sizeof(buf), "%s%u", n, i); name(a[i], buf); }
+            };
+            for (u32 i = 0; i < ViewResources::kBloomMipCount; ++i)
+            {
+                char buf[32]; std::snprintf(buf, sizeof(buf), "BloomMip%u", i);
+                name(vr.bloomMip[i], buf);
+            }
+            name(vr.taaHistoryA, "TaaHistoryA");
+            name(vr.taaHistoryB, "TaaHistoryB");
+            name(vr.refractionBackdrop, "RefractionBackdrop");
+            name(vr.sunShadowMask, "SunShadowMask");
+            name(vr.restirDI, "RestirDI");
+            name(vr.restirDISpec, "RestirDISpec");
+            name(vr.restirGiDI, "RestirGiDI");
+            name(vr.ptAccum, "PtAccum");
+            name(vr.ptColor, "PtColor");
+            name(vr.reflRadiance, "ReflRadiance");
+            name(vr.oitHeads, "OitHeads");
+            name(vr.gtaoLinearDepth, "GtaoLinearDepth");
+            name(vr.gtaoRawAO, "GtaoRawAO");
+            name(vr.gtaoEdges, "GtaoEdges");
+            name(vr.gtaoFinal, "GtaoFinal");
+            name(vr.volDensity, "VolDensity");
+            name(vr.volInScatter, "VolInScatter");
+            name(vr.volInScatterHistA, "VolInScatterHistA");
+            name(vr.volInScatterHistB, "VolInScatterHistB");
+            name(vr.svgfDenoised, "SvgfDenoised");
+            name(vr.svgfDiHalf, "SvgfDiHalf");
+            name(vr.svgfGiDenoised, "SvgfGiDenoised");
+            name(vr.svgfGiHalf, "SvgfGiHalf");
+            name(vr.svgfSpecDenoised, "SvgfSpecDenoised");
+            name(vr.svgfSpecHalf, "SvgfSpecHalf");
+            name(vr.svgfDiSpecDenoised, "SvgfDiSpecDenoised");
+            name(vr.svgfDiSpecHalf, "SvgfDiSpecHalf");
+            namePair(vr.svgfColorHist, "SvgfColorHist");
+            namePair(vr.svgfMoments, "SvgfMoments");
+            namePair(vr.svgfGeom, "SvgfGeom");
+            namePair(vr.svgfAtrous, "SvgfAtrous");
+            namePair(vr.svgfGiColorHist, "SvgfGiColorHist");
+            namePair(vr.svgfGiMoments, "SvgfGiMoments");
+            namePair(vr.svgfGiGeom, "SvgfGiGeom");
+            namePair(vr.svgfGiAtrous, "SvgfGiAtrous");
+            namePair(vr.svgfSpecColorHist, "SvgfSpecColorHist");
+            namePair(vr.svgfSpecMoments, "SvgfSpecMoments");
+            namePair(vr.svgfSpecGeom, "SvgfSpecGeom");
+            namePair(vr.svgfSpecAtrous, "SvgfSpecAtrous");
+            namePair(vr.svgfDiSpecColorHist, "SvgfDiSpecColorHist");
+            namePair(vr.svgfDiSpecMoments, "SvgfDiSpecMoments");
+            namePair(vr.svgfDiSpecGeom, "SvgfDiSpecGeom");
+            namePair(vr.svgfDiSpecAtrous, "SvgfDiSpecAtrous");
+        }
+
         // Bootstrap clear: freshly-allocated VMA storage images have UNDEFINED layout and undefined
         // pixel content. The volumetric resolve samples volInScatterHist{A,B} and the SVGF reproject
         // imageLoads its prev history on frame 0; without this clear the first read is NaN-prone garbage

@@ -133,6 +133,13 @@ namespace Luth
         // No-op for bindless
     }
 
+    void VKTexture::SetDebugName(const char* name)
+    {
+        if (!name) return;
+        VulkanContext::SetDebugName(m_Image, name);
+        VulkanContext::SetDebugName(m_ImageView, name);
+    }
+
     // ---- CreateImage ----
 
     void VKTexture::CreateImage(const void* data)
