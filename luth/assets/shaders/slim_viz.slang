@@ -3,7 +3,7 @@
 [[vk::binding(0, 0)]] Sampler2D       u_SlimNormal;      // RG16F oct
 [[vk::binding(1, 0)]] Sampler2D       u_SlimRoughness;   // R8
 [[vk::binding(2, 0)]] Sampler2D       u_SlimMotion;      // RG16F NDC delta
-[[vk::binding(3, 0)]] Sampler2D<uint> u_SlimMaterialID;  // R16U
+[[vk::binding(3, 0)]] [[vk::image_format("r16ui")]] Sampler2D<uint> u_SlimMaterialID;  // R16U
 
 struct PC { uint mode; float scale; };
 [[vk::push_constant]] PC pc;

@@ -157,6 +157,12 @@ namespace Luth
         sampCI.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         vkCreateSampler(device, &sampCI, nullptr, &m_Sampler);
 
+        // Nearest for the reproject b10 matID binding (R16_UINT: integer formats lack
+        // SAMPLED_IMAGE_FILTER_LINEAR_BIT, so the LINEAR sampler above trips VUID 04553).
+        sampCI.magFilter = VK_FILTER_NEAREST;
+        sampCI.minFilter = VK_FILTER_NEAREST;
+        vkCreateSampler(device, &sampCI, nullptr, &m_NearestSampler);
+
         // Passthrough set (pass-local): b0 demodulated-DI sampler, b1 output storage image.
         {
             VkDescriptorSetLayoutBinding b[2]{};
@@ -277,7 +283,8 @@ namespace Luth
         m_ReprojectPipeline.reset();
         m_MomentsPipeline.reset();
         m_AtrousPipeline.reset();
-        if (m_Sampler)         vkDestroySampler(device, m_Sampler, nullptr);
+        if (m_Sampler)        vkDestroySampler(device, m_Sampler, nullptr);
+        if (m_NearestSampler) vkDestroySampler(device, m_NearestSampler, nullptr);
         if (m_PassLayout)      vkDestroyDescriptorSetLayout(device, m_PassLayout, nullptr);
         if (m_ReprojectLayout) vkDestroyDescriptorSetLayout(device, m_ReprojectLayout, nullptr);
         if (m_MomentsLayout)   vkDestroyDescriptorSetLayout(device, m_MomentsLayout, nullptr);
@@ -479,7 +486,7 @@ namespace Luth
                 info[7]  = { VK_NULL_HANDLE, viewOf(c.colorHist[p]), VK_IMAGE_LAYOUT_GENERAL };
                 info[8]  = { VK_NULL_HANDLE, viewOf(c.moments[p]),   VK_IMAGE_LAYOUT_GENERAL };
                 info[9]  = { VK_NULL_HANDLE, viewOf(c.geom[p]),      VK_IMAGE_LAYOUT_GENERAL };
-                info[10] = { m_Sampler, matIdV,  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+                info[10] = { m_NearestSampler, matIdV,  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 
                 VkWriteDescriptorSet w[11]{};
                 for (u32 i = 0; i < 11; ++i)
