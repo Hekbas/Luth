@@ -345,11 +345,20 @@ namespace Luth
             if (!found) return false;
         }
 
-        // BC block compression is mandatory: imported material textures are baked to BCn and sampled
-        // natively. Every RT-capable desktop GPU supports it, so this rejects nothing new.
+        // Mandatory shader capabilities. BC block compression: imported material textures are baked to
+        // BCn and sampled natively. Int64/Int16/fragmentStoresAndAtomics + the 1.2 shaderFloat16 below
+        // are declared by the shipped shader corpus, so a device without them cannot create the modules
+        // at all. Every RT-capable desktop GPU supports the set, so this rejects nothing new.
         VkPhysicalDeviceFeatures feats{};
         vkGetPhysicalDeviceFeatures(device, &feats);
-        if (!feats.textureCompressionBC) return false;
+        if (!feats.textureCompressionBC || !feats.shaderInt64 || !feats.shaderInt16
+            || !feats.fragmentStoresAndAtomics) return false;
+
+        VkPhysicalDeviceVulkan12Features f12{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+        VkPhysicalDeviceFeatures2 f2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+        f2.pNext = &f12;
+        vkGetPhysicalDeviceFeatures2(device, &f2);
+        if (!f12.shaderFloat16) return false;
 
         u32 famCount = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(device, &famCount, nullptr);
@@ -596,6 +605,12 @@ namespace Luth
         deviceFeatures.fillModeNonSolid = VK_TRUE;
         deviceFeatures.independentBlend = VK_TRUE;
         deviceFeatures.textureCompressionBC = VK_TRUE; // BCn sampling for import-baked textures
+        // Shader capabilities the corpus already declares: Int64 from the GPUObjectData BDA pointers
+        // (skinned vertex path), Int16 + Float16 from the packed-half ReSTIR reservoirs and the SVGF
+        // f32tof16 matID gate, fragment stores/atomics from the PPLL OIT store + resolve.
+        deviceFeatures.shaderInt64 = VK_TRUE;
+        deviceFeatures.shaderInt16 = VK_TRUE;
+        deviceFeatures.fragmentStoresAndAtomics = VK_TRUE;
         // Per-pass GPU pipeline statistics (overdraw / geometry counts) for the editor profiler, enabled
         // only when supported; spanning secondary cmd buffers also needs inheritedQueries. GPUTimerPool gates
         // collection on SupportsPipelineStats(), so an unsupported GPU degrades cleanly to timing-only.
@@ -634,6 +649,9 @@ namespace Luth
         // scalarBlockLayout: skinning.slang reads the tight 84 B SkinnedVertex VB directly via a scalar
         // buffer_reference (no padded skin-input copy).
         features12.scalarBlockLayout = VK_TRUE;
+
+        // Float16 pairs with the base shaderInt16 above; the half-packed reservoirs declare both.
+        features12.shaderFloat16 = VK_TRUE;
 
         // Vulkan 1.3 Features (Dynamic Rendering, Synchronization2)
         VkPhysicalDeviceVulkan13Features features13{};

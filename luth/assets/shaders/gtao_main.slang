@@ -54,10 +54,10 @@ float3 ReconstructNormal(float2 uv, float3 posC, float viewZ)
     float2 uvT = uv - float2(0.0, ir.y);
     float2 uvB = uv + float2(0.0, ir.y);
 
-    float zL = u_LinearDepth.Sample(uvL).r;
-    float zR = u_LinearDepth.Sample(uvR).r;
-    float zT = u_LinearDepth.Sample(uvT).r;
-    float zB = u_LinearDepth.Sample(uvB).r;
+    float zL = u_LinearDepth.SampleLevel(uvL, 0.0).r;
+    float zR = u_LinearDepth.SampleLevel(uvR, 0.0).r;
+    float zT = u_LinearDepth.SampleLevel(uvT, 0.0).r;
+    float zB = u_LinearDepth.SampleLevel(uvB, 0.0).r;
 
     float3 pL = ComputeViewspacePosition(uvL, zL);
     float3 pR = ComputeViewspacePosition(uvR, zR);
@@ -78,7 +78,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     if (coord.x >= size.x || coord.y >= size.y) return;
 
     float2 uv    = (float2(coord) + 0.5) * g.invResolution;
-    float  viewZ = u_LinearDepth.Sample(uv).r;
+    float  viewZ = u_LinearDepth.SampleLevel(uv, 0.0).r;
 
     if (viewZ >= pc.farZ * 0.999) { u_RawAO[coord] = 1.0; return; }
 
@@ -147,8 +147,8 @@ void main(uint3 tid : SV_DispatchThreadID)
 
             bool  valid0 = uv0.x >= 0.0 && uv0.x <= 1.0 && uv0.y >= 0.0 && uv0.y <= 1.0;
             bool  valid1 = uv1.x >= 0.0 && uv1.x <= 1.0 && uv1.y >= 0.0 && uv1.y <= 1.0;
-            float z0     = valid0 ? u_LinearDepth.Sample(uv0).r : pc.farZ;
-            float z1     = valid1 ? u_LinearDepth.Sample(uv1).r : pc.farZ;
+            float z0     = valid0 ? u_LinearDepth.SampleLevel(uv0, 0.0).r : pc.farZ;
+            float z1     = valid1 ? u_LinearDepth.SampleLevel(uv1, 0.0).r : pc.farZ;
 
             float3 sPos0   = ComputeViewspacePosition(uv0, z0);
             float3 sPos1   = ComputeViewspacePosition(uv1, z1);

@@ -22,7 +22,7 @@ import svgf_common;
 [[vk::binding(7, 1)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> outColor;         // curr color + variance
 [[vk::binding(8, 1)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> outMoments;       // curr (mu1, mu2, histLen)
 [[vk::binding(9, 1)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> outGeom;          // curr (linearZ, octN.x, octN.y, matID)
-[[vk::binding(10, 1)]] Sampler2D<uint> u_MatId;  // slim material ID (R16U), history material gate
+[[vk::binding(10, 1)]] [[vk::image_format("r16ui")]] Sampler2D<uint> u_MatId;  // slim material ID (R16U), history material gate
 
 struct PC
 {

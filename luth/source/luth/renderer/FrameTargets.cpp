@@ -17,6 +17,18 @@ namespace Luth
         m_SlimRoughness  = Texture::Create(width, height, TextureFormat::R8);
         m_SlimMotion     = Texture::Create(width, height, TextureFormat::RG16F);
         m_SlimMaterialID = Texture::Create(width, height, TextureFormat::R16_Uint);
+
+        // Named so a validation layout/format complaint identifies the target instead of a bare handle.
+        m_SceneColor->SetDebugName("SceneColor");
+        m_SceneDepth->SetDebugName("SceneDepth");
+        m_LDROutput->SetDebugName("LDROutput");
+        m_EntityIDBuffer->SetDebugName("EntityIDBuffer");
+        m_SelectionMask->SetDebugName("SelectionMask");
+        m_SelectionDepth->SetDebugName("SelectionDepth");
+        m_SlimNormal->SetDebugName("SlimNormal");
+        m_SlimRoughness->SetDebugName("SlimRoughness");
+        m_SlimMotion->SetDebugName("SlimMotion");
+        m_SlimMaterialID->SetDebugName("SlimMaterialID");
     }
 
     void FrameTargets::Resize(u32 width, u32 height)

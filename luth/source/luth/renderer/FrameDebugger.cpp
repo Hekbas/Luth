@@ -39,41 +39,14 @@ namespace Luth
             return f == RG::TextureFormat::D32_Float || f == RG::TextureFormat::D24_Unorm_S8_Uint;
         }
 
-        VkImageLayout StateToLayout(RG::ResourceState s)
-        {
-            using S = RG::ResourceState;
-            switch (s)
-            {
-                case S::ColorAttachment:        return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                case S::DepthStencilAttachment: return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-                case S::ShaderResource:         return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                case S::ComputeRead:            return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                case S::ComputeWrite:           return VK_IMAGE_LAYOUT_GENERAL;
-                case S::TransferSrc:            return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-                case S::TransferDst:            return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-                default:                         return VK_IMAGE_LAYOUT_UNDEFINED;
-            }
-        }
-
+        // Both mappings come from the graph's own tables: the archive sink has to restore the source RT
+        // to exactly the layout/stage the solver believes it is in, and hand-rolled copies here silently
+        // went stale as new ResourceStates landed. see arch/rendering-pipeline.md
         struct StageAccess { VkPipelineStageFlags2 stage; VkAccessFlags2 access; };
         StageAccess StateToStageAccess(RG::ResourceState s)
         {
-            using S = RG::ResourceState;
-            switch (s)
-            {
-                case S::ColorAttachment:
-                    return { VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT };
-                case S::DepthStencilAttachment:
-                    return { VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-                              VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT };
-                case S::ComputeWrite:
-                    return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT };
-                case S::ShaderResource:
-                case S::ComputeRead:
-                    return { VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT };
-                default:
-                    return { VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0 };
-            }
+            auto [stage, access] = RG::RenderGraph::GetStateInfo(s);
+            return { stage, access };
         }
 
         // Allocate a fresh ArchivedImage matching the source's subresource extent.
@@ -134,7 +107,7 @@ namespace Luth
                               RG::QueueFamily queueFamily)
         {
             VkImageAspectFlags aspect = dst.isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
-            VkImageLayout srcLayout = StateToLayout(srcState);
+            VkImageLayout srcLayout = RG::RenderGraph::GetLayout(srcState);
             StageAccess srcSA = StateToStageAccess(srcState);
 
             // When the pass executed on the compute primary, the post-copy barrier's dstStageMask (which targets

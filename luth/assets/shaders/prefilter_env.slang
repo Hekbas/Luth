@@ -32,6 +32,14 @@ float3 ImportanceSampleGGX(float2 Xi, float3 N, float roughness)
     return normalize(tangent * H.x + bitangent * H.y + N * H.z);
 }
 
+float DistributionGGX(float NdotH, float roughness)
+{
+    float a  = roughness * roughness;
+    float a2 = a * a;
+    float d  = NdotH * NdotH * (a2 - 1.0) + 1.0;
+    return a2 / (PI * d * d);
+}
+
 float3 GetCubemapDirection(uint face, float2 uv)
 {
     float2 st = uv * 2.0 - 1.0;
@@ -63,6 +71,14 @@ void main(uint3 tid : SV_DispatchThreadID)
     float  totalWeight = 0.0;
     float3 prefilteredColor = float3(0.0);
     const uint SAMPLE_COUNT = 1024u;
+
+    // Source-mip selection from the GGX pdf (Krivanek/Colbert 2008): a sample covering a wide solid
+    // angle reads a coarser mip, so sparse high-roughness taps pre-average instead of aliasing into
+    // fireflies. Compute needs an explicit LOD (no implicit derivatives), and LOD 0 is the firefly case.
+    uint envW, envH;
+    envMap.GetDimensions(envW, envH);
+    const float saTexel = 4.0 * PI / (6.0 * float(envW) * float(envH));
+
     for (uint i = 0u; i < SAMPLE_COUNT; ++i)
     {
         float2 Xi = Hammersley(i, SAMPLE_COUNT);
@@ -71,7 +87,13 @@ void main(uint3 tid : SV_DispatchThreadID)
         float NdotL = max(dot(N, L), 0.0);
         if (NdotL > 0.0)
         {
-            prefilteredColor += envMap.Sample(L).rgb * NdotL;
+            // V == R == N here, so HdotV and NdotH are the same dot product.
+            float NdotH    = max(dot(N, H), 0.0);
+            float pdf      = DistributionGGX(NdotH, pc.roughness) * NdotH / (4.0 * NdotH) + 0.0001;
+            float saSample = 1.0 / (float(SAMPLE_COUNT) * pdf + 0.0001);
+            float mip      = pc.roughness == 0.0 ? 0.0 : 0.5 * log2(saSample / saTexel);
+
+            prefilteredColor += envMap.SampleLevel(L, max(mip, 0.0)).rgb * NdotL;
             totalWeight += NdotL;
         }
     }

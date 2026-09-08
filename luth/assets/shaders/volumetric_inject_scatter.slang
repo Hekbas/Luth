@@ -88,7 +88,7 @@ float SampleCSM(float3 worldPos, uint cascade)
         return 1.0;
     float2 uv = ndc.xy * 0.5 + 0.5;
     float depthRef = ndc.z - ubo.shadowBias[cascade];
-    return shadowMap.SampleCmp(float3(uv, float(cascade)), depthRef);
+    return shadowMap.SampleCmpLevelZero(float3(uv, float(cascade)), depthRef);
 }
 
 // World->atlas UVW for sun-ray density sampling; .w = 0 when outside the camera frustum atlas.

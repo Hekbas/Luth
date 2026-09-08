@@ -46,6 +46,8 @@ namespace Luth
         virtual int GetMipLevels() const override { return m_MipLevels; }
         virtual void GenerateMipmaps() override {}
 
+        virtual void SetDebugName(const char* name) override;
+
         VkImage GetImage() const { return m_Image; }
         VkImageView GetImageView() const { return m_ImageView; }
         VkSampler GetSampler() const { return m_Sampler; }

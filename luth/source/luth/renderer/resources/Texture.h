@@ -104,6 +104,10 @@ namespace Luth
         
         virtual u32 GetBindlessIndex() const { return 0; }
 
+        // Tags the backing GPU image + view so validation messages and RenderDoc name the target
+        // instead of printing a bare handle. No-op outside a debug-utils-capable backend.
+        virtual void SetDebugName(const char* name) { (void)name; }
+
         // No path overload; the asset pipeline uses the data-taking form.
         static std::shared_ptr<Texture> Create(u32 width, u32 height,
             TextureFormat format, const void* data = nullptr);

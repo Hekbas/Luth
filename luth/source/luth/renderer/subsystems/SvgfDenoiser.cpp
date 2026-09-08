@@ -157,6 +157,12 @@ namespace Luth
         sampCI.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         vkCreateSampler(device, &sampCI, nullptr, &m_Sampler);
 
+        // Nearest for the reproject b10 matID binding (R16_UINT: integer formats lack
+        // SAMPLED_IMAGE_FILTER_LINEAR_BIT, so the LINEAR sampler above trips VUID 04553).
+        sampCI.magFilter = VK_FILTER_NEAREST;
+        sampCI.minFilter = VK_FILTER_NEAREST;
+        vkCreateSampler(device, &sampCI, nullptr, &m_NearestSampler);
+
         // Passthrough set (pass-local): b0 demodulated-DI sampler, b1 output storage image.
         {
             VkDescriptorSetLayoutBinding b[2]{};
@@ -277,7 +283,8 @@ namespace Luth
         m_ReprojectPipeline.reset();
         m_MomentsPipeline.reset();
         m_AtrousPipeline.reset();
-        if (m_Sampler)         vkDestroySampler(device, m_Sampler, nullptr);
+        if (m_Sampler)        vkDestroySampler(device, m_Sampler, nullptr);
+        if (m_NearestSampler) vkDestroySampler(device, m_NearestSampler, nullptr);
         if (m_PassLayout)      vkDestroyDescriptorSetLayout(device, m_PassLayout, nullptr);
         if (m_ReprojectLayout) vkDestroyDescriptorSetLayout(device, m_ReprojectLayout, nullptr);
         if (m_MomentsLayout)   vkDestroyDescriptorSetLayout(device, m_MomentsLayout, nullptr);
@@ -479,7 +486,7 @@ namespace Luth
                 info[7]  = { VK_NULL_HANDLE, viewOf(c.colorHist[p]), VK_IMAGE_LAYOUT_GENERAL };
                 info[8]  = { VK_NULL_HANDLE, viewOf(c.moments[p]),   VK_IMAGE_LAYOUT_GENERAL };
                 info[9]  = { VK_NULL_HANDLE, viewOf(c.geom[p]),      VK_IMAGE_LAYOUT_GENERAL };
-                info[10] = { m_Sampler, matIdV,  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+                info[10] = { m_NearestSampler, matIdV,  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 
                 VkWriteDescriptorSet w[11]{};
                 for (u32 i = 0; i < 11; ++i)
@@ -668,7 +675,7 @@ namespace Luth
         // current-frame inputs (DI/depth/normal/motion) come in through the RG; the curr history images
         // are imported here and their handles (hColor/hMom) thread into the moments read.
         struct ReprojData {
-            RG::ResourceHandle di, depth, normal, motion;
+            RG::ResourceHandle di, depth, normal, motion, matId;
             RG::ResourceHandle color, mom;
         };
         RG::ResourceHandle hColor{}, hMom{};
@@ -680,6 +687,10 @@ namespace Luth
                 if (in.depth.IsValid())  data.depth  = builder.ReadStorageImage(in.depth);
                 if (in.normal.IsValid()) data.normal = builder.ReadStorageImage(in.normal);
                 if (in.motion.IsValid()) data.motion = builder.ReadStorageImage(in.motion);
+                // b10 matID is bound for every channel, so it must be declared for every channel too:
+                // the slim pass leaves it COLOR_ATTACHMENT_OPTIMAL and only this read moves it to the
+                // SHADER_READ_ONLY the descriptor claims (VUID 09600).
+                if (in.materialID.IsValid()) data.matId = builder.ReadStorageImage(in.materialID);
 
                 ViewResources* vr = m_Pipeline->GetCurrentViewResources();
                 ChannelRefs c = Resolve(m_Channel, *vr);
@@ -797,12 +808,13 @@ namespace Luth
                     data.out   = builder.WriteStorageImage(hA[outPar]);
                     hA[outPar] = data.out;
 
-                    if (isFinal)
-                    {
-                        data.den = importTex(*c.denoised, "SvgfDenoised");
-                        data.den = builder.WriteStorageImage(data.den);
-                        hDen     = data.den;
-                    }
+                    // b4 svgfDenoised is bound on EVERY level (only the final one stores, via writeFinal),
+                    // so every level must declare it or the non-final dispatches see it still in the
+                    // SHADER_READ_ONLY the previous frame's consumer left, against a GENERAL descriptor.
+                    if (!hDen.IsValid())
+                        hDen = importTex(*c.denoised, "SvgfDenoised");
+                    data.den = builder.WriteStorageImage(hDen);
+                    hDen     = data.den;
                 },
                 [this, apc, inPar](AtrousData&, RG::RenderPassContext& ctx) {
                     VkCommandBuffer cmd = ctx.commandBuffer;

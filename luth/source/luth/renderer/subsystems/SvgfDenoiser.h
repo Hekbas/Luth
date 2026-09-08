@@ -60,6 +60,7 @@ namespace Luth
         std::unique_ptr<VKComputePipeline> m_AtrousPipeline;
 
         VkSampler             m_Sampler        = VK_NULL_HANDLE;
+        VkSampler             m_NearestSampler = VK_NULL_HANDLE;  // reproject b10 matID (R16_UINT)
         VkDescriptorSetLayout m_PassLayout      = VK_NULL_HANDLE;  // passthrough set: b0 DI in, b1 out
         VkDescriptorSetLayout m_ReprojectLayout = VK_NULL_HANDLE;  // reproject set: b0-b3 in, b4-b9 history, b10 matID
         VkDescriptorSetLayout m_MomentsLayout   = VK_NULL_HANDLE;  // moments set: b0-b1 hist, b2-b3 samplers, b4 out

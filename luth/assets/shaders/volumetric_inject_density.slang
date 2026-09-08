@@ -116,7 +116,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     if (noiseStrength > 1e-4 && density > 1e-4)
     {
         float3 noiseUVW = worldPos * ubo.volNoiseParams.x + ubo.volNoiseWind.xyz * ubo.time * ubo.volNoiseParams.x;
-        float  n        = volNoise3D.Sample(noiseUVW).a;
+        float  n        = volNoise3D.SampleLevel(noiseUVW, 0.0).a;
         density *= lerp(1.0 - noiseStrength, 1.0 + noiseStrength, n);
     }
 

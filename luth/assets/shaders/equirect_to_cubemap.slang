@@ -38,6 +38,6 @@ void main(uint3 tid : SV_DispatchThreadID)
     float3 dir = GetCubemapDirection(uint(texCoord.z), uv);
     float2 equirectUV = DirectionToEquirect(dir);
 
-    float3 color = equirectMap.Sample(equirectUV).rgb;
+    float3 color = equirectMap.SampleLevel(equirectUV, 0.0).rgb;
     cubemapOut[uint3(texCoord)] = float4(color, 1.0);
 }

@@ -16,7 +16,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     float2 invRes = 1.0 / float2(size);
     float2 uv     = (float2(coord) + 0.5) * invRes;
 
-    float centerZ = u_LinearDepth.Sample(uv).r;
+    float centerZ = u_LinearDepth.SampleLevel(uv, 0.0).r;
 
     float sum    = 0.0;
     float weight = 0.0;
@@ -24,8 +24,8 @@ void main(uint3 tid : SV_DispatchThreadID)
     for (int dx = -1; dx <= 1; ++dx)
     {
         float2 sampleUV = uv + float2(dx, dy) * invRes;
-        float  sampleZ  = u_LinearDepth.Sample(sampleUV).r;
-        float  sampleAO = u_RawAO.Sample(sampleUV).r;
+        float  sampleZ  = u_LinearDepth.SampleLevel(sampleUV, 0.0).r;
+        float  sampleAO = u_RawAO.SampleLevel(sampleUV, 0.0).r;
 
         float relDZ = abs(sampleZ - centerZ) / max(centerZ, 0.01);
         float wz    = exp(-relDZ * relDZ * 100.0);

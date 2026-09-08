@@ -234,7 +234,7 @@ namespace Luth
                     VulkanContext::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
                         TransitionImage(cmd, envCubemap->GetImage(),
                             VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                            VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+                            VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                             envMips, 6);
                     });
