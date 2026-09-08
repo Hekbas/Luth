@@ -826,19 +826,26 @@ namespace Luth
 
         RG::RenderGraphSnapshot snapshot;
 
+        // The resource table and the per-pass read/write lists below are the expensive half of this
+        // function and only the Frame Debugger reads them; see SetSnapshotDetail.
+        const bool detail = SnapshotDetail();
+
         // Snapshot resources
         auto& resources = const_cast<RG::RenderGraph&>(rg).GetResources();
-        snapshot.resources.reserve(resources.size());
-        for (auto& res : resources)
+        if (detail)
         {
-            RG::ResourceSnapshot rs;
-            rs.name        = res.desc.name;
-            rs.width       = res.desc.width;
-            rs.height      = res.desc.height;
-            rs.format      = res.desc.format;
-            rs.isExternal  = res.external;
-            rs.isTransient = res.isTransient;
-            snapshot.resources.push_back(std::move(rs));
+            snapshot.resources.reserve(resources.size());
+            for (auto& res : resources)
+            {
+                RG::ResourceSnapshot rs;
+                rs.name        = res.desc.name;
+                rs.width       = res.desc.width;
+                rs.height      = res.desc.height;
+                rs.format      = res.desc.format;
+                rs.isExternal  = res.external;
+                rs.isTransient = res.isTransient;
+                snapshot.resources.push_back(std::move(rs));
+            }
         }
 
         // Snapshot passes
@@ -852,20 +859,23 @@ namespace Luth
             ps.numColorAttachments = (u32)pass.colorAttachments.size();
             ps.hasDepth            = pass.hasDepth;
 
-            for (auto& r : pass.reads)
+            if (detail)
             {
-                RG::PassSnapshotResource sr;
-                sr.index = r.index;
-                sr.name  = (r.index > 0 && r.index <= resources.size()) ? resources[r.index - 1].desc.name : "?";
-                ps.reads.push_back(std::move(sr));
-            }
+                for (auto& r : pass.reads)
+                {
+                    RG::PassSnapshotResource sr;
+                    sr.index = r.index;
+                    sr.name  = (r.index > 0 && r.index <= resources.size()) ? resources[r.index - 1].desc.name : "?";
+                    ps.reads.push_back(std::move(sr));
+                }
 
-            for (auto& w : pass.writes)
-            {
-                RG::PassSnapshotResource sw;
-                sw.index = w.index;
-                sw.name  = (w.index > 0 && w.index <= resources.size()) ? resources[w.index - 1].desc.name : "?";
-                ps.writes.push_back(std::move(sw));
+                for (auto& w : pass.writes)
+                {
+                    RG::PassSnapshotResource sw;
+                    sw.index = w.index;
+                    sw.name  = (w.index > 0 && w.index <= resources.size()) ? resources[w.index - 1].desc.name : "?";
+                    ps.writes.push_back(std::move(sw));
+                }
             }
 
             // Compute primaryOutputIndex from first color write, or depth if depth-only pass

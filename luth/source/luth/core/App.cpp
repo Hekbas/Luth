@@ -25,6 +25,7 @@
 #include "luth/jobs/MainThreadPump.h"
 #include "luth/core/diagnostics/Profiler.h"
 #include "luth/renderer/Renderer.h"
+#include "luth/renderer/RenderPipeline.h"
 #include "luth/renderer/shader/ShaderLibrary.h"
 #include "luth/renderer/backend/vulkan/PipelineCache.h"
 #include "luth/renderer/backend/vulkan/VulkanSwapchain.h"
@@ -486,6 +487,10 @@ namespace Luth
                                 && !AssetManager::AnyLoading();
                 if (m_FrameBenchmark->Sample(ready)) m_Running = false;
             }
+
+            // Consumers re-request each frame they draw; clearing here is what makes a closed panel
+            // stop paying for snapshot detail. see RenderPipeline::RequestSnapshotDetail
+            RenderPipeline::ClearSnapshotDetail();
 
             JobSystem::ResetFrameStats();
         }

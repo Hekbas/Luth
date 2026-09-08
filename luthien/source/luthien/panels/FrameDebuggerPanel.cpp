@@ -5,6 +5,7 @@
 #include "luthien/widgets/Widgets.h"
 #include "luthien/widgets/Icons.h"
 #include "luth/renderer/backend/vulkan/VulkanContext.h"
+#include "luth/renderer/RenderPipeline.h"
 
 #include <vulkan/vulkan.h>
 #include <backends/imgui_impl_vulkan.h>
@@ -295,9 +296,16 @@ namespace Luth
         }
 
         if (inCaptureView)
+        {
             DrawCaptureView(m_RS->GetCapturedFrame());
+        }
         else
+        {
+            // Live view is the only reader of the snapshot's resource table and per-pass read/write
+            // lists, and it must ask again every frame; see RenderPipeline::RequestSnapshotDetail.
+            RenderPipeline::RequestSnapshotDetail();
             DrawLiveView(m_RS->GetGraphSnapshot());
+        }
 
         ImGui::End();
     }
