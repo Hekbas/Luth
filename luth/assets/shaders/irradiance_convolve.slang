@@ -44,7 +44,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         {
             float3 tangentSample = float3(sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta));
             float3 sampleVec = tangentSample.x * right + tangentSample.y * up + tangentSample.z * N;
-            irradiance += envMap.Sample(sampleVec).rgb * cos(theta) * sin(theta);
+            irradiance += envMap.SampleLevel(sampleVec, 0.0).rgb * cos(theta) * sin(theta);
             sampleCount += 1.0;
         }
     }

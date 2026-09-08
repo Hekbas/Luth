@@ -60,7 +60,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         float  prevVZ    = DepthToViewZ(prevNDC.z, prevNearZ, prevFarZ);
         float  prevSliceW = clamp(log(max(prevVZ, prevNearZ) / prevNearZ) / log(prevFarZ / prevNearZ), 0.0, 1.0);
 
-        float4 historySample = u_VolPrev.Sample(float3(prevUV, prevSliceW));
+        float4 historySample = u_VolPrev.SampleLevel(float3(prevUV, prevSliceW), 0.0);
 
         // Karis 3x3x3 min/max clamp from scratch neighbours (RG barrier guarantees integrate wrote first).
         float4 lo = float4( 1e9);
