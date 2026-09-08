@@ -298,6 +298,11 @@ namespace Luth::RG
         // State -> (stage, access) for barrier emission; public for headless emission tests. see arch/rendering-pipeline.md
         static std::pair<VkPipelineStageFlags2, VkAccessFlags2> GetStateInfo(ResourceState state);
 
+        // State -> VkImageLayout, the single source of truth. Anything transitioning a graph-tracked
+        // image outside Execute (archive sinks restoring a source RT, say) must map through this or it
+        // silently drifts as new states are added.
+        static VkImageLayout GetLayout(ResourceState state);
+
         // Archive sink: invoked after each non-culled pass during Execute. Optional.
         // The sink is responsible for restoring source RT layouts (see IArchiveSink.h).
         void SetArchiveSink(IArchiveSink* sink) { m_ArchiveSink = sink; }

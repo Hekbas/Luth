@@ -587,7 +587,7 @@ namespace Luth::RG
         }
     }
 
-    static VkImageLayout GetLayout(ResourceState state)
+    VkImageLayout RenderGraph::GetLayout(ResourceState state)
     {
         switch (state)
         {
