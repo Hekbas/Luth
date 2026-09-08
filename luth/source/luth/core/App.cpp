@@ -35,11 +35,19 @@
 #include "luth/memory/GPUTaggedPageAllocator.h"
 #include "luth/renderer/backend/vulkan/VulkanAllocator.h"
 #include "luth/scene/systems/AnimationSystem.h"
+#include "luth/scene/SceneSerializer.h"
+#include "luth/scene/Components.h"
+#include "luth/core/diagnostics/JsonLogSink.h"
+#include "luth/renderer/material/Material.h"
+#include "luth/tools/ScreenshotHarness.h"
 #include "luth/core/time/Timer.h"
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Core/Factory.h>
 #include <Jolt/RegisterTypes.h>
+
+#include <cstring>
+#include <cstdlib>
 
 namespace Luth
 {
@@ -138,6 +146,15 @@ namespace Luth
 
     App::App(int argc, char** argv)
     {
+        // Parsed first so the JSON log sink can attach before any subsystem logs; the WindowSpec it
+        // returns is consumed further down, once the renderer is ready for a window.
+        WindowSpec ws = ParseCommandLineArgs(argc, argv);
+        if (!m_Harness.logPath.empty())
+        {
+            m_JsonLog = std::make_unique<JsonLogSink>();
+            Log::AddSink(m_JsonLog.get());
+        }
+
         // Core systems
         Memory::MemoryTracker::Init();
         Memory::TaggedPageAllocator::Get().Init();
@@ -164,7 +181,6 @@ namespace Luth
         AssetDatabase::ClearDirtyAssets();
 
         // Window + Renderer
-        WindowSpec ws = ParseCommandLineArgs(argc, argv);
         SetAppTitle(ws);
         m_Window = Window::Create(ws);
         Input::Init();
@@ -216,6 +232,21 @@ namespace Luth
             // No project specified: show the launcher
             LH_CORE_INFO("No project specified -- showing Project Launcher");
             if (auto* h = EditorHooks::Get()) h->ShowProjectLauncher();
+        }
+
+        // Capture mode loads its scene explicitly: there is no editor to restore lastSceneUUID, and the
+        // requested scene has to win regardless. Must follow LoadProject so asset UUIDs resolve.
+        if (m_Harness.IsActive())
+        {
+            if (LoadScene(m_Harness.scenePath))
+            {
+                m_ScreenshotHarness = std::make_unique<ScreenshotHarness>(m_Harness);
+            }
+            else
+            {
+                m_ExitCode = 1;
+                m_Running  = false;
+            }
         }
 
         EventBus::Subscribe<WindowResizeEvent>(BusType::MainThread, [this](Event& e) {
@@ -371,6 +402,11 @@ namespace Luth
                     cp.gizmoFogColor          = viewState.gizmoFogColor;
                     cp.gizmoWindColor         = viewState.gizmoWindColor;
                 }
+
+                // Capture mode owns the primary camera; until the scene resolves, cp stays default and the
+                // frame renders an empty view, which is fine because those frames are not captured.
+                if (m_ScreenshotHarness) m_ScreenshotHarness->ResolveCamera(cp);
+
                 rs->SetCameraParams(cp);
             }
 
@@ -417,6 +453,14 @@ namespace Luth
             // PickingSystem reads back the EntityID texture written by the render stage, so it must follow
             // RenderReady. EndFrame is a no-op today (Submit + Present happens inside the render stage).
             SystemRegistry::Update<PickingSystem>();
+
+            // Same placement rationale as picking: the render stage has finished writing the view's targets.
+            if (m_ScreenshotHarness && m_ScreenshotHarness->CaptureIfReady())
+            {
+                if (m_ScreenshotHarness->Failed()) m_ExitCode = 1;
+                m_Running = false;
+            }
+
             Renderer::EndFrame();
 
             // ---- Advance Frame ----
@@ -427,6 +471,14 @@ namespace Luth
 
         OnShutdown();
         Close();
+
+        // After Close so teardown errors are counted; the exit code is final once Run returns.
+        if (m_JsonLog)
+        {
+            if (m_ExitCode == 0 && m_JsonLog->ErrorCount() > 0)
+                m_ExitCode = 2;
+            m_JsonLog->Flush(m_Harness.logPath);
+        }
     }
 
     // ---- Stage entry points ----
@@ -556,6 +608,15 @@ namespace Luth
 
         if (auto* h = EditorHooks::Get()) h->OnProjectChanged();
 
+        // RenderPipeline::Initialize ran before any project existed, so IBL is still the dummy-cubemap
+        // fallback. The editor re-bakes via OnProjectChanged; without hooks nothing does, leaving a
+        // headless runtime with no ambient and no skybox.
+        if (!EditorHooks::Get())
+        {
+            if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
+                rs->ReloadSkybox(FileSystem::ResolveAsset("textures/environment.hdr"));
+        }
+
         // Notify systems that depend on project paths (e.g. shader hot-reload watcher)
         if (auto rs = SystemRegistry::GetSystem<RenderingSystem>())
             rs->OnProjectLoaded();
@@ -572,9 +633,76 @@ namespace Luth
 
     // ---- Utility ----
 
+    // Engine-side scene open. The editor has its own path through Editor::OpenScene; this exists so a
+    // hookless runtime can load a scene at all.
+    bool App::LoadScene(const fs::path& scenePath)
+    {
+        if (!fs::exists(scenePath)) {
+            LH_CORE_ERROR("Scene not found: {}", scenePath.string());
+            return false;
+        }
+        if (!SceneSerializer::Load(*m_Scene, scenePath)) {
+            LH_CORE_ERROR("Failed to load scene: {}", scenePath.string());
+            return false;
+        }
+
+        // Deserializing only records UUIDs; AssetManager::GetAsset is a pure cache lookup and never
+        // triggers a load, so without this kick nothing the scene references ever streams in. The editor
+        // does the same walk in Editor::OpenScene.
+        auto view = m_Scene->GetAllEntitiesWith<Component::MeshRenderer>();
+        for (auto entity : view) {
+            const auto& mr = view.get<Component::MeshRenderer>(entity);
+            if (mr.ModelUUID.IsValid())
+                AssetManager::LoadAsync(mr.ModelUUID);
+            if (mr.MaterialUUID.IsValid()) {
+                auto mat = std::static_pointer_cast<Material>(AssetManager::LoadImmediate(mr.MaterialUUID));
+                if (mat) {
+                    for (const auto& mapInfo : mat->GetTextures())
+                        if (mapInfo.Uuid.IsValid())
+                            AssetManager::LoadAsync(mapInfo.Uuid);
+                }
+            }
+        }
+
+        LH_CORE_INFO("Scene loaded: '{}'", scenePath.string());
+        return true;
+    }
+
+    // Flags are "--name value" pairs; the project is still selected positionally by the .luthproj scan in
+    // the ctor, so it needs no flag of its own. Unknown tokens are ignored rather than fatal: argv also
+    // carries that positional path.
     WindowSpec App::ParseCommandLineArgs(int argc, char** argv)
     {
         WindowSpec spec;
+
+        auto wantsValue = [&](int i, const char* name) {
+            return std::strcmp(argv[i], name) == 0 && i + 1 < argc;
+        };
+        auto toU32 = [](const char* s, u32 fallback) -> u32 {
+            char* end = nullptr;
+            const unsigned long v = std::strtoul(s, &end, 10);
+            return (end && *end == '\0' && v > 0) ? static_cast<u32>(v) : fallback;
+        };
+
+        for (int i = 1; i < argc; ++i)
+        {
+            if      (wantsValue(i, "--scene"))  m_Harness.scenePath = argv[++i];
+            else if (wantsValue(i, "--shot"))   m_Harness.shotPath  = argv[++i];
+            else if (wantsValue(i, "--log"))    m_Harness.logPath   = argv[++i];
+            else if (wantsValue(i, "--width"))  m_Harness.width  = toU32(argv[++i], m_Harness.width);
+            else if (wantsValue(i, "--height")) m_Harness.height = toU32(argv[++i], m_Harness.height);
+            else if (wantsValue(i, "--frames")) m_Harness.warmupFrames = toU32(argv[++i], m_Harness.warmupFrames);
+        }
+
+        // Match the swapchain to the capture size so the unused primary view stays cheap, and keep the
+        // window off-screen: nobody is looking at it, and a visible flash would be noise in CI.
+        if (m_Harness.IsActive())
+        {
+            spec.Width  = m_Harness.width;
+            spec.Height = m_Harness.height;
+            spec.Hidden = true;
+        }
+
         return spec;
     }
 

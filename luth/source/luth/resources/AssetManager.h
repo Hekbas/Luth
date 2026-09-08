@@ -54,6 +54,10 @@ namespace Luth
         static bool IsLoaded(UUID handle);
         static bool IsLoading(UUID handle);
 
+        // True while any async load is still in flight. Lets an offline consumer wait for a fully
+        // resident scene instead of capturing a half-streamed frame.
+        static bool AnyLoading();
+
         // Returns true if an importer is registered for this asset type
         static bool HasImporter(AssetType type);
 

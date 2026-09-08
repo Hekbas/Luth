@@ -62,4 +62,5 @@ group ""
 
 group "Tools"
    include "extern/premake"
+   include "tools/luthshot"
 group ""

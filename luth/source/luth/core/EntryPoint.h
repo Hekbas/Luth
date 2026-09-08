@@ -20,8 +20,12 @@ int main(int argc, char** argv)
             std::cerr << "Press Enter to exit...";
             std::cin.ignore();
         #endif
+        return 1;
     }
 
     app->Run();
+    // Run finalizes the exit code (log flush + error tally), so read it before the delete.
+    const int exitCode = app->GetExitCode();
     delete app;
+    return exitCode;
 }

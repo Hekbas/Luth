@@ -1,6 +1,7 @@
 #pragma once
 
 #include "luth/core/types/LuthTypes.h"
+#include "luth/core/HarnessSpec.h"
 #include "luth/platform/Window.h"
 #include "luth/events/EventBus.h"
 #include "luth/events/AppEvent.h"
@@ -28,8 +29,14 @@ namespace Luth
         void Run();
         void Close();
 
+        // 0 = success, 1 = capture failed, 2 = captured but the engine logged errors. Only meaningful
+        // in capture mode; an interactive run always returns 0.
+        int GetExitCode() const { return m_ExitCode; }
+
+        // Fills m_Harness as a side effect; the returned WindowSpec carries any window-affecting flags.
         WindowSpec ParseCommandLineArgs(int argc, char** argv);
         Window& GetWindow() { return *m_Window; }
+        const HarnessSpec& GetHarnessSpec() const { return m_Harness; }
 
     protected:
         virtual void OnInit() {}
@@ -48,6 +55,9 @@ namespace Luth
         // editor refresh in the right order; see LoadProject's body for the full sequence.
         void LoadProject(const std::filesystem::path& luthprojPath);
 
+        // Deserialize a scene into m_Scene. Must follow LoadProject so asset UUIDs resolve.
+        bool LoadScene(const std::filesystem::path& scenePath);
+
         // Stage entry points dispatched onto worker fibers from Run().
         // GameStage: Transform/Animation systems + CaptureSnapshot.
         // RenderStage: RenderingSystem record + submit.
@@ -60,6 +70,12 @@ namespace Luth
 
         // Frame Pipelining
         FrameData m_FrameData;
+
+        HarnessSpec m_Harness;
+        // Non-null only in capture mode; drives the offscreen view and stops the loop once written.
+        std::unique_ptr<class ScreenshotHarness> m_ScreenshotHarness;
+        std::unique_ptr<class JsonLogSink>       m_JsonLog;
+        int m_ExitCode = 0;
 
         bool m_Running = true;
         bool m_ProjectLoaded = false;

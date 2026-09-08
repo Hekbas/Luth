@@ -212,6 +212,12 @@ namespace Luth
         return s_LoadingAssets.find(handle) != s_LoadingAssets.end();
     }
 
+    bool AssetManager::AnyLoading()
+    {
+        std::lock_guard<std::mutex> lock(s_AssetMutex);
+        return !s_LoadingAssets.empty();
+    }
+
     void AssetManager::Evict(UUID handle)
     {
         std::lock_guard<std::mutex> lock(s_AssetMutex);
