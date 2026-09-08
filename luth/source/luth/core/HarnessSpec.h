@@ -31,6 +31,11 @@ namespace Luth
         // shows up as acquire stall rather than as the render work we are trying to measure.
         PresentMode presentMode = PresentMode::Default;
 
+        // Half-resolution overrides for the RT channels (--half). -1 leaves the built-in default alone;
+        // 0/1 force it. Exists so an A/B runs against one binary under one set of machine conditions,
+        // which is the only way to compare when something else on the box is also using the GPU.
+        i8 halfDi = -1, halfGi = -1, halfRefl = -1;
+
         bool WantsCapture()   const { return !shotPath.empty(); }
         bool WantsBenchmark() const { return !benchPath.empty(); }
 

@@ -241,6 +241,14 @@ namespace Luth
 
         // Capture mode loads its scene explicitly: there is no editor to restore lastSceneUUID, and the
         // requested scene has to win regardless. Must follow LoadProject so asset UUIDs resolve.
+        // Applied before the first frame so no measured frame runs under the compiled default.
+        if (auto* rs = SystemRegistry::GetSystem<RenderingSystem>())
+        {
+            if (m_Harness.halfDi   >= 0) rs->GetRestirSettings().halfResolution      = (m_Harness.halfDi   != 0);
+            if (m_Harness.halfGi   >= 0) rs->GetRestirGiSettings().halfResolution    = (m_Harness.halfGi   != 0);
+            if (m_Harness.halfRefl >= 0) rs->GetReflectionsSettings().halfResolution = (m_Harness.halfRefl != 0);
+        }
+
         if (m_Harness.IsActive())
         {
             if (LoadScene(m_Harness.scenePath))
@@ -721,9 +729,12 @@ namespace Luth
             return fallback;
         };
 
+        const char* halfSpec = nullptr;
+
         for (int i = 1; i < argc; ++i)
         {
-            if      (wantsValue(i, "--scene"))  m_Harness.scenePath = argv[++i];
+            if      (wantsValue(i, "--half"))   halfSpec = argv[++i];
+            else if (wantsValue(i, "--scene"))  m_Harness.scenePath = argv[++i];
             else if (wantsValue(i, "--shot"))   m_Harness.shotPath  = argv[++i];
             else if (wantsValue(i, "--log"))    m_Harness.logPath   = argv[++i];
             else if (wantsValue(i, "--bench"))  m_Harness.benchPath = argv[++i];
@@ -738,6 +749,17 @@ namespace Luth
         // otherwise charge frame pacing to acquire and flatter or distort the numbers.
         if (m_Harness.WantsBenchmark() && m_Harness.presentMode == PresentMode::Default)
             m_Harness.presentMode = PresentMode::Immediate;
+
+        // --half is all-or-nothing: naming any channel also switches the unnamed ones OFF, so an A/B
+        // never leaves one channel at whatever the compiled default happened to be.
+        if (halfSpec)
+        {
+            const std::string s = halfSpec;
+            const bool all = (s == "all");
+            m_Harness.halfDi   = (all || s.find("di")   != std::string::npos) ? 1 : 0;
+            m_Harness.halfGi   = (all || s.find("gi")   != std::string::npos) ? 1 : 0;
+            m_Harness.halfRefl = (all || s.find("refl") != std::string::npos) ? 1 : 0;
+        }
 
         // Match the swapchain to the capture size so the unused primary view stays cheap, and keep the
         // window off-screen: nobody is looking at it, and a visible flash would be noise in CI.

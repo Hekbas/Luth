@@ -187,7 +187,10 @@ namespace Luth
             { "height",       m_Spec.height },
             { "warmupFrames", m_Spec.warmupFrames },
             { "benchFrames",  m_Spec.benchFrames },
-            { "presentMode",  PresentName(m_Spec.presentMode) }
+            { "presentMode",  PresentName(m_Spec.presentMode) },
+            { "halfDi",       m_Spec.halfDi },
+            { "halfGi",       m_Spec.halfGi },
+            { "halfRefl",     m_Spec.halfRefl }
         };
 
         j["frames"] = {
