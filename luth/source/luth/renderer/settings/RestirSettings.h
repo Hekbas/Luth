@@ -11,7 +11,9 @@ namespace Luth
     struct RestirSettings
     {
         bool enabled = true;
-        bool halfResolution = false;     // trace + denoise DI (diffuse + specular) half-res + bilateral upscale
+        // Default on: DI is ~18% of an empty-scene frame's GPU work at full res, and the diffuse signal
+        // is low-frequency enough that the depth/normal bilateral upscale costs little quality.
+        bool halfResolution = true;      // trace + denoise DI (diffuse + specular) half-res + bilateral upscale
         u32  candidateCount = 32;        // initial RIS candidates (M)
         u32  temporalMCap = 20;          // history clamp multiplier (prev.M <= mCap * curr.M)
         f32  temporalDepthThreshold = 0.05f;

@@ -12,6 +12,8 @@ namespace Luth
     struct ReflectionsSettings
     {
         bool enabled            = true;
+        // Stays off by default unlike DI/GI: specular is the highest-frequency of the three signals, so
+        // the depth/normal bilateral upscale visibly softens sharp mirror reflections. Opt in per scene.
         bool halfResolution     = false;    // trace + denoise reflections half-res + bilateral upscale (perf)
         // Roughness composite band: full RT below Start, smoothstep to prefiltered-env IBL, pure IBL
         // above End (the trace skips those pixels and writes the env fallback). Bhaal's damp floor /
