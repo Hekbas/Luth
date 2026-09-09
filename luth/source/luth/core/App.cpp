@@ -247,6 +247,16 @@ namespace Luth
             if (m_Harness.halfDi   >= 0) rs->GetRestirSettings().halfResolution      = (m_Harness.halfDi   != 0);
             if (m_Harness.halfGi   >= 0) rs->GetRestirGiSettings().halfResolution    = (m_Harness.halfGi   != 0);
             if (m_Harness.halfRefl >= 0) rs->GetReflectionsSettings().halfResolution = (m_Harness.halfRefl != 0);
+
+            if (m_Harness.IsActive() && !m_Harness.wind)
+                rs->GetWindSettings().enabled = false;
+        }
+
+        // Pin the clock before the first frame so no captured or measured frame samples the wall clock.
+        if (m_Harness.IsActive())
+        {
+            if (m_Harness.timeStep >= 0.0f) Time::SetFixedDelta(m_Harness.timeStep);
+            else                            Time::ClearFixedDelta();
         }
 
         if (m_Harness.IsActive())
@@ -722,6 +732,14 @@ namespace Luth
             return (end && *end == '\0' && v > 0) ? static_cast<u32>(v) : fallback;
         };
 
+        // Separate from toU32 because 0 is a meaningful --time-step (freeze) and negatives select the
+        // live wall clock, both of which toU32's `v > 0` guard would silently drop to the fallback.
+        auto toF32 = [](const char* s, f32 fallback) -> f32 {
+            char* end = nullptr;
+            const float v = std::strtof(s, &end);
+            return (end && *end == '\0') ? v : fallback;
+        };
+
         auto toPresent = [](const char* s, PresentMode fallback) -> PresentMode {
             if (std::strcmp(s, "immediate") == 0) return PresentMode::Immediate;
             if (std::strcmp(s, "mailbox")   == 0) return PresentMode::Mailbox;
@@ -743,6 +761,8 @@ namespace Luth
             else if (wantsValue(i, "--frames")) m_Harness.warmupFrames = toU32(argv[++i], m_Harness.warmupFrames);
             else if (wantsValue(i, "--bench-frames")) m_Harness.benchFrames = toU32(argv[++i], m_Harness.benchFrames);
             else if (wantsValue(i, "--present")) m_Harness.presentMode = toPresent(argv[++i], m_Harness.presentMode);
+            else if (wantsValue(i, "--wind"))   m_Harness.wind = (std::string(argv[++i]) == "on");
+            else if (wantsValue(i, "--time-step")) m_Harness.timeStep = toF32(argv[++i], m_Harness.timeStep);
         }
 
         // A benchmark measures render work, so default it off the presentation engine: Mailbox would

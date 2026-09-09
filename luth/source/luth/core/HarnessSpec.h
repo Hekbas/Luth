@@ -36,6 +36,20 @@ namespace Luth
         // which is the only way to compare when something else on the box is also using the GPU.
         i8 halfDi = -1, halfGi = -1, halfRefl = -1;
 
+        // Determinism controls. Both default to the reproducible setting whenever the harness is active,
+        // because a capture exists to be compared against another capture.
+        //
+        // Wind is procedural vertex deformation phased on time (deform.slang), enabled by default at
+        // strength 0.5, so leaving it on makes two runs bend the same mesh differently and smears a
+        // progressive reference bake across the accumulation. --wind on opts back in.
+        //
+        // timeStep pins Time's clock (see Time::SetFixedDelta): 0 freezes time so wind, gusts and film
+        // grain land identically, while TAA jitter / ReSTIR / SVGF keep converging because they index
+        // on frame count, not seconds. A positive value advances time reproducibly instead, for
+        // measuring temporal stability under motion. Negative restores the live wall clock.
+        bool wind     = false;
+        f32  timeStep = 0.0f;
+
         bool WantsCapture()   const { return !shotPath.empty(); }
         bool WantsBenchmark() const { return !benchPath.empty(); }
 

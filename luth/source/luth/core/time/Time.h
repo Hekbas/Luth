@@ -26,8 +26,15 @@ namespace Luth
                 return;
             }
 
-            const auto deltaDuration = now - s_LastFrameTime;
-            s_UnscaledDeltaTime = std::chrono::duration<f32>(deltaDuration).count();
+            if (s_FixedDelta >= 0.0f)
+            {
+                s_UnscaledDeltaTime = s_FixedDelta;
+            }
+            else
+            {
+                const auto deltaDuration = now - s_LastFrameTime;
+                s_UnscaledDeltaTime = std::chrono::duration<f32>(deltaDuration).count();
+            }
             s_DeltaTime = s_UnscaledDeltaTime * s_TimeScale;
 
             s_LastFrameTime = now;
@@ -37,6 +44,7 @@ namespace Luth
         // Time since engine start in seconds
         static f32 GetTime()
         {
+            if (s_FixedDelta >= 0.0f) return static_cast<f32>(s_FrameCount) * s_FixedDelta;
             const auto duration = Clock::now() - s_StartTime;
             return std::chrono::duration<f32>(duration).count();
         }
@@ -44,9 +52,19 @@ namespace Luth
         // Time since engine start in milliseconds
         static f32 GetTimeMS()
         {
+            if (s_FixedDelta >= 0.0f) return static_cast<f32>(s_FrameCount) * s_FixedDelta * 1000.0f;
             const auto duration = Clock::now() - s_StartTime;
             return std::chrono::duration<f32, std::milli>(duration).count();
         }
+
+        // Deterministic clock for offscreen tooling: delta AND GetTime derive from the frame count
+        // instead of the wall clock. Note SetTimeScale alone cannot do this -- GetTime() reads the
+        // clock directly and never consulted s_TimeScale, so the wind/gust/grain terms that sample it
+        // stayed live. Two runs must land identical geometry or an A/B compares different meshes.
+        // dt 0 freezes time outright (static capture); a positive dt advances it reproducibly.
+        static void SetFixedDelta(f32 dt) { s_FixedDelta = dt; }
+        static void ClearFixedDelta() { s_FixedDelta = -1.0f; }
+        static bool IsFixedDelta() { return s_FixedDelta >= 0.0f; }
 
         // Scaled delta time (affected by time scale)
         static f32 DeltaTime() { return s_DeltaTime; }
@@ -66,6 +84,7 @@ namespace Luth
         inline static TimePoint s_StartTime;
         inline static TimePoint s_LastFrameTime;
         inline static f32 s_TimeScale = 1.0f;
+        inline static f32 s_FixedDelta = -1.0f;   // negative = live wall clock
         inline static f32 s_DeltaTime = 0.0f;
         inline static f32 s_UnscaledDeltaTime = 0.0f;
         static inline u32 s_FrameCount = 0;
