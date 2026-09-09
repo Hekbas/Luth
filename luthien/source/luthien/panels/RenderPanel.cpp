@@ -513,7 +513,7 @@ namespace Luth
                     int rr = static_cast<int>(pt.rrStartDepth);
                     if (UI::Property("RR Start Depth", rr, 1, 16)) pt.rrStartDepth = static_cast<u32>(rr);
                     Tip("Russian roulette begins after this bounce depth (unbiased path termination).");
-                    UI::Property("Firefly Clamp", pt.fireflyClamp, 1.0f, 1.0f, 10000.0f);
+                    UI::Property("Firefly Clamp", pt.fireflyClamp, 1.0f, 0.0f, 10000.0f);   // 0 = unbiased
                     Tip("Luminance clamp on INDIRECT bounces (primary stays unbiased). High = true ground-truth.");
                     UI::Property("Accumulate", pt.accumulate);
                     Tip("Progressive accumulation (resets on camera/scene change). Off = single-frame noisy preview.");

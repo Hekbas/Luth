@@ -267,24 +267,27 @@ namespace Luth
             const std::string key = assignment.substr(0, eq);
             const std::string val = assignment.substr(eq + 1);
 
-            const auto dot = key.find('.');
-            if (dot == std::string::npos) {
-                LH_CORE_ERROR("RenderSettingsIO: --set key needs a section, got '{}'", key);
-                return false;
-            }
-            const std::string section = key.substr(0, dot);
-            const std::string field   = key.substr(dot + 1);
-
             // Round-trip through the visitor's own json so every serialized field is settable and the
             // existing value decides the type. No second name->member table to fall out of sync.
             json j = ToJson(rs);
-            if (!j.contains(section) || !j.at(section).is_object()) {
-                LH_CORE_ERROR("RenderSettingsIO: --set unknown section '{}'", section);
-                return false;
+
+            // A dotted key addresses a field inside a section; a bare key addresses a top-level scalar
+            // such as renderMode, which is how a sweep selects the path-traced reference.
+            const auto dot = key.find('.');
+            json* secPtr = &j;
+            std::string field = key;
+            if (dot != std::string::npos) {
+                const std::string section = key.substr(0, dot);
+                field = key.substr(dot + 1);
+                if (!j.contains(section) || !j.at(section).is_object()) {
+                    LH_CORE_ERROR("RenderSettingsIO: --set unknown section '{}'", section);
+                    return false;
+                }
+                secPtr = &j.at(section);
             }
-            json& sec = j.at(section);
-            if (!sec.contains(field)) {
-                LH_CORE_ERROR("RenderSettingsIO: --set unknown field '{}.{}'", section, field);
+            json& sec = *secPtr;
+            if (!sec.contains(field) || sec.at(field).is_object()) {
+                LH_CORE_ERROR("RenderSettingsIO: --set unknown field '{}'", key);
                 return false;
             }
 

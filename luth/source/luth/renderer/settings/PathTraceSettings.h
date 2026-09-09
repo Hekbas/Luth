@@ -12,7 +12,10 @@ namespace Luth
         u32  samplesPerFrame = 1;     // paths/pixel dispatched per frame (1..4; high counts risk a TDR)
         u32  maxBounces      = 8;     // path-length cap (1..16)
         u32  rrStartDepth    = 3;     // Russian roulette begins after this bounce depth
-        f32  fireflyClamp    = 20.0f; // per-bounce radiance-luminance clamp (higher = closer to true ground truth)
+        // Per-bounce indirect radiance-luminance clamp. 0 disables it outright: that is the UNBIASED
+        // mode a reference bake needs, since any clamp darkens exactly the rare bright paths a
+        // metric would then blame on the realtime renderer. Costs samples, so it is not the default.
+        f32  fireflyClamp    = 20.0f;
         bool accumulate      = true;  // progressive accumulation; off = single-frame (noisy) preview
     };
 }

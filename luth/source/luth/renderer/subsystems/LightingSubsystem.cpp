@@ -518,7 +518,7 @@ namespace Luth
         // Publish triangles only with their alias table present; a count without the table would let DI
         // draw an out-of-range light.
         header->triLightCount   = lights.alias.empty() ? 0u : static_cast<u32>(lights.tris.size());
-        header->_pad            = 0;
+        header->totalLightPower = lights.alias.empty() ? 0.0f : lights.totalPower;
         auto* base = static_cast<u8*>(region.mappedPtr) + sizeof(LightSSBOHeader);
         if (!lights.points.empty()) std::memcpy(base, lights.points.data(), pointBytes);
         if (!lights.spots.empty())  std::memcpy(base + pointBytes, lights.spots.data(), spotBytes);
