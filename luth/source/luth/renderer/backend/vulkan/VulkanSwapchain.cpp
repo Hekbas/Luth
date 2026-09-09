@@ -152,10 +152,16 @@ namespace Luth
         }
 
         // Image Count
-        uint32_t imageCount = capabilities.minImageCount + 1;
+        // One more image than the frame pipeline is deep. At MAX_FRAMES_IN_FLIGHT images the swapchain,
+        // not the frame timeline, becomes the binding constraint: every image is spoken for the moment
+        // the CPU tries to run a frame ahead, so vkQueuePresentKHR blocks and the render fiber stalls
+        // there instead of the pipeline absorbing the frame. see arch/frame-pipeline.md
+        uint32_t imageCount = std::max(capabilities.minImageCount + 1, MAX_FRAMES_IN_FLIGHT + 1);
         if (capabilities.maxImageCount > 0 && imageCount > capabilities.maxImageCount) {
             imageCount = capabilities.maxImageCount;
         }
+        LH_LOG(Renderer, info, "Swapchain: {} images (min {}), {} frames in flight",
+               imageCount, capabilities.minImageCount, MAX_FRAMES_IN_FLIGHT);
 
         VkSwapchainCreateInfoKHR createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
