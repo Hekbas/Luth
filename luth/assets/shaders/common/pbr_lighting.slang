@@ -204,7 +204,10 @@ public float3 EvalClusteredLights(float4 fragCoord, float3 worldPos, float3 V, S
 
 // Split-sum IBL ambient. envBRDF + specularIBL returned so the consumer's RT-reflection composite can swap
 // specularIBL out for traced radiance above the roughness cutoff.
-public struct IblResult { public float3 ambient; public float3 envBRDF; public float3 specularIBL; }
+public struct IblResult { public float3 ambient; public float3 envBRDF; public float3 specularIBL;
+                          public float3 diffuseIBL; }   // diffuseIBL: the kD*irradiance part of
+// ambient, carrying the same ao/iblIntensity/sheen/coat attenuation, so a consumer whose RT channel
+// supersedes unoccluded diffuse can subtract exactly what it replaces (see specularIBL's role).
 
 public IblResult EvalIblAmbient(SurfaceBRDF s, float3 V, float ao, float iblIntensity)
 {
@@ -235,7 +238,8 @@ public IblResult EvalIblAmbient(SurfaceBRDF s, float3 V, float ao, float iblInte
     r.envBRDF     = F * brdf.x + brdf.y;
     r.specularIBL = prefilteredColor * r.envBRDF;
 
-    float3 base = kD * diffuseIBL + r.specularIBL;
+    float3 diffusePart = kD * diffuseIBL;
+    float3 base = diffusePart + r.specularIBL;
 
     // Sheen env lobe UNDER the coat: split-sum with E_Sheen as the (Fresnel-free) BRDF term; the GGX
     // prefilter at the sheen roughness stands in for a Charlie prefilter (Filament does the same). Folding
@@ -250,6 +254,7 @@ public IblResult EvalIblAmbient(SurfaceBRDF s, float3 V, float ao, float iblInte
                         * (s.sheenColor * Es);
         float  sheenScale = 1.0 - sheenW * Es;
         base = base * sheenScale + sheenEnv;
+        diffusePart   *= sheenScale;
         r.envBRDF     *= sheenScale;
         r.specularIBL *= sheenScale;
     }
@@ -264,9 +269,11 @@ public IblResult EvalIblAmbient(SurfaceBRDF s, float3 V, float ao, float iblInte
         float2 ccB = u_BrdfLUT.Sample(float2(NoV, ccR)).rg;
         float3 ccSpec = u_PrefilteredMap.SampleLevel(Rc, ccR * MAX_REFLECTION_LOD).rgb * (0.04 * ccB.x + ccB.y);
         base = base * (1.0 - Fc) + ccSpec;
+        diffusePart   *= (1.0 - Fc);
         r.envBRDF     *= (1.0 - Fc);
         r.specularIBL *= (1.0 - Fc);
     }
-    r.ambient = base * ao * iblIntensity;
+    r.ambient    = base * ao * iblIntensity;
+    r.diffuseIBL = diffusePart * ao * iblIntensity;
     return r;
 }

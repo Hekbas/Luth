@@ -54,10 +54,16 @@ PointLightData LoadPoint(uint j)
     return p;
 }
 
-float3 SampleEnv(float3 dir)
+// isBackdrop: the primary camera ray escaping, i.e. the sky the viewer looks at, which is what
+// skyboxIntensity weights. Every deeper bounce is TRANSPORT and takes iblIntensity, the environment
+// LIGHTING weight -- the same scalar ReSTIR GI's sky-on-miss uses, so the realtime path and this
+// reference agree on how bright the environment is. Conflating the two made the oracle disagree with
+// the renderer by whatever ratio the user had set between them. see ViewRenderSettings.h
+float3 SampleEnv(float3 dir, bool isBackdrop)
 {
     if (pc.envReady == 0u) return float3(0.0);
-    return u_PrefilteredEnv.SampleLevel(dir, 0.0).rgb * ubo.skyboxIntensity;
+    const float weight = isBackdrop ? ubo.skyboxIntensity : ubo.iblIntensity;
+    return u_PrefilteredEnv.SampleLevel(dir, 0.0).rgb * weight;
 }
 
 // Shadow ray: true iff `dir` is unoccluded from x up to maxDist (Wächter-Binder geometric-normal offset).
@@ -292,7 +298,7 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
             // Firefly-clamp INDIRECT env hits, same as the hit path below: a sharp lobe (clear-coat / smooth
             // spec) mirroring a bright env light is high-variance and blows out at the grazing Fresnel rim.
             // The primary camera ray missing (bounce 0 = the sky background) stays unbiased.
-            float3 envContrib = throughput * SampleEnv(rd);
+            float3 envContrib = throughput * SampleEnv(rd, bounce == 0u);
             if (bounce > 0u && !specularPath)   // a glass-only path keeps the refracted env sharp (not a firefly)
             {
                 float lum = Luminance(envContrib);

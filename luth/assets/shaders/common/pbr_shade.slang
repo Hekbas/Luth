@@ -187,6 +187,13 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
     IblResult ibl = EvalIblAmbient(surf, V, ao, ubo.iblIntensity);
     float3 color = ibl.ambient + Lo;
 
+    // ReSTIR GI carries sky-on-miss (restir_gi_initial), so the UNOCCLUDED IBL diffuse term it now
+    // supersedes has to come back out or the environment is counted twice. Same supersede-and-subtract
+    // shape as the RT-reflection swap below, which has always done this for IBL specular. What GI
+    // delivers instead is ray-traced and therefore actually occluded: an arcade or a roof darkens it.
+    if (ubo.restirParams.y > 0.5)
+        color -= ibl.diffuseIBL;
+
     // RT specular reflection supersedes IBL specular above the roughness cutoff. reflRad is a
     // traced scene reflection (decoupled from iblIntensity); subtract the iblSpecular it replaces.
     if (ubo.reflParams.x > 0.5)
