@@ -28,9 +28,14 @@ namespace Luth
 
         bool Failed() const { return m_Failed; }
 
+        // True once the camera resolved and the view was resized to the requested size. FrameBenchmark
+        // gates its measurement window on this so it never times frames rendered at the wrong size.
+        bool IsResolved() const { return m_Resolved; }
+
     private:
         bool BuildCamera(CameraParams& out);
         bool AutoFrame(CameraParams& out);
+        bool DefaultCamera(CameraParams& out);
         bool WritePng();
 
         // Models stream in on worker fibers, so the scene is empty for the first frames and its bounds

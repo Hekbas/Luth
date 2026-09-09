@@ -7,6 +7,12 @@
 
 namespace Luth
 {
+    // Swapchain presentation policy. Default keeps the historical Mailbox-else-Fifo preference; the
+    // explicit modes exist so a measurement run can decouple frame pacing from the presentation
+    // engine (Immediate) without a rebuild. Fifo is the only mode Vulkan guarantees, so it is the
+    // fallback whenever a requested mode is unsupported.
+    enum class PresentMode : u8 { Default, Immediate, Mailbox, Fifo };
+
     // Abstract OS window interface. The concrete WinWindow implementation wraps GLFW and posts
     // input, resize, and close events to the EventBus from inside the GLFW callbacks.
     struct WindowSpec

@@ -94,6 +94,9 @@ namespace Luth::RG
         std::vector<PassSnapshot>     passes;
         std::vector<ResourceSnapshot> resources;
         float totalGpuTimeMs = 0.0f;
+        // Elapsed GPU time (earliest begin to latest end), not the sum above. -1 = no data yet.
+        // The two differ by async-compute overlap in one direction and barrier bubbles in the other.
+        float gpuSpanMs = -1.0f;
         GpuPipelineStats totalStats;   // summed over graphics passes (valid when stats capture is on)
 
         // Solved barriers (populated when barrier capture is on; empty otherwise)

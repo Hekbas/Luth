@@ -603,7 +603,22 @@ namespace Luth
         u32         GetSlimPreviewHeight()   const;
         const RG::RenderGraphSnapshot& GetGraphSnapshot() const { return m_GraphSnapshot; }
 
+        // Per-pass read/write lists and the resource table are Frame-Debugger-only, but the snapshot is
+        // rebuilt every frame for every view, so capturing them unconditionally spends several hundred
+        // heap-allocated strings per frame on data nothing reads. Pass names, GPU times and draw counts
+        // are always captured, so the Profiler panel and LuthShot's benchmark see no difference.
+        //
+        // invariant: this is a per-frame request, not a latch. A consumer re-requests every frame it
+        // needs detail and App clears it at frame end, so a panel that stops drawing (closed, or its
+        // dock tab hidden) stops paying without needing to notice that it closed.
+        static void RequestSnapshotDetail() { s_SnapshotDetail.store(true, std::memory_order_relaxed); }
+        static void ClearSnapshotDetail()   { s_SnapshotDetail.store(false, std::memory_order_relaxed); }
+        static bool SnapshotDetail()        { return s_SnapshotDetail.load(std::memory_order_relaxed); }
+
         // Resets the per-draw preview cache key; called from RS::ExitCapture.
         void ResetPreviewCacheKeys();
+
+    private:
+        static inline std::atomic<bool> s_SnapshotDetail{ false };
     };
 }
