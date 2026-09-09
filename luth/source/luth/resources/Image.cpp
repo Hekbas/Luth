@@ -130,6 +130,15 @@ namespace Luth::Image
                               static_cast<int>(w * channels)) != 0;
     }
 
+    bool SaveHDR(const fs::path& path, const f32* pixels, u32 w, u32 h, u32 channels)
+    {
+        LH_PROFILE_FUNCTION();
+        if (!pixels || w == 0 || h == 0 || channels == 0) return false;
+        return stbi_write_hdr(path.string().c_str(),
+                              static_cast<int>(w), static_cast<int>(h),
+                              static_cast<int>(channels), pixels) != 0;
+    }
+
     bool Resize(const u8* src, u32 srcW, u32 srcH,
                 u8* dst, u32 dstW, u32 dstH, u32 channels)
     {

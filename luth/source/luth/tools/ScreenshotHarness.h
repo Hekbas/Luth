@@ -3,9 +3,15 @@
 #include "luth/core/HarnessSpec.h"
 #include "luth/core/types/LuthMath.h"
 
+#include <memory>
+#include <vector>
+
+#include <vulkan/vulkan.h>
+
 namespace Luth
 {
     struct CameraParams;
+    class Texture;
 
     // Offscreen capture driver for LuthShot.
     //
@@ -37,6 +43,20 @@ namespace Luth
         bool AutoFrame(CameraParams& out);
         bool DefaultCamera(CameraParams& out);
         bool WritePng();
+        bool WriteHdr();
+        bool RunMetrics();
+
+        // Shared GPU->CPU path for every writer. `srcLayout` is the layout the target actually ends the
+        // frame in -- SHADER_READ_ONLY_OPTIMAL for the LDR/scene-colour attachments, GENERAL for the
+        // path tracer's storage accumulator -- and the layout is handed back untouched, because the
+        // render graph's barrier solver knows nothing about this copy and a leak desyncs later frames.
+        bool Readback(const std::shared_ptr<Texture>& tex, u32 bytesPerPixel, VkImageLayout srcLayout,
+                      std::vector<u8>& out, u32& outW, u32& outH);
+
+        // Linear RGBA32F of the last HDR readback, kept so scoring does not re-read the GPU or round-trip
+        // through the lossy RGBE file it just wrote.
+        std::vector<f32> m_HdrLinear;
+        u32 m_HdrW = 0, m_HdrH = 0;
 
         // Models stream in on worker fibers, so the scene is empty for the first frames and its bounds
         // keep growing after that. Giving up on frame 0 would capture nothing; instead the warmup counter

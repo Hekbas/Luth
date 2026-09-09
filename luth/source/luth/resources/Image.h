@@ -55,6 +55,9 @@ namespace Luth::Image
 
     // PNG encode straight to disk, for import-time texture bakes (TextureBaker). Returns false on failure.
     bool SavePng(const fs::path& path, const u8* pixels, u32 w, u32 h, u32 channels);
+    // Radiance .hdr (RGBE). Lossy in the mantissa but exact enough for relMSE, viewable in standard
+    // tools, and it needs no new dependency. Pixels are LINEAR float, top-left origin.
+    bool SaveHDR(const fs::path& path, const f32* pixels, u32 w, u32 h, u32 channels);
 
     // Resize wrapper for ThumbnailGenerator's downscale.
     bool Resize(const u8* src, u32 srcW, u32 srcH,

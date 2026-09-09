@@ -788,6 +788,11 @@ namespace Luth
             else if (wantsValue(i, "--fog"))    m_Harness.fog  = (std::string(argv[++i]) == "on");
             else if (wantsValue(i, "--time-step")) m_Harness.timeStep = toF32(argv[++i], m_Harness.timeStep);
             else if (wantsValue(i, "--set"))    m_Harness.overrides.emplace_back(argv[++i]);
+            else if (wantsValue(i, "--hdr"))       m_Harness.hdrPath      = argv[++i];
+            else if (wantsValue(i, "--compare"))   m_Harness.comparePath  = argv[++i];
+            else if (wantsValue(i, "--metrics"))   m_Harness.metricsPath  = argv[++i];
+            else if (wantsValue(i, "--error-map")) m_Harness.errorMapPath = argv[++i];
+            else if (wantsValue(i, "--spp"))       m_Harness.spp = toU32(argv[++i], m_Harness.spp);
         }
 
         // A benchmark measures render work, so default it off the presentation engine: Mailbox would
