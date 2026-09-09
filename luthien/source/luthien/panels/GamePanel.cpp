@@ -8,6 +8,7 @@
 #include "luth/scene/Scene.h"
 #include "luth/scene/Components.h"
 #include "luth/scene/systems/RenderingSystem.h"
+#include "luth/scene/systems/SystemRegistry.h"
 #include "luth/renderer/RenderPipeline.h"
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/RenderBackend.h"
@@ -79,9 +80,13 @@ namespace Luth
             out.farZ  = cam.OrthographicFar;
         }
         out.position        = Vec3(xf.Matrix[3][0], xf.Matrix[3][1], xf.Matrix[3][2]);
-        out.iblIntensity    = Editor::GetSettings().iblIntensity;
-        out.skyboxIntensity = Editor::GetSettings().skyboxIntensity;
-        out.enableVolumetricFog = Editor::GetSettings().enableVolumetricFog;
+        // Engine-owned, so the Game view, the Scene view and a headless capture agree.
+        if (auto* rs = SystemRegistry::GetSystem<RenderingSystem>()) {
+            const auto& vrs = rs->GetViewRenderSettings();
+            out.iblIntensity        = vrs.iblIntensity;
+            out.skyboxIntensity     = vrs.skyboxIntensity;
+            out.enableVolumetricFog = vrs.enableVolumetricFog;
+        }
         outAspect           = cam.AspectRatio;
         return true;
     }

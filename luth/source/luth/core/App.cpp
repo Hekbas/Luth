@@ -11,6 +11,7 @@
 #include "luth/core/EditorHooks.h"
 #include "luth/core/DebugDraw.h"
 #include "luth/resources/FileSystem.h"
+#include "luth/renderer/settings/RenderSettingsIO.h"
 #include "luth/resources/Image.h"
 #include "luth/scene/systems/SystemRegistry.h"
 #include "luth/resources/AssetManager.h"
@@ -244,12 +245,28 @@ namespace Luth
         // Applied before the first frame so no measured frame runs under the compiled default.
         if (auto* rs = SystemRegistry::GetSystem<RenderingSystem>())
         {
+            // Precedence, least to most explicit, so the most specific thing the caller typed wins:
+            // saved project settings -> harness determinism defaults -> --half -> --set.
+            if (FileSystem::HasProject())
+                RenderSettingsIO::Load(*rs, RenderSettingsIO::DefaultPath(FileSystem::ProjectPath()));
+
+            if (m_Harness.IsActive() && !m_Harness.wind)
+                rs->GetWindSettings().enabled = false;
+
             if (m_Harness.halfDi   >= 0) rs->GetRestirSettings().halfResolution      = (m_Harness.halfDi   != 0);
             if (m_Harness.halfGi   >= 0) rs->GetRestirGiSettings().halfResolution    = (m_Harness.halfGi   != 0);
             if (m_Harness.halfRefl >= 0) rs->GetReflectionsSettings().halfResolution = (m_Harness.halfRefl != 0);
 
-            if (m_Harness.IsActive() && !m_Harness.wind)
-                rs->GetWindSettings().enabled = false;
+            for (const auto& assignment : m_Harness.overrides)
+            {
+                if (!RenderSettingsIO::ApplyOverride(*rs, assignment)) {
+                    // Fatal on purpose: a mistyped sweep key would otherwise render the default and be
+                    // written up as a measurement of the value the caller thought they set.
+                    LH_CORE_ERROR("Aborting: bad --set '{}'", assignment);
+                    m_ExitCode = 1;
+                    m_Running = false;
+                }
+            }
         }
 
         // Pin the clock before the first frame so no captured or measured frame samples the wall clock.
@@ -395,9 +412,6 @@ namespace Luth
                         cp.nearZ      = viewState.nearZ;
                         cp.farZ       = viewState.farZ;
                     }
-                    cp.iblIntensity     = viewState.iblIntensity;
-                    cp.skyboxIntensity  = viewState.skyboxIntensity;
-                    cp.enableVolumetricFog = viewState.enableVolumetricFog;
                     cp.selectedEntities = std::move(viewState.selectedEntities);
 
                     cp.outlineColor          = viewState.outlineColor;
@@ -427,6 +441,15 @@ namespace Luth
                     cp.gizmoFogColor          = viewState.gizmoFogColor;
                     cp.gizmoWindColor         = viewState.gizmoWindColor;
                 }
+
+                // Environment weights come from RenderingSystem for BOTH paths, editor and headless. They
+                // used to arrive only via EditorViewportState, so a capture (which registers no hooks)
+                // silently rendered iblIntensity 1.0 while the editor ran the user's saved value -- any
+                // capture-vs-viewport comparison was invalid. see ViewRenderSettings.h
+                const auto& vrs = rs->GetViewRenderSettings();
+                cp.iblIntensity        = vrs.iblIntensity;
+                cp.skyboxIntensity     = vrs.skyboxIntensity;
+                cp.enableVolumetricFog = vrs.enableVolumetricFog;
 
                 // Capture mode owns the primary camera; until the scene resolves, cp stays default and the
                 // frame renders an empty view, which is fine because those frames are not captured.
@@ -762,7 +785,9 @@ namespace Luth
             else if (wantsValue(i, "--bench-frames")) m_Harness.benchFrames = toU32(argv[++i], m_Harness.benchFrames);
             else if (wantsValue(i, "--present")) m_Harness.presentMode = toPresent(argv[++i], m_Harness.presentMode);
             else if (wantsValue(i, "--wind"))   m_Harness.wind = (std::string(argv[++i]) == "on");
+            else if (wantsValue(i, "--fog"))    m_Harness.fog  = (std::string(argv[++i]) == "on");
             else if (wantsValue(i, "--time-step")) m_Harness.timeStep = toF32(argv[++i], m_Harness.timeStep);
+            else if (wantsValue(i, "--set"))    m_Harness.overrides.emplace_back(argv[++i]);
         }
 
         // A benchmark measures render work, so default it off the presentation engine: Mailbox would

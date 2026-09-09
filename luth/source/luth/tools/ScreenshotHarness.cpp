@@ -167,9 +167,10 @@ namespace Luth
             else return false;
         }
 
-        // CameraParams defaults volumetric fog on, and the engine's default density swallows a scene
-        // framed from any distance. The editor hides this because its sliders start elsewhere.
-        out.enableVolumetricFog = false;
+        // Off by default because the stock fog density swallows a scene framed from any distance (the
+        // editor hides this because its sliders start elsewhere), but no longer forced: --fog on honors
+        // the saved setting, so a capture can reproduce the viewport when that is what is being checked.
+        out.enableVolumetricFog = m_Spec.fog && out.enableVolumetricFog;
 
         if (!m_Resolved) {
             if (auto* rs = SystemRegistry::GetSystem<RenderingSystem>()) {

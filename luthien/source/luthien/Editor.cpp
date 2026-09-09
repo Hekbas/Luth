@@ -13,6 +13,7 @@
 #include "luth/renderer/Renderer.h"
 #include "luth/renderer/RenderBackend.h"
 #include "luth/resources/FileSystem.h"
+#include "luth/renderer/settings/RenderSettingsIO.h"
 #include "luth/resources/MetaFile.h"
 #include "luth/resources/AssetDatabase.h"
 #include "luth/resources/AssetManager.h"
@@ -816,6 +817,13 @@ namespace Luth
 
         if (!s_SettingsPath.empty())
             EditorSettings::Save(s_Settings, s_SettingsPath);
+
+        // Render settings travel with the PROJECT, not the editor install, because a headless capture of
+        // that project has to render the same configuration. Skipped with no project open: there is
+        // nowhere to put them. see ViewRenderSettings.h
+        if (FileSystem::HasProject())
+            if (auto* rs = SystemRegistry::GetSystem<RenderingSystem>())
+                RenderSettingsIO::Save(*rs, RenderSettingsIO::DefaultPath(FileSystem::ProjectPath()));
     }
 
     std::filesystem::path Editor::SceneViewsPath()

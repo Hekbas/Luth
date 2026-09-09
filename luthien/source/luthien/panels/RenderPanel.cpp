@@ -306,14 +306,17 @@ namespace Luth
             }
 
             // ---- Environment ----
-            // IBL/Skybox intensity are editor-owned (EditorSettings, also in Preferences) but affect the
-            // rendered image, so surfaced here; read live each frame via the viewport-state hook.
+            // Engine-owned (ViewRenderSettings) so a headless capture renders the same weights; they used
+            // to be editor-only, which made every offscreen frame run at iblIntensity 1.0.
             if (beginSection(Tab_Environment, "Image-Based Lighting")) {
+                auto& vrs = m_RS->GetViewRenderSettings();
                 if (UI::BeginProperties("IblProps")) {
-                    UI::Property("IBL Intensity", settings.iblIntensity, 0.01f, 0.0f, 8.0f);
+                    UI::Property("IBL Intensity", vrs.iblIntensity, 0.01f, 0.0f, 8.0f);
                     Tip("Diffuse + specular environment ambient strength.");
-                    UI::Property("Skybox Intensity", settings.skyboxIntensity, 0.01f, 0.0f, 8.0f);
+                    UI::Property("Skybox Intensity", vrs.skyboxIntensity, 0.01f, 0.0f, 8.0f);
                     Tip("Background skybox brightness.");
+                    UI::Property("Volumetric Fog", vrs.enableVolumetricFog);
+                    Tip("Master toggle for the froxel fog pass.");
                     UI::EndProperties();
                 }
                 if (!settings.skyboxPath.empty())

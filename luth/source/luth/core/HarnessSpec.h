@@ -4,6 +4,8 @@
 #include "luth/platform/Window.h"
 
 #include <filesystem>
+#include <string>
+#include <vector>
 
 namespace Luth
 {
@@ -49,6 +51,15 @@ namespace Luth
         // measuring temporal stability under motion. Negative restores the live wall clock.
         bool wind     = false;
         f32  timeStep = 0.0f;
+
+        // Volumetric fog stays off unless asked for: the stock density swallows an auto-framed scene.
+        // --fog on defers to the saved ViewRenderSettings instead of forcing it either way.
+        bool fog = false;
+
+        // Render-settings overrides (--set <section>.<field>=<value>), applied in order after
+        // <project>/.luth/render.json loads. An unknown key is fatal, so a typo in a sweep script
+        // cannot quietly measure the default and report it as a result.
+        std::vector<std::string> overrides;
 
         bool WantsCapture()   const { return !shotPath.empty(); }
         bool WantsBenchmark() const { return !benchPath.empty(); }

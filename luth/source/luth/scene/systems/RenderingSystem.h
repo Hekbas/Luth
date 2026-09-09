@@ -24,6 +24,7 @@
 #include "luth/renderer/settings/ReflectionsSettings.h"
 #include "luth/renderer/settings/EmissiveLightSettings.h"
 #include "luth/renderer/settings/WindSettings.h"
+#include "luth/renderer/settings/ViewRenderSettings.h"
 
 #include <entt/entt.hpp>
 #include <memory>
@@ -256,6 +257,9 @@ namespace Luth
         EmissiveLightSettings& GetEmissiveLightSettings() { return m_EmissiveLightSettings; }
         const EmissiveLightSettings& GetEmissiveLightSettings() const { return m_EmissiveLightSettings; }
 
+        ViewRenderSettings& GetViewRenderSettings() { return m_ViewRenderSettings; }
+        const ViewRenderSettings& GetViewRenderSettings() const { return m_ViewRenderSettings; }
+
         // Top-level render path (Raster / PathTrace). PathTraceSubsystem::IsEnabled() reads this; the
         // editor RenderPanel toggles it. Switching modes resets the PT accumulation on the next frame.
         RenderMode GetRenderMode() const { return m_RenderMode; }
@@ -376,6 +380,7 @@ namespace Luth
         PathTraceSettings    m_PathTraceSettings;
         ReflectionsSettings  m_ReflectionsSettings;
         EmissiveLightSettings m_EmissiveLightSettings;
+        ViewRenderSettings   m_ViewRenderSettings;
         WindSettings         m_WindSettings;
         RenderMode           m_RenderMode   = RenderMode::Raster;
         ShadeMode            m_ShadeMode    = ShadeMode::Lit;
