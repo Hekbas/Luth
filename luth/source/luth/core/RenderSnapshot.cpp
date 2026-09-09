@@ -108,6 +108,8 @@ namespace Luth
             for (auto [entity, wt, dl] : view.each())
             {
                 if (!wt.ActiveInHierarchy) continue;
+                ++out.directionalLight.count;
+                if (out.directionalLight.present) continue;   // count them all, still render the first
                 out.directionalLight.present                 = true;
                 out.directionalLight.direction              = Math::Normalize(-Vec3(wt.Matrix[2]));
                 out.directionalLight.color                  = dl.Color;
@@ -125,7 +127,6 @@ namespace Luth
                 out.directionalLight.shadowing              = dl.Shadowing;
                 out.directionalLight.rtOriginEpsilon        = dl.RtOriginEpsilon;
                 out.directionalLight.rtNormalEpsilon        = dl.RtNormalEpsilon;
-                break;
             }
         }
 

@@ -23,6 +23,18 @@ namespace Luth::UI
         ImGui::Dummy(ImGui::CalcTextSize(buf));
     }
 
+    void WarningText(const ImVec4& color, const char* fmt, ...)
+    {
+        char buf[512];
+        va_list args; va_start(args, fmt);
+        vsnprintf(buf, sizeof(buf), fmt, args);
+        va_end(args);
+
+        ImGui::PushStyleColor(ImGuiCol_Text, color);
+        ImGui::TextWrapped("%s", buf);
+        ImGui::PopStyleColor();
+    }
+
     void SectionHeader(const char* label)
     {
         ImGui::Dummy(ImVec2(0.0f, 7.0f));   // spacing above the section

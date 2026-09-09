@@ -10,6 +10,9 @@ namespace Luth::UI
 {
     // Faux-bold text (double-draw; the editor ships no bold font). printf-style.
     void BoldText(const char* fmt, ...);
+    // Wrapped, coloured inline notice for a state the user needs to act on (pass an EditorColors
+    // entry). Wraps because these read as sentences, not labels.
+    void WarningText(const ImVec4& color, const char* fmt, ...);
 
     // Bold section header with breathing room above. Leaves the line open; SameLine after it to add
     // right-aligned content (a legend or numbers), otherwise the next widget flows below.
