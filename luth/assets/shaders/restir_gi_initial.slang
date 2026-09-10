@@ -138,19 +138,25 @@ void main(uint3 tid : SV_DispatchThreadID)
     float  t  = rq.CommittedRayT();
     float3 xs = origin + d * t;
 
-    // Secondary surface: geometric normal n_s, diffuse albedo, emission.
-    float3 ns, baseColor;
+    // Secondary surface. TWO normals, deliberately: ns is GEOMETRIC and drives ray offsets and the
+    // normal stored in the reservoir (the reconnection Jacobian wants the stable one), while nsShade is
+    // the shading normal and drives the NEE cosines. Using the geometric normal for BOTH cost ~11% of
+    // the indirect energy against a depth-matched path tracer, which does this same split
+    // (DirectLighting takes dot(s.ns, L) but offsets rays along s.ng).
+    float3 ns, nsShade, baseColor;
     float3 emission = float3(0.0);
     if (GI_USE_SCAFFOLD_LO)
     {
         ns        = normalize(worldPos - xs);
+        nsShade   = ns;
         baseColor = float3(pc.secondaryAlbedo);
     }
     else
     {
         HitSurface hs = FetchHitSurface(pc.geomTable, rq.CommittedInstanceID(), rq.CommittedPrimitiveIndex(),
                                         rq.CommittedTriangleBarycentrics(), rq.CommittedObjectToWorld3x4(), d, xs);
-        ns        = hs.ng;   // GI keeps the geometric secondary normal
+        ns        = hs.ng;   // geometry: ray offsets + the reservoir's stored normal
+        nsShade   = hs.ns;   // shading: the NEE cosines below, matching what the path tracer does
         baseColor = hs.baseColor;
         emission  = hs.emission;
     }
@@ -167,7 +173,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         uint lightIndex; uint uvPacked; float invSourcePdf;
         DrawLightCandidate(g_Lights, seed, lightIndex, uvPacked, invSourcePdf);
         LightSample ls = ReSampleLight(g_Lights, lightIndex, uvPacked, xs);
-        float ndl = max(dot(ns, ls.L), 0.0);
+        float ndl = max(dot(nsShade, ls.L), 0.0);
         if (ndl > 0.0)
         {
             float  sMin  = ubo.rtShadowParams.y;
@@ -183,7 +189,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     if (dl.intensity > 0.0)
     {
         float3 Lsun   = normalize(-dl.direction);
-        float  ndlSun = max(dot(ns, Lsun), 0.0);
+        float  ndlSun = max(dot(nsShade, Lsun), 0.0);
         if (ndlSun > 0.0)
         {
             float  sMin  = ubo.rtShadowParams.y;
