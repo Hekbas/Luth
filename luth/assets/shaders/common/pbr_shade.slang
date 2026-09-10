@@ -184,7 +184,25 @@ public FOut PbrShadeSurface(MaterialInputs mi, GPUMaterialData m, VIn i, bool fr
         Lo += diSpecular.Sample(screenUv).rgb * (DiSpecRho(NoV, roughness) * ubo.restirParams.z) * F0;
     }
 
-    IblResult ibl = EvalIblAmbient(surf, V, ao, ubo.iblIntensity);
+    // Per-pixel sky visibility, for free, from two things already in this shader: ReSTIR GI carries the
+    // OCCLUDED sky irradiance and the IBL convolution is the UNOCCLUDED value of the same integral, so
+    // their ratio is how much sky this point actually sees. No extra ray, no extra target.
+    //
+    // Units: the GI contract stores E = L*NdotL*W, which for one cosine-sampled sky hit resolves to pi*L
+    // (the pdf cancels), while IblIrradiance stores E/pi = L. Hence the GI_PI in the denominator; an
+    // unoccluded pixel then lands on exactly 1.0.
+    //
+    // Clamped to [0,1] because GI also carries SURFACE bounce, which can exceed the sky-only term in a
+    // brightly lit corner and would otherwise amplify the specular instead of occluding it.
+    float specOcc = 1.0;
+    if (ubo.restirParams.y > 0.5)
+    {
+        const float giLum  = Luminance(giIrradiance.Sample(screenUv).rgb);
+        const float refLum = Luminance(IblIrradiance(N)) * ubo.iblIntensity * GI_PI;
+        specOcc = (refLum > 1.0e-5) ? saturate(giLum / refLum) : 1.0;
+    }
+
+    IblResult ibl = EvalIblAmbient(surf, V, ao, ubo.iblIntensity, specOcc);
     float3 color = ibl.ambient + Lo;
 
     // ReSTIR GI carries sky-on-miss (restir_gi_initial), so the UNOCCLUDED IBL diffuse term it now

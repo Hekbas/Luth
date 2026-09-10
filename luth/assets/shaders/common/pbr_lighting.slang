@@ -209,7 +209,19 @@ public struct IblResult { public float3 ambient; public float3 envBRDF; public f
 // ambient, carrying the same ao/iblIntensity/sheen/coat attenuation, so a consumer whose RT channel
 // supersedes unoccluded diffuse can subtract exactly what it replaces (see specularIBL's role).
 
-public IblResult EvalIblAmbient(SurfaceBRDF s, float3 V, float ao, float iblIntensity)
+// Unoccluded cosine-convolved sky irradiance for normal N, before albedo/kD/intensity. The convolution
+// stores E/pi (LearnOpenGL convention), which is why the diffuse consumer multiplies by albedo with no
+// 1/pi of its own. Exposed so a consumer can form the ratio against an OCCLUDED estimate of the same
+// quantity and recover a per-pixel sky visibility. see pbr_shade.slang
+public float3 IblIrradiance(float3 N) { return u_IrradianceMap.Sample(N).rgb; }
+
+// specOcc scales the environment SPECULAR lobes (base spec, sheen env, coat env). They are otherwise
+// applied with no occlusion at all beyond screen-space GTAO, which cannot know a point sits inside an
+// arcade: measured against a path-traced reference that additive leak was ~0.05 radiance, larger than
+// the scene's own mean, and it dominated every shadowed pixel (17x error in the darkest decile).
+// The diffuse half needs no factor here -- pbr_shade subtracts it outright once GI carries the sky.
+// Pass 1.0 to keep the legacy unoccluded behaviour.
+public IblResult EvalIblAmbient(SurfaceBRDF s, float3 V, float ao, float iblIntensity, float specOcc)
 {
     float  NoV = max(dot(s.N, V), 0.0);
     float3 F0  = lerp(float3(s.dielectricF0), s.albedo, s.metallic);
@@ -236,7 +248,9 @@ public IblResult EvalIblAmbient(SurfaceBRDF s, float3 V, float ao, float iblInte
 
     IblResult r;
     r.envBRDF     = F * brdf.x + brdf.y;
-    r.specularIBL = prefilteredColor * r.envBRDF;
+    // envBRDF stays UNOCCLUDED: the consumer multiplies it by a traced reflection, which is already
+    // occluded by construction. Only the cubemap-sourced term takes specOcc.
+    r.specularIBL = prefilteredColor * r.envBRDF * specOcc;
 
     float3 diffusePart = kD * diffuseIBL;
     float3 base = diffusePart + r.specularIBL;
@@ -251,7 +265,7 @@ public IblResult EvalIblAmbient(SurfaceBRDF s, float3 V, float ao, float iblInte
         float  sr = clamp(s.sheenRoughness, 0.04, 1.0);
         float  Es = E_Sheen(NoV, sr);
         float3 sheenEnv = u_PrefilteredMap.SampleLevel(reflect(-V, s.N), sr * MAX_REFLECTION_LOD).rgb
-                        * (s.sheenColor * Es);
+                        * (s.sheenColor * Es) * specOcc;
         float  sheenScale = 1.0 - sheenW * Es;
         base = base * sheenScale + sheenEnv;
         diffusePart   *= sheenScale;
@@ -267,7 +281,7 @@ public IblResult EvalIblAmbient(SurfaceBRDF s, float3 V, float ao, float iblInte
         float  ccR = clamp(s.clearcoatRoughness, 0.04, 1.0);
         float3 Rc  = reflect(-V, s.N);
         float2 ccB = u_BrdfLUT.Sample(float2(NoV, ccR)).rg;
-        float3 ccSpec = u_PrefilteredMap.SampleLevel(Rc, ccR * MAX_REFLECTION_LOD).rgb * (0.04 * ccB.x + ccB.y);
+        float3 ccSpec = u_PrefilteredMap.SampleLevel(Rc, ccR * MAX_REFLECTION_LOD).rgb * (0.04 * ccB.x + ccB.y) * specOcc;
         base = base * (1.0 - Fc) + ccSpec;
         diffusePart   *= (1.0 - Fc);
         r.envBRDF     *= (1.0 - Fc);

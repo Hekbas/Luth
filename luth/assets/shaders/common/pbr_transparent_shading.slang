@@ -101,7 +101,7 @@ public float4 EvalTransparentSurfaceColor(uint materialIndex, uint shadeMode, fl
 
     Lo += EvalClusteredLights(fragCoord, worldPos, V, surf, false);
 
-    IblResult ibl = EvalIblAmbient(surf, V, mi.occlusion, ubo.iblIntensity);
+    IblResult ibl = EvalIblAmbient(surf, V, mi.occlusion, ubo.iblIntensity, 1.0);
     float3 color = ibl.ambient + Lo + mi.emissive;
 
     // Per-fragment froxel fog at the fragment's depth (the fullscreen composite already fogged opaque).
