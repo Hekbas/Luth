@@ -86,6 +86,7 @@ namespace Luth
         std::vector<SpotLightData>     spots;
         std::vector<TriangleLightData> tris;    // emissive triangle lights (world-space); empty when off
         std::vector<LightAliasEntry>   alias;   // power table over [points | tris]; empty when no tris
+        f32                            totalPower = 0.0f;   // sum of the alias weights; see LightSSBOHeader
     };
 
     // ---- Forward+ clustered lighting ----
@@ -110,7 +111,12 @@ namespace Luth
         u32                  pointLightCount;   //  4 (offset 32)
         u32                  spotLightCount;    //  4 (offset 36)
         u32                  triLightCount;     //  4 (offset 40) emissive triangle lights (0 = feature off)
-        u32                  _pad;              //  4 (offset 44; points[] starts at offset 48)
+        // Sum of the alias table's power weights. A path tracer needs the light-sampling pdf of an
+        // emitter its BSDF ray HIT, to MIS-weight the on-hit emission against NEE. power_i is
+        // 2*pi*area_i*Lum(Le_i) and pmf_i = power_i/total, so pdf_area = pmf/area = 2*pi*Lum(Le)/total:
+        // the area cancels and the pdf follows from the hit's own emission plus this scalar, with no
+        // hit->light-index reverse lookup. 0 when no alias table exists.
+        f32                  totalLightPower;  //  4 (offset 44; points[] starts at offset 48)
     };
     static_assert(sizeof(LightSSBOHeader) == 48, "LightSSBOHeader std430 layout");
     static_assert(sizeof(DirectionalLightData) == 32, "DirectionalLightData std430 layout");

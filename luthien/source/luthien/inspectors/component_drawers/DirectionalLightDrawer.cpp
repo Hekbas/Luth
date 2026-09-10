@@ -5,6 +5,8 @@
 #include "luthien/commands/Commands.h"
 #include "luthien/CommandHistory.h"
 #include "luth/scene/Components.h"
+#include "luth/scene/Scene.h"
+#include "luthien/EditorColors.h"
 
 #include <nlohmann/json.hpp>
 
@@ -67,6 +69,30 @@ namespace Luth::ComponentDrawers
         ComponentDrawerRegistry::Register<DirectionalLight>(
             "Directional Light",
             [](Entity entity, DirectionalLight& dirLight) {
+                // RenderSnapshot takes the FIRST active DirectionalLight in EnTT pool order and ignores
+                // the rest. Pool order is not hierarchy order, so with more than one in the scene the
+                // light listed first in the Hierarchy is often the ignored one, and editing it looks
+                // like the inspector is broken. Resolve the winner the same way here and say so.
+                if (Scene* sc = entity.GetScene()) {
+                    auto& reg = sc->Registry();
+                    auto  view = reg.view<Component::WorldTransform, DirectionalLight>();
+                    entt::entity winner = entt::null;
+                    u32 active = 0;
+                    for (auto [e, wt, dl] : view.each()) {
+                        if (!wt.ActiveInHierarchy) continue;
+                        ++active;
+                        if (winner == entt::null) winner = e;
+                    }
+                    if (active > 1) {
+                        if (winner == (entt::entity)entity)
+                            UI::WarningText(EditorColors::WarningYellow,
+                                "%u directional lights active. This is the one being rendered; the rest are ignored.", active);
+                        else
+                            UI::WarningText(EditorColors::ErrorRed,
+                                "IGNORED: %u directional lights active and only the first is rendered. Editing this one has no effect.", active);
+                    }
+                }
+
                 if (UI::BeginProperties()) {
                     Scene* scene = entity.GetScene();
                     entt::entity ent = (entt::entity)entity;

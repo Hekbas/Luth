@@ -1,0 +1,66 @@
+{
+ "version": 1,
+ "entities": [
+  {
+   "active": true,
+   "parent": "",
+   "tag": "Camera",
+   "uuid": "fa000000-0000-4000-9000-000000000030",
+   "transform": {
+    "position": [
+     0.0,
+     2.0,
+     0.0
+    ],
+    "rotation": [
+     -90.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "camera": {
+    "farClip": 1000.0,
+    "nearClip": 0.01,
+    "orthographicFar": 1.0,
+    "orthographicNear": -1.0,
+    "orthographicSize": 10.0,
+    "projection": 0,
+    "verticalFOV": 45.0
+   }
+  },
+  {
+   "active": true,
+   "parent": "",
+   "tag": "Floor",
+   "uuid": "fa000000-0000-4000-9000-000000000031",
+   "transform": {
+    "position": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "rotation": [
+     -90.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     40.0,
+     40.0,
+     1.0
+    ]
+   },
+   "meshRenderer": {
+    "isSkinned": false,
+    "materialUUID": "fa000000-0000-4000-8000-000000000003",
+    "meshIndex": 0,
+    "modelUUID": "d9399440-9110-4ed9-af43-d9ea2f98fdd3"
+   }
+  }
+ ]
+}

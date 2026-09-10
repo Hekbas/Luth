@@ -17,14 +17,19 @@ namespace Luth
 
         // Vose alias-table build over per-light `power`. Fills out[i] = { prob, aliasIdx, pmf }, where pmf
         // is light i's true selection probability (power_i / total) and (prob, alias) drive the O(1) draw.
-        void BuildAliasTable(const std::vector<f32>& power, std::vector<LightAliasEntry>& out)
+        void BuildAliasTable(const std::vector<f32>& power, std::vector<LightAliasEntry>& out, f32& outTotal)
         {
+            outTotal = 0.0f;   // written before every early-out; consumers divide by it
             const u32 n = static_cast<u32>(power.size());
             out.assign(n, LightAliasEntry{});
             if (n == 0) return;
 
             f64 total = 0.0;
             for (f32 p : power) total += p;
+            outTotal = static_cast<f32>(total);
+            // NOTE the uniform fallback below breaks pmf = power/total, so the pdf identity a path
+            // tracer derives from totalLightPower does not hold there. Unreachable in practice:
+            // total <= 0 means no emitter carries power, so no emissive hit can occur.
             if (total <= 0.0)   // degenerate: uniform fallback so a draw is still well-defined
             {
                 for (u32 i = 0; i < n; ++i) out[i] = { 1.0f, i, 1.0f / f32(n), 0.0f };
@@ -130,7 +135,7 @@ namespace Luth
 
         // Unified power-weighted alias table over [points | tris]. Skipped when no triangles survive, so a
         // point-only scene keeps ReSTIR DI's legacy uniform point sampling (zero regression when unused).
-        if (lights.tris.empty()) { lights.alias.clear(); return; }
+        if (lights.tris.empty()) { lights.alias.clear(); lights.totalPower = 0.0f; return; }
         const u32 pc = static_cast<u32>(lights.points.size());
         const u32 tc = static_cast<u32>(lights.tris.size());
         std::vector<f32> power(pc + tc);
@@ -138,6 +143,6 @@ namespace Luth
             power[i] = 4.0f * Math::Pi<f32> * lights.points[i].intensity * LumOf(lights.points[i].color);
         for (u32 i = 0; i < tc; ++i)
             power[pc + i] = Math::TwoPi<f32> * lights.tris[i].area * LumOf(lights.tris[i].avgLe);
-        BuildAliasTable(power, lights.alias);
+        BuildAliasTable(power, lights.alias, lights.totalPower);
     }
 }

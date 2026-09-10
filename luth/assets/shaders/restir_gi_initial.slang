@@ -17,6 +17,16 @@ static const bool GI_USE_SCAFFOLD_LO = false;   // debug: constant albedo + rece
 [[vk::binding(0, 2)]] Sampler2D u_SceneDepth;
 [[vk::binding(1, 2)]] Sampler2D u_SlimNormal;     // RG16F oct
 [[vk::binding(2, 2)]] RWStructuredBuffer<GIReservoir> reservoirs;
+// Set 0 b2: the same prefiltered env cubemap pbr_lighting samples. Sampled unguarded exactly as
+// there: the engine precomputes a default IBL before any project HDR loads, so it is always bound.
+[[vk::binding(2, 0)]] SamplerCube u_PrefilteredEnv;
+
+// Virtual distance for a sky sample. Far enough that the reconnection Jacobian's dO/dN and
+// cosN/cosO ratios both land at ~1 (a distant sample needs no reweighting between neighbours) and
+// that the spatial pass's visibility ray toward samplePos becomes a real sky-occlusion test, while
+// staying well inside f32 range (d2 ~ 1e10). samplePos is only ever used to derive a DIRECTION --
+// neither GiTargetFunction nor restir_gi_shade applies 1/d^2 -- so the magnitude is free.
+static const float GI_SKY_DIST = 1.0e5;
 
 struct PC
 {
@@ -97,23 +107,56 @@ void main(uint3 tid : SV_DispatchThreadID)
     RayQuery<RAY_FLAG_NONE> rq;
     rq.TraceRayInline(topLevelAS, RAY_FLAG_NONE, GT_VIS_ALL, ray);
     RtConfirmAlphaCandidates(rq, pc.geomTable);
-    if (rq.CommittedStatus() == COMMITTED_NOTHING) { reservoirs[flatIdx] = r; return; }   // miss -> empty
+    if (rq.CommittedStatus() == COMMITTED_NOTHING)
+    {
+        // Sky on miss. Dropping it was why lowering iblIntensity went dark instead of handing the
+        // environment to GI: the UNOCCLUDED EvalIblAmbient term was the only sky->diffuse path, so a
+        // sunlit courtyard showed bright sky through its arches lighting nothing. path_trace and
+        // rt_reflections already sample env here; GI was the one consumer that discarded it.
+        // Scaled by iblIntensity (the lighting weight), not skyboxIntensity (the backdrop weight).
+        // pbr_shade subtracts ibl.diffuseIBL when GI is on so the sky is not counted twice.
+        float3 Lsky = u_PrefilteredEnv.SampleLevel(d, 0.0).rgb * ubo.iblIntensity;
+
+        // Same generation-time clamp the hit path applies: an env map's sun disk is a small very bright
+        // solid angle, which is a firefly under cosine sampling. NOTE this now bounds overall sky
+        // brightness too, so maxIndirect (default 10) may need raising for a bright environment.
+        float lumSky = Luminance(Lsky);
+        if (lumSky > pc.maxIndirect) Lsky *= pc.maxIndirect / lumSky;
+
+        float3 xs    = worldPos + d * GI_SKY_DIST;
+        float  pHat  = GiTargetFunction(xs, Lsky, worldPos, Nv);
+        float  w     = (pdf > 0.0) ? pHat / pdf : 0.0;
+        GIReservoirUpdate(r, xs, Lsky, OctEncode(-d), w, 0.5);   // virtual surface faces the receiver
+        GIReservoirFinalize(r, pHat);
+        r.age             = 0u;
+        r.visPos          = worldPos;
+        r.visNormalPacked = f32tof16(octNv.x) | (f32tof16(octNv.y) << 16);
+
+        reservoirs[flatIdx] = r;
+        return;
+    }
     float  t  = rq.CommittedRayT();
     float3 xs = origin + d * t;
 
-    // Secondary surface: geometric normal n_s, diffuse albedo, emission.
-    float3 ns, baseColor;
+    // Secondary surface. TWO normals, deliberately: ns is GEOMETRIC and drives ray offsets and the
+    // normal stored in the reservoir (the reconnection Jacobian wants the stable one), while nsShade is
+    // the shading normal and drives the NEE cosines. Using the geometric normal for BOTH cost ~11% of
+    // the indirect energy against a depth-matched path tracer, which does this same split
+    // (DirectLighting takes dot(s.ns, L) but offsets rays along s.ng).
+    float3 ns, nsShade, baseColor;
     float3 emission = float3(0.0);
     if (GI_USE_SCAFFOLD_LO)
     {
         ns        = normalize(worldPos - xs);
+        nsShade   = ns;
         baseColor = float3(pc.secondaryAlbedo);
     }
     else
     {
         HitSurface hs = FetchHitSurface(pc.geomTable, rq.CommittedInstanceID(), rq.CommittedPrimitiveIndex(),
                                         rq.CommittedTriangleBarycentrics(), rq.CommittedObjectToWorld3x4(), d, xs);
-        ns        = hs.ng;   // GI keeps the geometric secondary normal
+        ns        = hs.ng;   // geometry: ray offsets + the reservoir's stored normal
+        nsShade   = hs.ns;   // shading: the NEE cosines below, matching what the path tracer does
         baseColor = hs.baseColor;
         emission  = hs.emission;
     }
@@ -130,7 +173,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         uint lightIndex; uint uvPacked; float invSourcePdf;
         DrawLightCandidate(g_Lights, seed, lightIndex, uvPacked, invSourcePdf);
         LightSample ls = ReSampleLight(g_Lights, lightIndex, uvPacked, xs);
-        float ndl = max(dot(ns, ls.L), 0.0);
+        float ndl = max(dot(nsShade, ls.L), 0.0);
         if (ndl > 0.0)
         {
             float  sMin  = ubo.rtShadowParams.y;
@@ -146,7 +189,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     if (dl.intensity > 0.0)
     {
         float3 Lsun   = normalize(-dl.direction);
-        float  ndlSun = max(dot(ns, Lsun), 0.0);
+        float  ndlSun = max(dot(nsShade, Lsun), 0.0);
         if (ndlSun > 0.0)
         {
             float  sMin  = ubo.rtShadowParams.y;

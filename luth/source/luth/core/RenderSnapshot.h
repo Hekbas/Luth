@@ -51,6 +51,11 @@ namespace Luth
     struct DirectionalLightSnapshot
     {
         bool present = false;
+        // Total DirectionalLight components in the scene. Selection is first-wins in ENTT POOL order,
+        // which is not hierarchy order, so with more than one the light the user sees at the top of the
+        // Hierarchy is very likely NOT the one being rendered. Editing it then appears to do nothing.
+        // Surfaced so the editor can say so instead of leaving it to be discovered by measurement.
+        u32  count = 0;
         Vec3 direction{ 0.0f, -1.0f, 0.0f };
         Vec3 color{ 1.0f };
         f32  intensity = 1.0f;

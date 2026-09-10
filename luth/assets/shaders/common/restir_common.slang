@@ -149,6 +149,10 @@ public float2 UnpackUV(uint p)  { return float2(float(p & 0xFFFFu), float(p >> 1
 // tris@ 64B; alias@ 16B). Accessors take the per-shader g_Lights binding as an argument.
 public uint LightPointCount(ByteAddressBuffer lb) { return lb.Load(32); }
 public uint LightTriCount(ByteAddressBuffer lb)   { return lb.Load(40); }
+// Alias-table power sum (offset 44). With power_i = 2*pi*area_i*Lum(Le_i) and pmf_i = power_i/total,
+// a triangle's AREA-measure sampling pdf is pmf/area = 2*pi*Lum(Le)/total -- area cancels, so a path
+// tracer can price an emitter its BSDF ray hit without a hit->light-index reverse lookup.
+public float LightTotalPower(ByteAddressBuffer lb) { return asfloat(lb.Load(44)); }
 uint TrisBaseBytes(ByteAddressBuffer lb)  { return 48u + lb.Load(32) * 32u + lb.Load(36) * 64u; }
 uint AliasBaseBytes(ByteAddressBuffer lb) { return TrisBaseBytes(lb) + lb.Load(40) * 64u; }
 

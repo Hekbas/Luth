@@ -11,6 +11,7 @@
 #include "luth/core/EditorHooks.h"
 #include "luth/core/DebugDraw.h"
 #include "luth/resources/FileSystem.h"
+#include "luth/renderer/settings/RenderSettingsIO.h"
 #include "luth/resources/Image.h"
 #include "luth/scene/systems/SystemRegistry.h"
 #include "luth/resources/AssetManager.h"
@@ -244,9 +245,35 @@ namespace Luth
         // Applied before the first frame so no measured frame runs under the compiled default.
         if (auto* rs = SystemRegistry::GetSystem<RenderingSystem>())
         {
+            // Precedence, least to most explicit, so the most specific thing the caller typed wins:
+            // saved project settings -> harness determinism defaults -> --half -> --set.
+            if (FileSystem::HasProject())
+                RenderSettingsIO::Load(*rs, RenderSettingsIO::DefaultPath(FileSystem::ProjectPath()));
+
+            if (m_Harness.IsActive() && !m_Harness.wind)
+                rs->GetWindSettings().enabled = false;
+
             if (m_Harness.halfDi   >= 0) rs->GetRestirSettings().halfResolution      = (m_Harness.halfDi   != 0);
             if (m_Harness.halfGi   >= 0) rs->GetRestirGiSettings().halfResolution    = (m_Harness.halfGi   != 0);
             if (m_Harness.halfRefl >= 0) rs->GetReflectionsSettings().halfResolution = (m_Harness.halfRefl != 0);
+
+            for (const auto& assignment : m_Harness.overrides)
+            {
+                if (!RenderSettingsIO::ApplyOverride(*rs, assignment)) {
+                    // Fatal on purpose: a mistyped sweep key would otherwise render the default and be
+                    // written up as a measurement of the value the caller thought they set.
+                    LH_CORE_ERROR("Aborting: bad --set '{}'", assignment);
+                    m_ExitCode = 1;
+                    m_Running = false;
+                }
+            }
+        }
+
+        // Pin the clock before the first frame so no captured or measured frame samples the wall clock.
+        if (m_Harness.IsActive())
+        {
+            if (m_Harness.timeStep >= 0.0f) Time::SetFixedDelta(m_Harness.timeStep);
+            else                            Time::ClearFixedDelta();
         }
 
         if (m_Harness.IsActive())
@@ -385,9 +412,6 @@ namespace Luth
                         cp.nearZ      = viewState.nearZ;
                         cp.farZ       = viewState.farZ;
                     }
-                    cp.iblIntensity     = viewState.iblIntensity;
-                    cp.skyboxIntensity  = viewState.skyboxIntensity;
-                    cp.enableVolumetricFog = viewState.enableVolumetricFog;
                     cp.selectedEntities = std::move(viewState.selectedEntities);
 
                     cp.outlineColor          = viewState.outlineColor;
@@ -417,6 +441,15 @@ namespace Luth
                     cp.gizmoFogColor          = viewState.gizmoFogColor;
                     cp.gizmoWindColor         = viewState.gizmoWindColor;
                 }
+
+                // Environment weights come from RenderingSystem for BOTH paths, editor and headless. They
+                // used to arrive only via EditorViewportState, so a capture (which registers no hooks)
+                // silently rendered iblIntensity 1.0 while the editor ran the user's saved value -- any
+                // capture-vs-viewport comparison was invalid. see ViewRenderSettings.h
+                const auto& vrs = rs->GetViewRenderSettings();
+                cp.iblIntensity        = vrs.iblIntensity;
+                cp.skyboxIntensity     = vrs.skyboxIntensity;
+                cp.enableVolumetricFog = vrs.enableVolumetricFog;
 
                 // Capture mode owns the primary camera; until the scene resolves, cp stays default and the
                 // frame renders an empty view, which is fine because those frames are not captured.
@@ -722,6 +755,14 @@ namespace Luth
             return (end && *end == '\0' && v > 0) ? static_cast<u32>(v) : fallback;
         };
 
+        // Separate from toU32 because 0 is a meaningful --time-step (freeze) and negatives select the
+        // live wall clock, both of which toU32's `v > 0` guard would silently drop to the fallback.
+        auto toF32 = [](const char* s, f32 fallback) -> f32 {
+            char* end = nullptr;
+            const float v = std::strtof(s, &end);
+            return (end && *end == '\0') ? v : fallback;
+        };
+
         auto toPresent = [](const char* s, PresentMode fallback) -> PresentMode {
             if (std::strcmp(s, "immediate") == 0) return PresentMode::Immediate;
             if (std::strcmp(s, "mailbox")   == 0) return PresentMode::Mailbox;
@@ -743,6 +784,15 @@ namespace Luth
             else if (wantsValue(i, "--frames")) m_Harness.warmupFrames = toU32(argv[++i], m_Harness.warmupFrames);
             else if (wantsValue(i, "--bench-frames")) m_Harness.benchFrames = toU32(argv[++i], m_Harness.benchFrames);
             else if (wantsValue(i, "--present")) m_Harness.presentMode = toPresent(argv[++i], m_Harness.presentMode);
+            else if (wantsValue(i, "--wind"))   m_Harness.wind = (std::string(argv[++i]) == "on");
+            else if (wantsValue(i, "--fog"))    m_Harness.fog  = (std::string(argv[++i]) == "on");
+            else if (wantsValue(i, "--time-step")) m_Harness.timeStep = toF32(argv[++i], m_Harness.timeStep);
+            else if (wantsValue(i, "--set"))    m_Harness.overrides.emplace_back(argv[++i]);
+            else if (wantsValue(i, "--hdr"))       m_Harness.hdrPath      = argv[++i];
+            else if (wantsValue(i, "--compare"))   m_Harness.comparePath  = argv[++i];
+            else if (wantsValue(i, "--metrics"))   m_Harness.metricsPath  = argv[++i];
+            else if (wantsValue(i, "--error-map")) m_Harness.errorMapPath = argv[++i];
+            else if (wantsValue(i, "--spp"))       m_Harness.spp = toU32(argv[++i], m_Harness.spp);
         }
 
         // A benchmark measures render work, so default it off the presentation engine: Mailbox would

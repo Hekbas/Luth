@@ -42,22 +42,17 @@ DirectionalLightData LoadDirLight()
     d._pad      = 0.0;
     return d;
 }
-uint LoadPointCount() { return g_Lights.Load(32); }
-PointLightData LoadPoint(uint j)
-{
-    uint b = 48u + j * 32u;
-    PointLightData p;
-    p.position  = asfloat(g_Lights.Load3(b + 0u));
-    p.range     = asfloat(g_Lights.Load(b + 12u));
-    p.color     = asfloat(g_Lights.Load3(b + 16u));
-    p.intensity = asfloat(g_Lights.Load(b + 28u));
-    return p;
-}
 
-float3 SampleEnv(float3 dir)
+// isBackdrop: the primary camera ray escaping, i.e. the sky the viewer looks at, which is what
+// skyboxIntensity weights. Every deeper bounce is TRANSPORT and takes iblIntensity, the environment
+// LIGHTING weight -- the same scalar ReSTIR GI's sky-on-miss uses, so the realtime path and this
+// reference agree on how bright the environment is. Conflating the two made the oracle disagree with
+// the renderer by whatever ratio the user had set between them. see ViewRenderSettings.h
+float3 SampleEnv(float3 dir, bool isBackdrop)
 {
     if (pc.envReady == 0u) return float3(0.0);
-    return u_PrefilteredEnv.SampleLevel(dir, 0.0).rgb * ubo.skyboxIntensity;
+    const float weight = isBackdrop ? ubo.skyboxIntensity : ubo.iblIntensity;
+    return u_PrefilteredEnv.SampleLevel(dir, 0.0).rgb * weight;
 }
 
 // Shadow ray: true iff `dir` is unoccluded from x up to maxDist (Wächter-Binder geometric-normal offset).
@@ -74,18 +69,59 @@ bool Visible(float3 x, float3 offsetN, float3 dir, float maxDist)
 
 // Full-BRDF NEE at (x, surface s) with view dir V. One random point light (x count undoes the 1/count
 // pick pdf) + deterministic sun, each shadow-rayed.
-float3 DirectLighting(float3 x, float3 V, HitSurface s, SurfaceBRDF surf, inout uint seed)
+// Solid-angle pdf with which local-light NEE would have generated a hit on this emitter, seen from
+// `dist` away at incidence `cosLight`. power_i = 2*pi*area_i*Lum(Le_i) and pmf_i = power_i/total give
+// pdf_area = pmf/area = 2*pi*Lum(Le)/total, so the AREA CANCELS and the pdf follows from the hit's own
+// emission plus the stored total, needing no hit->light-index reverse lookup. see LightTypes.h
+//
+// Returns 0 when no alias table exists, which is also the correct answer for an emitter NEE cannot
+// reach: the gatherer drops skinned/deformable meshes and anything under minPowerLum, and BSDF sampling
+// is then the only strategy in play, so the on-hit emission must keep full weight.
+float EmitterNeePdfSolid(float3 Le, float dist, float cosLight)
+{
+    float total = LightTotalPower(g_Lights);
+    if (total <= 0.0 || cosLight <= 1.0e-6) return 0.0;
+    float pdfArea = 2.0 * GI_PI * Luminance(Le) / total;
+    return pdfArea * (dist * dist) / cosLight;
+}
+
+// Local-light NEE over the unified [points | tris] alias table -- the same seam ReSTIR GI and RT
+// reflections draw from -- plus the deterministic sun. This replaced a uniform point-light pick: the
+// emissive triangles the v3.10.0 arc added were never sampled here, so an emissive-lit scene converged
+// only by brute-force BSDF hits, which is both noisy and clamped dark.
+//
+// Triangle emitters are reachable by BOTH strategies (SamplePath adds s.emission on any hit), so their
+// NEE term carries a power-heuristic weight and the hit side carries the complement. Point lights and
+// the sun are delta lights no BSDF sample can ever hit, so they stay at weight 1.
+float3 DirectLighting(float3 x, float3 V, HitSurface s, SurfaceBRDF surf, LobeProbs lp, inout uint seed)
 {
     float3 Lo = float3(0.0);
-    uint lc = LoadPointCount();
-    if (lc > 0u)
+    if (LightPointCount(g_Lights) + LightTriCount(g_Lights) > 0u)
     {
-        uint j = min(uint(RandFromSeed(seed) * float(lc)), lc - 1u);
-        PointLightData pl = LoadPoint(j);
-        float3 Lw; float ld;
-        float3 Li = PointLightRadiance(pl, x, Lw, ld);
-        if (dot(s.ns, Lw) > 0.0 && Visible(x, s.ng, Lw, ld - 2.0 * ubo.rtShadowParams.y))
-            Lo += EvalSurfBRDFTimesNdotL(Lw, Li * float(lc), V, surf);
+        uint lightIndex; uint uvPacked; float invSourcePdf;
+        DrawLightCandidate(g_Lights, seed, lightIndex, uvPacked, invSourcePdf);
+        LightSample ls = ReSampleLight(g_Lights, lightIndex, uvPacked, x);
+        if (dot(s.ns, ls.L) > 0.0 && invSourcePdf > 0.0
+            && Visible(x, s.ng, ls.L, ls.dist - 2.0 * ubo.rtShadowParams.y))
+        {
+            float3 contrib = EvalSurfBRDFTimesNdotL(ls.L, ls.Li, V, surf) * invSourcePdf;
+            if ((lightIndex & LIGHT_TYPE_TRI) != 0u)
+            {
+                // Li already carries cos_light/d^2 and invSourcePdf is area measure, so this draw's
+                // solid-angle density is d^2 / (invSourcePdf * cos_light). Weighted against the pdf the
+                // BSDF sampler would have had for the same direction.
+                TriLight t   = LoadTriL(g_Lights, lightIndex & LIGHT_INDEX_MASK);
+                float3   nL  = normalize(cross(t.e1, t.e2));
+                float    cosL = abs(dot(nL, ls.L));
+                if (cosL > 1.0e-6)
+                {
+                    float pdfLight = (ls.dist * ls.dist) / (invSourcePdf * cosL);
+                    float pdfBsdf  = BsdfPdfReflect(V, ls.L, s, surf, lp);
+                    contrib *= MisPowerWeight(pdfLight, pdfBsdf);
+                }
+            }
+            Lo += contrib;
+        }
     }
     DirectionalLightData dl = LoadDirLight();
     if (dl.intensity > 0.0)
@@ -103,9 +139,82 @@ float3 DirectLighting(float3 x, float3 V, HitSurface s, SurfaceBRDF surf, inout 
 // split by renormalizing the lobe-select draw, so it stays exactly 3 RandFromSeed draws for every material.
 // invariant: at clearcoat==0 && anisotropy==0 && transmission==0 the lobe count, branch order, and draw
 // consumption match the legacy diffuse/spec split exactly (pTrans folds to +0.0), so legacy paths are bit-identical.
-bool SampleBSDF(float3 V, HitSurface s, SurfaceBRDF surf, inout uint seed, out float3 newDir, inout float3 tp, out bool transmitted)
+// Lobe-selection probabilities plus the two derived constants the pdf needs. Consumes NO randomness, so
+// lifting it out of SampleBSDF leaves that function's RNG draw order (and the bit-identical legacy stream
+// invariant below) untouched, while letting BsdfPdfReflect price a direction the sampler did not choose.
+struct LobeProbs
+{
+    float pCoat, pSpec, pTrans, pDiff;
+    float ccR;
+    bool  anisoActive, sssActive;
+};
+
+LobeProbs ComputeLobeProbs(float3 V, HitSurface s, SurfaceBRDF surf)
+{
+    LobeProbs lp;
+    lp.anisoActive = abs(surf.anisotropy) > 1.0e-3;
+    float3 F0    = lerp(float3(surf.dielectricF0), s.baseColor, s.metalness);
+    float  wDiff = Luminance((1.0 - s.metalness) * s.baseColor);
+    float  wSpec = Luminance(F0);
+    float  NoV   = max(dot(s.ns, V), 1.0e-4);
+    float  wCoat = s.clearcoat * (0.04 + 0.96 * pow(1.0 - NoV, 5.0));
+    float  sheenW = max(surf.sheenColor.r, max(surf.sheenColor.g, surf.sheenColor.b));
+    float  wSheen = (sheenW > 0.0) ? Luminance(surf.sheenColor * E_Sheen(NoV, surf.sheenRoughness)) : 0.0;
+    lp.sssActive = max(surf.subsurfaceColor.r, max(surf.subsurfaceColor.g, surf.subsurfaceColor.b)) > 0.0;
+    lp.pCoat = (s.clearcoat > 0.0) ? clamp(wCoat / max(wDiff + wSheen + wSpec + wCoat, 1.0e-4), 0.0, 0.5) : 0.0;
+    float  pSpecCond = clamp(wSpec / max(wDiff + wSheen + wSpec, 1.0e-4), 0.1, 0.9);
+    lp.pSpec  = (1.0 - lp.pCoat) * pSpecCond;
+    float  pDiffT = (1.0 - lp.pCoat) * (1.0 - pSpecCond);
+    float  tw     = surf.transmission * (1.0 - s.metalness);
+    lp.pTrans = pDiffT * tw;
+    lp.pDiff  = pDiffT * (1.0 - tw);
+    lp.ccR    = clamp(s.clearcoatRoughness, 0.04, 1.0);
+    return lp;
+}
+
+// Reflection-side one-sample mixture pdf at an ARBITRARY L (solid-angle measure). Mirrors the sum
+// SampleBSDF divides by, so an NEE direction and a BSDF-sampled direction are priced identically --
+// the precondition for MIS weights that sum to 1.
+float BsdfPdfReflect(float3 V, float3 L, HitSurface s, SurfaceBRDF surf, LobeProbs lp)
+{
+    if (dot(s.ns, L) <= 0.0) return 0.0;
+    float pdfSpec;
+    if (lp.anisoActive)
+    {
+        float a  = s.roughness * s.roughness;
+        float at = clamp(a * (1.0 + surf.anisotropy), 1.6e-3, 1.0);
+        float ab = clamp(a * (1.0 - surf.anisotropy), 1.6e-3, 1.0);
+        float3 Vt = float3(dot(V, surf.T), dot(V, surf.B), dot(V, s.ns));
+        float3 Lt = float3(dot(L, surf.T), dot(L, surf.B), dot(L, s.ns));
+        pdfSpec = PdfSpecAnisoTS(Vt, Lt, at, ab);
+    }
+    else
+        pdfSpec = PdfSpec(s.ns, V, L, s.roughness);
+
+    float pdf = lp.pCoat * PdfSpec(s.ns, V, L, lp.ccR)
+              + lp.pSpec * pdfSpec
+              + lp.pDiff * PdfDiffuse(s.ns, L);
+    if (lp.pTrans > 0.0)
+    {
+        float3 Hh = normalize(V + L);
+        pdf += lp.pTrans * F_Dielectric(dot(V, Hh), surf.relEta) * PdfSpec(s.ns, V, L, surf.roughness);
+    }
+    return pdf;
+}
+
+// Power heuristic (beta = 2), Veach. Guards the all-zero case so a degenerate pair weights to 1 on the
+// strategy that actually produced the sample rather than returning NaN.
+float MisPowerWeight(float pdfThis, float pdfOther)
+{
+    float a = pdfThis * pdfThis;
+    float b = pdfOther * pdfOther;
+    return (a + b > 0.0) ? (a / (a + b)) : 1.0;
+}
+
+bool SampleBSDF(float3 V, HitSurface s, SurfaceBRDF surf, inout uint seed, out float3 newDir, inout float3 tp, out bool transmitted, out float outPdf)
 {
     transmitted = false;
+    outPdf = 0.0;
     bool   anisoActive = abs(surf.anisotropy) > 1.0e-3;
     float3 F0    = lerp(float3(surf.dielectricF0), s.baseColor, s.metalness);
     float  wDiff = Luminance((1.0 - s.metalness) * s.baseColor);
@@ -189,7 +298,7 @@ bool SampleBSDF(float3 V, HitSurface s, SurfaceBRDF surf, inout uint seed, out f
     float NdotL = dot(s.ns, newDir);
     // Subsurface diffuse transmit (unit-albedo cosine into the interior): the colour comes from the interior
     // random walk, so f/pdf reduces to 1/pDiff. Bypasses the glass reflect/refract accounting below.
-    if (sssActive && transmitted) { tp *= 1.0 / max(pDiff, 1.0e-4); return true; }
+    if (sssActive && transmitted) { tp *= 1.0 / max(pDiff, 1.0e-4); outPdf = pDiff; return true; }
     if (!transmitted && NdotL <= 0.0) return false;   // reflection below the surface: terminate
     if ( transmitted && NdotL >= 0.0) return false;   // refraction must cross to the far side
 
@@ -231,6 +340,7 @@ bool SampleBSDF(float3 V, HitSurface s, SurfaceBRDF surf, inout uint seed, out f
     }
     if (pdf <= 0.0) return false;
     tp *= fCos / pdf;
+    outPdf = pdf;
     return true;
 }
 
@@ -253,6 +363,10 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
     float3 sigmaS     = float3(0.0);   // scattering coefficient (subsurface only; glass keeps this 0 = absorb-only)
     bool   inMedium   = false;         // single-medium tracking (no nesting); toggled on refraction enter/exit
     bool   specularPath = true;        // every bounce so far was the glass lobe -> keep env-through-glass sharp
+    // Solid-angle pdf of the BSDF sample that produced the CURRENT ray, for MIS against light
+    // sampling at the emitter this ray may hit. The camera ray is not a BSDF sample and no light
+    // strategy competes for it, so bounce 0 keeps full weight (flagged by the < 0 sentinel).
+    float  pdfBsdfPrev = -1.0;
 
     for (uint bounce = 0u; bounce < pc.maxBounces; ++bounce)
     {
@@ -292,8 +406,10 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
             // Firefly-clamp INDIRECT env hits, same as the hit path below: a sharp lobe (clear-coat / smooth
             // spec) mirroring a bright env light is high-variance and blows out at the grazing Fresnel rim.
             // The primary camera ray missing (bounce 0 = the sky background) stays unbiased.
-            float3 envContrib = throughput * SampleEnv(rd);
-            if (bounce > 0u && !specularPath)   // a glass-only path keeps the refracted env sharp (not a firefly)
+            float3 envContrib = throughput * SampleEnv(rd, bounce == 0u);
+            // fireflyClamp <= 0 is the UNBIASED reference mode: no clamping at all. Guarded explicitly
+            // because `lum > 0` would otherwise scale every sample to zero.
+            if (bounce > 0u && !specularPath && pc.fireflyClamp > 0.0)   // a glass-only path keeps the refracted env sharp
             {
                 float lum = Luminance(envContrib);
                 if (lum > pc.fireflyClamp) envContrib *= pc.fireflyClamp / lum;
@@ -317,9 +433,22 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
                                            s.clearcoat, s.clearcoatRoughness, s.anisotropy, s.anisotropyRotation,
                                            s.transmission, s.ior, s.frontFace, s.sheenColor, s.sheenRoughness,
                                            s.subsurfaceColor, s.subsurfaceRadius, s.subsurfaceThickness);
-        float3 contrib = throughput * (s.emission + DirectLighting(x, V, s, surf, seed));
+        // On-hit emission. Weighted only when BOTH strategies could have produced this vertex: the ray
+        // came from a BSDF sample (bounce > 0) AND the emitter is in the alias table NEE draws from.
+        // EmitterNeePdfSolid returns 0 for emitters NEE cannot reach, which collapses the weight to 1.
+        float3 emitted = s.emission;
+        if (bounce > 0u && pdfBsdfPrev > 0.0 && any(s.emission > 0.0)
+            && GtIsEmissiveLight(pc.geomTable[rq.CommittedInstanceID()]))
+        {
+            float cosL     = abs(dot(s.ng, -rd));
+            float pdfLight = EmitterNeePdfSolid(s.emission, t, cosL);
+            emitted *= MisPowerWeight(pdfBsdfPrev, pdfLight);
+        }
+
+        LobeProbs lp = ComputeLobeProbs(V, s, surf);
+        float3 contrib = throughput * (emitted + DirectLighting(x, V, s, surf, lp, seed));
         // Firefly clamp INDIRECT contributions only (primary direct/emission stays unbiased).
-        if (bounce > 0u)
+        if (bounce > 0u && pc.fireflyClamp > 0.0)   // <= 0 = unbiased reference; see the env clamp above
         {
             float lum = Luminance(contrib);
             if (lum > pc.fireflyClamp) contrib *= pc.fireflyClamp / lum;
@@ -329,7 +458,11 @@ float3 SamplePath(int2 pixel, int2 size, inout uint seed)
 
         float3 newDir;
         bool   transmitted;
-        if (!SampleBSDF(V, s, surf, seed, newDir, throughput, transmitted)) break;
+        float  pdfThis;
+        if (!SampleBSDF(V, s, surf, seed, newDir, throughput, transmitted, pdfThis)) break;
+        // A transmitted/SSS direction leaves the reflection hemisphere BsdfPdfReflect prices, so it
+        // cannot be MIS-paired with a light sample; fall back to full weight on the next hit.
+        pdfBsdfPrev = transmitted ? -1.0 : pdfThis;
 
         // Medium transition: refracting through the outward (front) side enters the medium, through the back
         // exits to air. Assignment (not toggle) self-heals open-mesh leaks; TIR keeps transmitted=false so the
